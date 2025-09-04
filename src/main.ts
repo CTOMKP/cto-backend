@@ -9,8 +9,8 @@ async function bootstrap() {
   // Enable CORS
   app.enableCors({
     origin: process.env.NODE_ENV === 'production' 
-      ? ['https://your-frontend-domain.vercel.app'] 
-      : ['http://localhost:5173', 'http://localhost:3000']
+      ? process.env.CORS_ORIGINS?.split(',') || ['https://ctomemes.xyz']
+      : process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173', 'http://localhost:3000']
   });
 
   // Global validation pipe
@@ -26,8 +26,19 @@ async function bootstrap() {
   // Swagger documentation
   const config = new DocumentBuilder()
     .setTitle('CTO Vetting API')
-    .setDescription('Backend API for CTO Marketplace Solana Vetting System')
+    .setDescription('Backend API for CTO Marketplace Solana Vetting System with Authentication')
     .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'JWT-auth',
+    )
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);

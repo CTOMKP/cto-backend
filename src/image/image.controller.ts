@@ -9,10 +9,12 @@ import {
   Res,
   HttpStatus,
   HttpException,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ImageService, ImageMetadata } from './image.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('images')
 export class ImageController {
@@ -22,6 +24,7 @@ export class ImageController {
    * Upload a new image to Contabo VPS
    * POST /images/upload
    */
+  @UseGuards(JwtAuthGuard)
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('image', {
@@ -91,6 +94,7 @@ export class ImageController {
    * Delete image from VPS
    * DELETE /images/:id
    */
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
   async deleteImage(@Param('id') id: string): Promise<{ message: string; success: boolean }> {
     const success = await this.imageService.deleteImage(id);
