@@ -5,6 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "start": "node dist/main.js",
+    "vercel-build": "npm run build",
     "dev": "nest start --watch",
     "build": "nest build",
     "test": "jest",
