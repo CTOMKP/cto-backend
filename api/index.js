@@ -1,35 +1,20 @@
-const { NestFactory } = require('@nestjs/core');
-const { AppModule } = require('../dist/app.module');
-const { ValidationPipe } = require('@nestjs/common');
+// Import the bundled NestJS application
+const { createApp } = require('../dist/main');
 
 let app;
 
-async function bootstrap() {
-  if (!app) {
-    app = await NestFactory.create(AppModule);
-    
-    // Enable CORS
-    app.enableCors({
-      origin: process.env.NODE_ENV === 'production' 
-        ? process.env.CORS_ORIGINS?.split(',') || ['https://ctomemes.xyz']
-        : process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173', 'http://localhost:3000']
-    });
-
-    // Global validation pipe
-    app.useGlobalPipes(new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }));
-
-    // Global prefix
-    app.setGlobalPrefix('api');
-  }
-  return app;
-}
-
 module.exports = async (req, res) => {
-  const app = await bootstrap();
-  const handler = app.getHttpAdapter().getInstance();
-  return handler(req, res);
+  try {
+    if (!app) {
+      // Create the NestJS app using the createApp function from main.js
+      app = await createApp();
+    }
+    
+    // Get the Express app instance
+    const handler = app.getHttpAdapter().getInstance();
+    return handler(req, res);
+  } catch (error) {
+    console.error('Error in Vercel function:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 };

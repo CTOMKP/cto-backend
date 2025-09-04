@@ -3,7 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
-async function bootstrap() {
+export async function createApp() {
   const app = await NestFactory.create(AppModule);
   
   // Enable CORS
@@ -43,14 +43,20 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  const PORT = process.env.PORT || 3001;
-  await app.listen(PORT);
-  
-  console.log(`🚀 CTO Vetting API running on port ${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📚 API Documentation available at: http://localhost:${PORT}/api/docs`);
+  await app.init();
+  return app;
 }
 
-bootstrap();
+// Only run the server if this file is executed directly (not imported)
+if (require.main === module) {
+  createApp().then(async (app) => {
+    const PORT = process.env.PORT || 3001;
+    await app.listen(PORT);
+    
+    console.log(`🚀 CTO Vetting API running on port ${PORT}`);
+    console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📚 API Documentation available at: http://localhost:${PORT}/api/docs`);
+  });
+}
 
 // i have a contabo vps and i would like to store images there how do i create endpoints to add and delete images and fetch images through this backend to and from contabo
