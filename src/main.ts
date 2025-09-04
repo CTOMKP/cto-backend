@@ -1,7 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { Request, Response } from 'express';
 
 export async function createApp() {
   const app = await NestFactory.create(AppModule);
@@ -59,4 +60,24 @@ if (require.main === module) {
   });
 }
 
-// i have a contabo vps and i would like to store images there how do i create endpoints to add and delete images and fetch images through this backend to and from contabo
+// Export for Vercel serverless function
+let app: INestApplication;
+
+export default async (req: Request, res: Response) => {
+  try {
+    if (!app) {
+      console.log('Creating NestJS app for Vercel...');
+      app = await createApp();
+    }
+    
+    const handler = app.getHttpAdapter().getInstance();
+    return handler(req, res);
+  } catch (error) {
+    console.error('Error in Vercel function:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
