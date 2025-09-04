@@ -13,7 +13,7 @@ async function createApp() {
     
     try {
       // Import AppModule with error handling
-      const { AppModule } = require('../dist/app.module');
+      const { AppModule } = require('../dist/main.js');
       console.log('AppModule imported successfully');
       
       app = await NestFactory.create(AppModule);
