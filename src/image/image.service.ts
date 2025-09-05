@@ -108,6 +108,10 @@ export class ImageService {
         port,
         username,
         password,
+        // Connection options for better stability
+        keepaliveInterval: 180000, // 3 minutes (180 seconds)
+        keepaliveCountMax: 3,
+        readyTimeout: 20000, // 20 seconds
         // Alternative: use private key
         // privateKey: fs.readFileSync(this.configService.get('CONTABO_PRIVATE_KEY_PATH')),
       });
@@ -520,19 +524,8 @@ export class ImageService {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Ensure connection is active before download
-      if (!this.isConnected()) {
-        this.logger.log(`SFTP connection lost, reconnecting for download: ${imageId}`);
-        await this.ensureConnection();
-      } else {
-        // Test connection with a quick ping before download
-        try {
-          await ImageService.sftpInstance.list(this.remoteBasePath);
-        } catch (pingError) {
-          this.logger.log(`Connection test failed, reconnecting for download: ${imageId}`);
-          await this.ensureConnection();
-        }
-      }
+      // Let SFTP client handle connection automatically
+      // No need to test connection - SFTP client will reconnect if needed
 
       // Download file from VPS using cached metadata
       const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
@@ -645,7 +638,7 @@ export class ImageService {
       clearInterval(ImageService.keepAliveInterval);
     }
 
-    // Ping every 30 seconds to keep connection alive
+    // Ping every 3 minutes to keep connection alive (less aggressive)
     ImageService.keepAliveInterval = setInterval(async () => {
       try {
         if (this.isConnected()) {
@@ -665,7 +658,7 @@ export class ImageService {
           this.logger.error('Keep-alive reconnection failed:', reconnectError);
         }
       }
-    }, ImageService.KEEP_ALIVE_INTERVAL); // 30 seconds interval
+    }, ImageService.KEEP_ALIVE_INTERVAL); // 3 minutes interval
   }
 
   /**
