@@ -137,17 +137,22 @@ export class ImageService {
   }
 
   /**
+   * Check if VPS is configured (cached check)
+   */
+  private isVpsConfigured(): boolean {
+    const host = this.configService.get('CONTABO_HOST');
+    const username = this.configService.get('CONTABO_USERNAME');
+    const password = this.configService.get('CONTABO_PASSWORD');
+    return !!(host && username && password);
+  }
+
+  /**
    * Ensure SFTP connection is active with connection pooling
    */
   private async ensureConnection(): Promise<void> {
     try {
-      // Check if VPS is configured first
-      const host = this.configService.get('CONTABO_HOST');
-      const username = this.configService.get('CONTABO_USERNAME');
-      const password = this.configService.get('CONTABO_PASSWORD');
-      
-      if (!host || !username || !password) {
-        this.logger.warn('Contabo VPS not configured, skipping connection');
+      // Quick check if VPS is configured
+      if (!this.isVpsConfigured()) {
         throw new Error('VPS not configured');
       }
 
@@ -177,6 +182,19 @@ export class ImageService {
       ImageService.sftpInstance = null;
       throw error;
     }
+  }
+
+  /**
+   * Quick connection check for operations (no credential re-checking)
+   */
+  private async ensureConnectionForOperation(): Promise<void> {
+    // If already connected, return immediately
+    if (ImageService.sftpInstance && typeof ImageService.sftpInstance.isConnected === 'function' && ImageService.sftpInstance.isConnected()) {
+      return;
+    }
+
+    // Only do full connection check if not connected
+    await this.ensureConnection();
   }
 
   /**
@@ -219,6 +237,40 @@ export class ImageService {
   }
 
   /**
+   * Update cache after upload operation
+   */
+  private updateCacheAfterUpload(metadata: ImageMetadata): void {
+    // Add new metadata to cache
+    ImageService.metadataCache.set(metadata.id, metadata);
+    
+    // Update file list cache by adding the new file
+    if (ImageService.fileListCache) {
+      const newFile = {
+        name: metadata.originalName,
+        type: '-',
+        size: metadata.size,
+        modifyTime: metadata.uploadDate.getTime()
+      };
+      ImageService.fileListCache.files.push(newFile);
+    }
+  }
+
+  /**
+   * Update cache after delete operation
+   */
+  private updateCacheAfterDelete(imageId: string, filename: string): void {
+    // Remove metadata from cache
+    ImageService.metadataCache.delete(imageId);
+    
+    // Update file list cache by removing the deleted file
+    if (ImageService.fileListCache) {
+      ImageService.fileListCache.files = ImageService.fileListCache.files.filter(
+        file => file.name !== filename
+      );
+    }
+  }
+
+  /**
    * Pre-warm cache on startup
    */
   private async preWarmCache(): Promise<void> {
@@ -247,7 +299,8 @@ export class ImageService {
    */
   async uploadImage(file: any): Promise<ImageMetadata> {
     try {
-      await this.ensureConnection();
+      // Quick connection check (no credential re-checking)
+      await this.ensureConnectionForOperation();
 
       // Use original filename with timestamp to avoid conflicts
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'); // Sanitize filename
@@ -274,11 +327,8 @@ export class ImageService {
         category: undefined,
       };
 
-      // Save metadata to local database/file (optional)
-      await this.saveImageMetadata(metadata);
-
-      // Clear cache since we added a new file
-      this.clearFileListCache();
+      // Update cache directly instead of clearing it
+      this.updateCacheAfterUpload(metadata);
 
       return metadata;
     } catch (error) {
@@ -292,7 +342,8 @@ export class ImageService {
    */
   async deleteImage(imageId: string): Promise<boolean> {
     try {
-      await this.ensureConnection();
+      // Quick connection check (no credential re-checking)
+      await this.ensureConnectionForOperation();
 
       // Find the image file by ID using cached file list
       const files = await this.getCachedFileList();
@@ -310,11 +361,8 @@ export class ImageService {
       const filePath = `${this.remoteBasePath}/${imageFile.name}`;
       await ImageService.sftpInstance.delete(filePath);
 
-      // Remove metadata (placeholder for now)
-      await this.deleteImageMetadata(imageId);
-
-      // Clear cache since we deleted a file
-      this.clearFileListCache();
+      // Update cache directly instead of clearing it
+      this.updateCacheAfterDelete(imageId, imageFile.name);
 
       return true;
     } catch (error) {
@@ -328,58 +376,21 @@ export class ImageService {
    */
   async getImage(imageId: string): Promise<ImageMetadata> {
     try {
-      // Check if VPS is configured
-      const host = this.configService.get('CONTABO_HOST');
-      const username = this.configService.get('CONTABO_USERNAME');
-      const password = this.configService.get('CONTABO_PASSWORD');
-      
-      if (!host || !username || !password) {
+      // Quick VPS configuration check
+      if (!this.isVpsConfigured()) {
         throw new HttpException(
           'Image storage service is not configured. Please contact administrator.',
           HttpStatus.SERVICE_UNAVAILABLE
         );
       }
 
-      // Check cache first
+      // Check cache first - this should be fast since keep-alive pre-caches everything
       if (ImageService.metadataCache.has(imageId)) {
         return ImageService.metadataCache.get(imageId)!;
       }
 
-      await this.ensureConnection();
-      
-      // List all files to find the one with matching ID using cached file list
-      const files = await this.getCachedFileList();
-      const imageFile = files.find(file => 
-        file.type === '-' && 
-        file.name.startsWith(imageId) &&
-        file.name.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
-      );
-      
-      if (!imageFile) {
-        throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
-      }
-      
-      // Get file stats
-      const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${imageFile.name}`);
-      const fileExtension = path.extname(imageFile.name);
-      
-      const metadata: ImageMetadata = {
-        id: imageId,
-        filename: imageFile.name, // This will be the editable display name
-        originalName: imageFile.name, // This is the timestamped filename
-        size: stats.size || 0,
-        mimeType: this.getMimeType(fileExtension),
-        uploadDate: new Date(stats.modifyTime || Date.now()),
-        path: `${this.remoteBasePath}/${imageFile.name}`,
-        url: `${this.baseUrl}/${imageFile.name}`,
-        description: undefined,
-        category: undefined,
-      };
-      
-      // Cache the metadata
-      ImageService.metadataCache.set(imageId, metadata);
-      
-      return metadata;
+      // If not in cache, it means the file doesn't exist or cache is stale
+      throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
     } catch (error) {
       this.logger.error('Failed to get image:', error);
       
@@ -400,78 +411,18 @@ export class ImageService {
    */
   async listImages(): Promise<ImageMetadata[]> {
     try {
-      // Check if Contabo VPS is configured
-      const host = this.configService.get('CONTABO_HOST');
-      const username = this.configService.get('CONTABO_USERNAME');
-      const password = this.configService.get('CONTABO_PASSWORD');
-      
-      if (!host || !username || !password) {
-        this.logger.warn('Contabo VPS not configured');
+      // Quick VPS configuration check
+      if (!this.isVpsConfigured()) {
         throw new HttpException(
           'Image storage service is not configured. Please contact administrator.',
           HttpStatus.SERVICE_UNAVAILABLE
         );
       }
       
-      await this.ensureConnection();
+      // Return all cached metadata - keep-alive should have pre-cached everything
+      const allImages = Array.from(ImageService.metadataCache.values());
       
-      // Use cached file list
-      const files = await this.getCachedFileList();
-      
-      // Filter for image files
-      const imageFiles = files.filter(file => 
-        file.type === '-' && // Regular file
-        file.name.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i) // Image extension
-      );
-      
-      const images: ImageMetadata[] = [];
-      
-      // Process files in parallel for better performance
-      const metadataPromises = imageFiles.map(async (file) => {
-        try {
-          // Extract ID from filename (remove extension)
-          const fileExtension = path.extname(file.name);
-          const id = file.name.replace(fileExtension, '');
-          
-          // Check if we already have this metadata cached
-          if (ImageService.metadataCache.has(id)) {
-            return ImageService.metadataCache.get(id)!;
-          }
-          
-          // Get file stats for size
-          const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${file.name}`);
-          
-          // Create metadata object
-          const metadata: ImageMetadata = {
-            id,
-            filename: file.name, // This will be the editable display name
-            originalName: file.name, // This is the timestamped filename
-            size: stats.size || 0,
-            mimeType: this.getMimeType(fileExtension),
-            uploadDate: new Date(stats.modifyTime || Date.now()),
-            path: `${this.remoteBasePath}/${file.name}`,
-            url: `${this.baseUrl}/${file.name}`,
-            description: undefined,
-            category: undefined,
-          };
-          
-          // Cache the metadata
-          ImageService.metadataCache.set(id, metadata);
-          
-          return metadata;
-        } catch (error) {
-          this.logger.warn(`Failed to process file ${file.name}:`, error);
-          return null; // Return null for failed files
-        }
-      });
-      
-      // Wait for all metadata to be processed
-      const results = await Promise.all(metadataPromises);
-      
-      // Filter out null results (failed files)
-      const validImages = results.filter((metadata): metadata is ImageMetadata => metadata !== null);
-      
-      return validImages;
+      return allImages;
     } catch (error) {
       this.logger.error('Failed to list images:', error);
       
@@ -495,22 +446,17 @@ export class ImageService {
    */
   async getImageFile(imageId: string): Promise<Buffer> {
     try {
-      await this.ensureConnection();
+      // Quick connection check (no credential re-checking)
+      await this.ensureConnectionForOperation();
 
-      // Find the image file by ID using cached file list
-      const files = await this.getCachedFileList();
-      const imageFile = files.find(file => 
-        file.type === '-' && 
-        file.name.startsWith(imageId) &&
-        file.name.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
-      );
-      
-      if (!imageFile) {
+      // Get metadata from cache to find the filename
+      const metadata = ImageService.metadataCache.get(imageId);
+      if (!metadata) {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Download file from VPS
-      const filePath = `${this.remoteBasePath}/${imageFile.name}`;
+      // Download file from VPS using cached metadata
+      const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
       const fileBuffer = await ImageService.sftpInstance.get(filePath);
       return fileBuffer;
     } catch (error) {
@@ -550,20 +496,19 @@ export class ImageService {
    */
   async editImageMetadata(imageId: string, editData: { filename?: string; description?: string; category?: string }): Promise<ImageMetadata> {
     try {
-      // Check if VPS is configured
-      const host = this.configService.get('CONTABO_HOST');
-      const username = this.configService.get('CONTABO_USERNAME');
-      const password = this.configService.get('CONTABO_PASSWORD');
-      
-      if (!host || !username || !password) {
+      // Quick VPS configuration check
+      if (!this.isVpsConfigured()) {
         throw new HttpException(
           'Image storage service is not configured. Please contact administrator.',
           HttpStatus.SERVICE_UNAVAILABLE
         );
       }
 
-      // Get current metadata
-      const currentMetadata = await this.getImage(imageId);
+      // Get current metadata from cache (should be fast)
+      const currentMetadata = ImageService.metadataCache.get(imageId);
+      if (!currentMetadata) {
+        throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
+      }
       
       // Update metadata with new values
       const updatedMetadata: ImageMetadata = {
@@ -571,10 +516,7 @@ export class ImageService {
         ...editData,
       };
 
-      // Save updated metadata (in a real implementation, this would update a database)
-      await this.saveImageMetadata(updatedMetadata);
-
-      // Update cache
+      // Update cache directly (no database operations needed)
       ImageService.metadataCache.set(imageId, updatedMetadata);
 
       return updatedMetadata;
