@@ -29,7 +29,7 @@ export class ImageService {
   private static metadataCache: Map<string, ImageMetadata> = new Map();
   private static fileListCache: { files: any[], timestamp: number } | null = null;
   private static readonly CACHE_TTL = 300000; // 5 minutes cache (production recommended)
-  private static readonly KEEP_ALIVE_INTERVAL = 300000; // 5 minutes keep-alive
+  private static readonly KEEP_ALIVE_INTERVAL = 120000; // 2 minutes keep-alive
   private static connectionPromise: Promise<void> | null = null;
   private static keepAliveInterval: NodeJS.Timeout | null = null;
   private static sftpInstance: Client | null = null;
@@ -524,6 +524,14 @@ export class ImageService {
       if (!this.isConnected()) {
         this.logger.log(`SFTP connection lost, reconnecting for download: ${imageId}`);
         await this.ensureConnection();
+      } else {
+        // Test connection with a quick ping before download
+        try {
+          await ImageService.sftpInstance.list(this.remoteBasePath);
+        } catch (pingError) {
+          this.logger.log(`Connection test failed, reconnecting for download: ${imageId}`);
+          await this.ensureConnection();
+        }
       }
 
       // Download file from VPS using cached metadata
@@ -637,62 +645,27 @@ export class ImageService {
       clearInterval(ImageService.keepAliveInterval);
     }
 
-    // Ping every 30 seconds to keep connection alive AND refresh cache
+    // Ping every 30 seconds to keep connection alive
     ImageService.keepAliveInterval = setInterval(async () => {
       try {
         if (this.isConnected()) {
-          // Fetch fresh file list and cache it
-          const files = await this.refreshFileListCache();
-          
-          // Pre-cache metadata for all image files
-          const imageFiles = files.filter(file => 
-            file.type === '-' && 
-            file.name.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
-          );
-          
-          // Cache metadata for all images in parallel
-          const metadataPromises = imageFiles.map(async (file) => {
-            try {
-              const fileExtension = path.extname(file.name);
-              const id = file.name.replace(fileExtension, '');
-              
-              // Skip if already cached and recent
-              if (ImageService.metadataCache.has(id)) {
-                return;
-              }
-              
-              const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${file.name}`);
-              
-              const metadata: ImageMetadata = {
-                id,
-                filename: file.name,
-                originalName: file.name,
-                size: stats.size || 0,
-                mimeType: this.getMimeType(fileExtension),
-                uploadDate: new Date(stats.modifyTime || Date.now()),
-                path: `${this.remoteBasePath}/${file.name}`,
-                url: `${this.baseUrl}/${file.name}`,
-                description: undefined,
-                category: undefined,
-              };
-              
-              ImageService.metadataCache.set(id, metadata);
-            } catch (error) {
-              // Skip failed files silently
-            }
-          });
-          
-          await Promise.all(metadataPromises);
+          // Simple ping to keep connection alive
+          await ImageService.sftpInstance.list(this.remoteBasePath);
+          this.logger.log(`Keep-alive: Connection maintained (${ImageService.metadataCache.size} images cached)`);
+        } else {
+          this.logger.warn('Keep-alive: SFTP connection lost, attempting to reconnect...');
+          await this.ensureConnection();
         }
       } catch (error) {
-        this.logger.warn('Keep-alive ping failed, connection may be lost:', error);
-        // Connection is likely lost, clear the interval
-        if (ImageService.keepAliveInterval) {
-          clearInterval(ImageService.keepAliveInterval);
-          ImageService.keepAliveInterval = null;
+        this.logger.error('Keep-alive error:', error);
+        // Try to reconnect on error
+        try {
+          await this.ensureConnection();
+        } catch (reconnectError) {
+          this.logger.error('Keep-alive reconnection failed:', reconnectError);
         }
       }
-    }, ImageService.KEEP_ALIVE_INTERVAL); // Configurable interval
+    }, ImageService.KEEP_ALIVE_INTERVAL); // 30 seconds interval
   }
 
   /**
