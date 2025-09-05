@@ -348,8 +348,11 @@ export class ImageService {
    */
   async uploadImage(file: any): Promise<ImageMetadata> {
     try {
-      // Quick connection check (no credential re-checking)
-      await this.ensureConnectionForOperation();
+      // Check if connection is already available (fastest check)
+      if (!ImageService.sftpInstance || !ImageService.sftpInstance.isConnected()) {
+        // Only connect if not already connected
+        await this.ensureConnectionForOperation();
+      }
 
       // Use original filename with timestamp to avoid conflicts
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'); // Sanitize filename
@@ -391,27 +394,21 @@ export class ImageService {
    */
   async deleteImage(imageId: string): Promise<boolean> {
     try {
-      // Quick connection check (no credential re-checking)
-      await this.ensureConnectionForOperation();
-
-      // Find the image file by ID using cached file list
-      const files = await this.getCachedFileList();
-      const imageFile = files.find(file => 
-        file.type === '-' && 
-        file.name.startsWith(imageId) &&
-        file.name.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
-      );
-      
-      if (!imageFile) {
+      // Get metadata from cache to find the filename
+      const metadata = ImageService.metadataCache.get(imageId);
+      if (!metadata) {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Delete file from VPS
-      const filePath = `${this.remoteBasePath}/${imageFile.name}`;
+      // Quick connection check (no credential re-checking)
+      await this.ensureConnectionForOperation();
+
+      // Delete file from VPS using cached metadata
+      const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
       await ImageService.sftpInstance.delete(filePath);
 
       // Update cache directly instead of clearing it
-      this.updateCacheAfterDelete(imageId, imageFile.name);
+      this.updateCacheAfterDelete(imageId, metadata.originalName);
 
       return true;
     } catch (error) {
@@ -510,13 +507,16 @@ export class ImageService {
    */
   async getImageFile(imageId: string): Promise<Buffer> {
     try {
-      // Quick connection check (no credential re-checking)
-      await this.ensureConnectionForOperation();
-
       // Get metadata from cache to find the filename
       const metadata = ImageService.metadataCache.get(imageId);
       if (!metadata) {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
+      }
+
+      // Check if connection is already available (fastest check)
+      if (!ImageService.sftpInstance || !ImageService.sftpInstance.isConnected()) {
+        // Only connect if not already connected
+        await this.ensureConnectionForOperation();
       }
 
       // Download file from VPS using cached metadata
@@ -715,3 +715,4 @@ export class ImageService {
 
 
 }
+
