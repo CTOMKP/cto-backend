@@ -61,6 +61,7 @@ export class ImageController {
    * Download image file from VPS
    * GET /images/:id/download
    */
+  @UseGuards(JwtAuthGuard)
   @Get(':id/download')
   async downloadImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
     try {
