@@ -33,7 +33,7 @@ export class ImageResponseDto {
 export class EditImageDto {
   @IsOptional()
   @IsString()
-  originalName?: string;
+  filename?: string;
 
   @IsOptional()
   @IsString()
