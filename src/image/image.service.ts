@@ -361,11 +361,7 @@ export class ImageService {
    */
   async uploadImage(file: any): Promise<ImageMetadata> {
     try {
-      // Check if connection is already available (fastest check)
-      if (!this.isConnected()) {
-        // Only connect if not already connected
-        await this.ensureConnectionForOperation();
-      }
+      // Connection should be maintained by keep-alive ping
 
       // Use original filename with timestamp to avoid conflicts
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'); // Sanitize filename
@@ -413,10 +409,7 @@ export class ImageService {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Quick connection check (no credential re-checking)
-      await this.ensureConnectionForOperation();
-
-      // Delete file from VPS using cached metadata
+      // Delete file from VPS using cached metadata (connection should be maintained by keep-alive)
       const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
       await ImageService.sftpInstance.delete(filePath);
 
@@ -526,13 +519,7 @@ export class ImageService {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Check if connection is already available (fastest check)
-      if (!this.isConnected()) {
-        // Only connect if not already connected
-        await this.ensureConnectionForOperation();
-      }
-
-      // Download file from VPS using cached metadata
+      // Download file from VPS using cached metadata (connection should be maintained by keep-alive)
       const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
       const fileBuffer = await ImageService.sftpInstance.get(filePath);
       return fileBuffer;
