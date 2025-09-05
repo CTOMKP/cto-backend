@@ -163,7 +163,7 @@ export class ImageService {
       }
 
       // Check if sftp exists and is connected
-      if (ImageService.sftpInstance && typeof ImageService.sftpInstance.isConnected === 'function' && ImageService.sftpInstance.isConnected()) {
+      if (this.isConnected()) {
         return; // Connection is good, no need to reconnect
       }
 
@@ -189,12 +189,25 @@ export class ImageService {
    */
   private async ensureConnectionForOperation(): Promise<void> {
     // If already connected, return immediately
-    if (ImageService.sftpInstance && typeof ImageService.sftpInstance.isConnected === 'function' && ImageService.sftpInstance.isConnected()) {
+    if (this.isConnected()) {
       return;
     }
 
     // Only do full connection check if not connected
     await this.ensureConnection();
+  }
+
+  /**
+   * Safe connection check
+   */
+  private isConnected(): boolean {
+    try {
+      return ImageService.sftpInstance && 
+             typeof ImageService.sftpInstance.isConnected === 'function' && 
+             ImageService.sftpInstance.isConnected();
+    } catch (error) {
+      return false;
+    }
   }
 
   /**
@@ -349,7 +362,7 @@ export class ImageService {
   async uploadImage(file: any): Promise<ImageMetadata> {
     try {
       // Check if connection is already available (fastest check)
-      if (!ImageService.sftpInstance || !ImageService.sftpInstance.isConnected()) {
+      if (!this.isConnected()) {
         // Only connect if not already connected
         await this.ensureConnectionForOperation();
       }
@@ -514,7 +527,7 @@ export class ImageService {
       }
 
       // Check if connection is already available (fastest check)
-      if (!ImageService.sftpInstance || !ImageService.sftpInstance.isConnected()) {
+      if (!this.isConnected()) {
         // Only connect if not already connected
         await this.ensureConnectionForOperation();
       }
@@ -628,7 +641,7 @@ export class ImageService {
     // Ping every 30 seconds to keep connection alive AND refresh cache
     ImageService.keepAliveInterval = setInterval(async () => {
       try {
-        if (ImageService.sftpInstance && ImageService.sftpInstance.isConnected && ImageService.sftpInstance.isConnected()) {
+        if (this.isConnected()) {
           // Fetch fresh file list and cache it
           const files = await this.refreshFileListCache();
           
