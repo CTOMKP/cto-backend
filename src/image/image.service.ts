@@ -33,6 +33,16 @@ export class ImageService {
    */
   private async connectSFTP(): Promise<void> {
     try {
+      // Check if we're in a serverless environment or VPS is not configured
+      const host = this.configService.get('CONTABO_HOST');
+      const username = this.configService.get('CONTABO_USERNAME');
+      const password = this.configService.get('CONTABO_PASSWORD');
+      
+      if (!host || !username || !password) {
+        this.logger.warn('Contabo VPS not configured, skipping SFTP connection');
+        throw new Error('VPS not configured');
+      }
+
       // Clean up existing connection if it exists
       if (this.sftp) {
         try {
@@ -45,13 +55,16 @@ export class ImageService {
         this.sftp = null;
       }
 
-      this.sftp = new Client();
+      // Try to create SFTP client, but handle import errors gracefully
+      try {
+        this.sftp = new Client();
+      } catch (importError) {
+        this.logger.error('Failed to import SFTP client:', importError);
+        throw new Error('SFTP client not available in this environment');
+      }
       
       // Debug: Log the actual values being used
-      const host = this.configService.get('CONTABO_HOST');
       const port = this.configService.get('CONTABO_PORT') || 22;
-      const username = this.configService.get('CONTABO_USERNAME');
-      const password = this.configService.get('CONTABO_PASSWORD');
       
       this.logger.log(`DEBUG - Environment variables loaded:`);
       this.logger.log(`  CONTABO_HOST: ${host}`);
@@ -91,6 +104,16 @@ export class ImageService {
    */
   private async ensureConnection(): Promise<void> {
     try {
+      // Check if VPS is configured first
+      const host = this.configService.get('CONTABO_HOST');
+      const username = this.configService.get('CONTABO_USERNAME');
+      const password = this.configService.get('CONTABO_PASSWORD');
+      
+      if (!host || !username || !password) {
+        this.logger.warn('Contabo VPS not configured, skipping connection');
+        throw new Error('VPS not configured');
+      }
+
       // Check if sftp exists and has the isConnected method
       if (!this.sftp || typeof this.sftp.isConnected !== 'function') {
         this.logger.log('SFTP client not properly initialized, creating new connection...');
@@ -114,7 +137,11 @@ export class ImageService {
       }
     } catch (error) {
       this.logger.error('Failed to ensure SFTP connection:', error);
-      // Force new connection
+      // Don't try to reconnect if VPS is not configured
+      if (error.message === 'VPS not configured') {
+        throw error;
+      }
+      // Force new connection for other errors
       this.sftp = null;
       await this.connectSFTP();
     }
@@ -198,6 +225,18 @@ export class ImageService {
    */
   async getImage(imageId: string): Promise<ImageMetadata> {
     try {
+      // Check if VPS is configured
+      const host = this.configService.get('CONTABO_HOST');
+      const username = this.configService.get('CONTABO_USERNAME');
+      const password = this.configService.get('CONTABO_PASSWORD');
+      
+      if (!host || !username || !password) {
+        throw new HttpException(
+          'Image storage service is not configured. Please contact administrator.',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
+
       await this.ensureConnection();
       
       // List all files to find the one with matching ID
@@ -230,7 +269,16 @@ export class ImageService {
       return metadata;
     } catch (error) {
       this.logger.error('Failed to get image:', error);
-      throw new HttpException('Failed to get image', HttpStatus.INTERNAL_SERVER_ERROR);
+      
+      // If it's already an HttpException, re-throw it
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      throw new HttpException(
+        'Image storage service is temporarily unavailable. Please try again later.',
+        HttpStatus.SERVICE_UNAVAILABLE
+      );
     }
   }
 
@@ -239,6 +287,19 @@ export class ImageService {
    */
   async listImages(): Promise<ImageMetadata[]> {
     try {
+      // Check if Contabo VPS is configured
+      const host = this.configService.get('CONTABO_HOST');
+      const username = this.configService.get('CONTABO_USERNAME');
+      const password = this.configService.get('CONTABO_PASSWORD');
+      
+      if (!host || !username || !password) {
+        this.logger.warn('Contabo VPS not configured');
+        throw new HttpException(
+          'Image storage service is not configured. Please contact administrator.',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
+      
       await this.ensureConnection();
       
       // List all files in the images directory on VPS
@@ -284,7 +345,17 @@ export class ImageService {
       return images;
     } catch (error) {
       this.logger.error('Failed to list images:', error);
-      throw new HttpException('Failed to list images', HttpStatus.INTERNAL_SERVER_ERROR);
+      
+      // If it's already an HttpException, re-throw it
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      // For other errors, throw a generic service unavailable error
+      throw new HttpException(
+        'Image storage service is temporarily unavailable. Please try again later.',
+        HttpStatus.SERVICE_UNAVAILABLE
+      );
     }
   }
 
