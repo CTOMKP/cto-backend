@@ -24,22 +24,34 @@ export async function createApp() {
   // Global prefix - MUST be set BEFORE Swagger configuration
   app.setGlobalPrefix('api');
 
-  // Add a simple API info endpoint for production
-  if (process.env.NODE_ENV === 'production') {
-    app.getHttpAdapter().getInstance().get('/api', (req: Request, res: Response) => {
-      res.json({
-        message: 'CTO Vetting API',
-        version: '1.0.0',
-        endpoints: {
-          health: '/api/health',
-          auth: '/api/auth/*',
-          scan: '/api/scan/*',
-          images: '/api/images/*'
-        },
-        documentation: 'Available in development mode only'
-      });
+  // Add root-level endpoints for Railway health checks and API info
+  const expressApp = app.getHttpAdapter().getInstance();
+  
+  // Root health check for Railway
+  expressApp.get('/health', (req: Request, res: Response) => {
+    res.json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      version: '1.0.0'
     });
-  }
+  });
+
+  // API info endpoint
+  expressApp.get('/api', (req: Request, res: Response) => {
+    res.json({
+      message: 'CTO Vetting API',
+      version: '1.0.0',
+      endpoints: {
+        health: '/api/health',
+        auth: '/api/auth/*',
+        scan: '/api/scan/*',
+        images: '/api/images/*'
+      },
+      documentation: 'Available in development mode only'
+    });
+  });
 
   // Swagger documentation (only in development)
   if (process.env.NODE_ENV !== 'production') {

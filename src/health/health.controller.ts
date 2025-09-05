@@ -2,9 +2,9 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 @ApiTags('Health')
-@Controller('health')
+@Controller()
 export class HealthController {
-  @Get()
+  @Get('health')
   @ApiOperation({
     summary: 'Application health check',
     description: 'Check if the CTO Vetting API is operational'
