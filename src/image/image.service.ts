@@ -154,10 +154,12 @@ export class ImageService {
     try {
       await this.ensureConnection();
 
-      // Generate unique filename
-      const fileExtension = path.extname(file.originalname);
-      const uniqueId = uuidv4();
-      const filename = `${uniqueId}${fileExtension}`;
+      // Use original filename with timestamp to avoid conflicts
+      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'); // Sanitize filename
+      const timestamp = Date.now();
+      const fileExtension = path.extname(sanitizedName);
+      const nameWithoutExt = sanitizedName.replace(/\.[^/.]+$/, "");
+      const filename = `${nameWithoutExt}_${timestamp}${fileExtension}`;
       const remotePath = `${this.remoteBasePath}/${filename}`;
 
       // Upload file to VPS
@@ -165,7 +167,7 @@ export class ImageService {
 
       // Create metadata
       const metadata: ImageMetadata = {
-        id: uniqueId,
+        id: filename.replace(/\.[^/.]+$/, ""), // Use filename without extension as ID
         filename,
         originalName: file.originalname,
         size: file.size,
