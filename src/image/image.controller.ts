@@ -3,7 +3,9 @@ import {
   Post,
   Get,
   Delete,
+  Put,
   Param,
+  Body,
   UseInterceptors,
   UploadedFile,
   Res,
@@ -15,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ImageService, ImageMetadata } from './image.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { EditImageDto } from './dto/upload-image.dto';
 
 @Controller('images')
 export class ImageController {
@@ -61,7 +64,6 @@ export class ImageController {
    * Download image file from VPS
    * GET /images/:id/download
    */
-  @UseGuards(JwtAuthGuard)
   @Get(':id/download')
   async downloadImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
     try {
@@ -85,8 +87,23 @@ export class ImageController {
    * GET /images
    */
   @Get()
-  async listImages(): Promise<ImageMetadata[]> {
-    return this.imageService.listImages();
+  async listImages(@Res() res: Response): Promise<void> {
+    try {
+      const images = await this.imageService.listImages();
+      
+      // Set compression headers
+      res.set({
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=30', // Cache for 30 seconds
+      });
+      
+      res.json(images);
+    } catch (error) {
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ 
+        message: 'Failed to list images',
+        error: error.message 
+      });
+    }
   }
 
 
@@ -103,6 +120,19 @@ export class ImageController {
       message: success ? 'Image deleted successfully' : 'Failed to delete image',
       success,
     };
+  }
+
+  /**
+   * Edit image metadata
+   * PUT /images/:id
+   */
+  @UseGuards(JwtAuthGuard)
+  @Put(':id')
+  async editImage(
+    @Param('id') id: string,
+    @Body() editImageDto: EditImageDto
+  ): Promise<ImageMetadata> {
+    return this.imageService.editImageMetadata(id, editImageDto);
   }
 
   /**

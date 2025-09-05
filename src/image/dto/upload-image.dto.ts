@@ -29,3 +29,17 @@ export class ImageResponseDto {
   description?: string;
   category?: string;
 }
+
+export class EditImageDto {
+  @IsOptional()
+  @IsString()
+  originalName?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+}

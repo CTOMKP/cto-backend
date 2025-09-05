@@ -14,6 +14,8 @@ export interface ImageMetadata {
   uploadDate: Date;
   path: string;
   url: string;
+  description?: string;
+  category?: string;
 }
 
 @Injectable()
@@ -22,6 +24,13 @@ export class ImageService {
   private sftp: Client;
   private readonly remoteBasePath: string;
   private readonly baseUrl: string;
+  
+  // Performance optimizations
+  private metadataCache: Map<string, ImageMetadata> = new Map();
+  private fileListCache: { files: any[], timestamp: number } | null = null;
+  private readonly CACHE_TTL = 30000; // 30 seconds cache
+  private connectionPromise: Promise<void> | null = null;
+  private keepAliveInterval: NodeJS.Timeout | null = null;
 
   constructor(private readonly configService: ConfigService) {
     this.remoteBasePath = this.configService.get('CONTABO_IMAGE_PATH') || '/var/www/html/images';
@@ -82,6 +91,9 @@ export class ImageService {
       });
 
       this.logger.log('SFTP connection established to Contabo VPS');
+      
+      // Start keep-alive mechanism
+      this.startKeepAlive();
     } catch (error) {
       this.logger.error('Failed to connect to Contabo VPS:', error);
       // Clean up failed connection
@@ -100,7 +112,7 @@ export class ImageService {
   }
 
   /**
-   * Ensure SFTP connection is active
+   * Ensure SFTP connection is active with connection pooling
    */
   private async ensureConnection(): Promise<void> {
     try {
@@ -114,28 +126,23 @@ export class ImageService {
         throw new Error('VPS not configured');
       }
 
-      // Check if sftp exists and has the isConnected method
-      if (!this.sftp || typeof this.sftp.isConnected !== 'function') {
-        this.logger.log('SFTP client not properly initialized, creating new connection...');
-        await this.connectSFTP();
+      // If there's already a connection in progress, wait for it
+      if (this.connectionPromise) {
+        await this.connectionPromise;
         return;
       }
 
-      // Check if connection is actually active
-      if (!this.sftp.isConnected()) {
-        this.logger.log('SFTP connection lost, reconnecting...');
-        await this.connectSFTP();
-        return;
+      // Check if sftp exists and is connected
+      if (this.sftp && typeof this.sftp.isConnected === 'function' && this.sftp.isConnected()) {
+        return; // Connection is good, no need to reconnect
       }
 
-      // Test the connection with a simple operation
-      try {
-        await this.sftp.list(this.remoteBasePath);
-      } catch (error) {
-        this.logger.log('SFTP connection test failed, reconnecting...');
-        await this.connectSFTP();
-      }
+      // Create new connection
+      this.connectionPromise = this.connectSFTP();
+      await this.connectionPromise;
+      this.connectionPromise = null;
     } catch (error) {
+      this.connectionPromise = null;
       this.logger.error('Failed to ensure SFTP connection:', error);
       // Don't try to reconnect if VPS is not configured
       if (error.message === 'VPS not configured') {
@@ -143,8 +150,40 @@ export class ImageService {
       }
       // Force new connection for other errors
       this.sftp = null;
-      await this.connectSFTP();
+      throw error;
     }
+  }
+
+  /**
+   * Get cached file list or fetch from SFTP
+   */
+  private async getCachedFileList(): Promise<any[]> {
+    const now = Date.now();
+    
+    // Return cached files if cache is still valid
+    if (this.fileListCache && (now - this.fileListCache.timestamp) < this.CACHE_TTL) {
+      return this.fileListCache.files;
+    }
+
+    // Fetch fresh file list
+    await this.ensureConnection();
+    const files = await this.sftp.list(this.remoteBasePath);
+    
+    // Update cache
+    this.fileListCache = {
+      files,
+      timestamp: now
+    };
+    
+    return files;
+  }
+
+  /**
+   * Clear file list cache (call after upload/delete operations)
+   */
+  private clearFileListCache(): void {
+    this.fileListCache = null;
+    this.metadataCache.clear();
   }
 
   /**
@@ -175,10 +214,15 @@ export class ImageService {
         uploadDate: new Date(),
         path: remotePath,
         url: `${this.baseUrl}/${filename}`,
+        description: undefined,
+        category: undefined,
       };
 
       // Save metadata to local database/file (optional)
       await this.saveImageMetadata(metadata);
+
+      // Clear cache since we added a new file
+      this.clearFileListCache();
 
       this.logger.log(`Image uploaded successfully: ${filename}`);
       return metadata;
@@ -195,8 +239,8 @@ export class ImageService {
     try {
       await this.ensureConnection();
 
-      // Find the image file by ID (same logic as getImage)
-      const files = await this.sftp.list(this.remoteBasePath);
+      // Find the image file by ID using cached file list
+      const files = await this.getCachedFileList();
       const imageFile = files.find(file => 
         file.type === '-' && 
         file.name.startsWith(imageId) &&
@@ -213,6 +257,9 @@ export class ImageService {
 
       // Remove metadata (placeholder for now)
       await this.deleteImageMetadata(imageId);
+
+      // Clear cache since we deleted a file
+      this.clearFileListCache();
 
       this.logger.log(`Image deleted successfully: ${imageFile.name}`);
       return true;
@@ -239,10 +286,15 @@ export class ImageService {
         );
       }
 
+      // Check cache first
+      if (this.metadataCache.has(imageId)) {
+        return this.metadataCache.get(imageId)!;
+      }
+
       await this.ensureConnection();
       
-      // List all files to find the one with matching ID
-      const files = await this.sftp.list(this.remoteBasePath);
+      // List all files to find the one with matching ID using cached file list
+      const files = await this.getCachedFileList();
       const imageFile = files.find(file => 
         file.type === '-' && 
         file.name.startsWith(imageId) &&
@@ -266,7 +318,12 @@ export class ImageService {
         uploadDate: new Date(stats.modifyTime || Date.now()),
         path: `${this.remoteBasePath}/${imageFile.name}`,
         url: `${this.baseUrl}/${imageFile.name}`,
+        description: undefined,
+        category: undefined,
       };
+      
+      // Cache the metadata
+      this.metadataCache.set(imageId, metadata);
       
       return metadata;
     } catch (error) {
@@ -304,10 +361,10 @@ export class ImageService {
       
       await this.ensureConnection();
       
-      // List all files in the images directory on VPS
-      const files = await this.sftp.list(this.remoteBasePath);
+      // Use cached file list
+      const files = await this.getCachedFileList();
       
-      // Filter for image files and create metadata
+      // Filter for image files
       const imageFiles = files.filter(file => 
         file.type === '-' && // Regular file
         file.name.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i) // Image extension
@@ -315,11 +372,17 @@ export class ImageService {
       
       const images: ImageMetadata[] = [];
       
-      for (const file of imageFiles) {
+      // Process files in parallel for better performance
+      const metadataPromises = imageFiles.map(async (file) => {
         try {
           // Extract ID from filename (remove extension)
           const fileExtension = path.extname(file.name);
           const id = file.name.replace(fileExtension, '');
+          
+          // Check if we already have this metadata cached
+          if (this.metadataCache.has(id)) {
+            return this.metadataCache.get(id)!;
+          }
           
           // Get file stats for size
           const stats = await this.sftp.stat(`${this.remoteBasePath}/${file.name}`);
@@ -334,17 +397,28 @@ export class ImageService {
             uploadDate: new Date(stats.modifyTime || Date.now()),
             path: `${this.remoteBasePath}/${file.name}`,
             url: `${this.baseUrl}/${file.name}`,
+            description: undefined,
+            category: undefined,
           };
           
-          images.push(metadata);
+          // Cache the metadata
+          this.metadataCache.set(id, metadata);
+          
+          return metadata;
         } catch (error) {
           this.logger.warn(`Failed to process file ${file.name}:`, error);
-          // Continue with other files
+          return null; // Return null for failed files
         }
-      }
+      });
       
-      this.logger.log(`Found ${images.length} images on VPS`);
-      return images;
+      // Wait for all metadata to be processed
+      const results = await Promise.all(metadataPromises);
+      
+      // Filter out null results (failed files)
+      const validImages = results.filter((metadata): metadata is ImageMetadata => metadata !== null);
+      
+      this.logger.log(`Found ${validImages.length} images on VPS`);
+      return validImages;
     } catch (error) {
       this.logger.error('Failed to list images:', error);
       
@@ -370,8 +444,8 @@ export class ImageService {
     try {
       await this.ensureConnection();
 
-      // Find the image file by ID
-      const files = await this.sftp.list(this.remoteBasePath);
+      // Find the image file by ID using cached file list
+      const files = await this.getCachedFileList();
       const imageFile = files.find(file => 
         file.type === '-' && 
         file.name.startsWith(imageId) &&
@@ -419,6 +493,55 @@ export class ImageService {
   }
 
   /**
+   * Edit image metadata
+   */
+  async editImageMetadata(imageId: string, editData: { originalName?: string; description?: string; category?: string }): Promise<ImageMetadata> {
+    try {
+      // Check if VPS is configured
+      const host = this.configService.get('CONTABO_HOST');
+      const username = this.configService.get('CONTABO_USERNAME');
+      const password = this.configService.get('CONTABO_PASSWORD');
+      
+      if (!host || !username || !password) {
+        throw new HttpException(
+          'Image storage service is not configured. Please contact administrator.',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
+
+      // Get current metadata
+      const currentMetadata = await this.getImage(imageId);
+      
+      // Update metadata with new values
+      const updatedMetadata: ImageMetadata = {
+        ...currentMetadata,
+        ...editData,
+      };
+
+      // Save updated metadata (in a real implementation, this would update a database)
+      await this.saveImageMetadata(updatedMetadata);
+
+      // Update cache
+      this.metadataCache.set(imageId, updatedMetadata);
+
+      this.logger.log(`Image metadata updated for ${imageId}:`, editData);
+      return updatedMetadata;
+    } catch (error) {
+      this.logger.error('Failed to edit image metadata:', error);
+      
+      // If it's already an HttpException, re-throw it
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      throw new HttpException(
+        'Failed to update image metadata',
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  /**
    * Get MIME type from file extension
    */
   private getMimeType(extension: string): string {
@@ -436,9 +559,47 @@ export class ImageService {
   }
 
   /**
+   * Start keep-alive mechanism to maintain SFTP connection
+   */
+  private startKeepAlive(): void {
+    // Clear existing interval
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+    }
+
+    // Ping every 30 seconds to keep connection alive
+    this.keepAliveInterval = setInterval(async () => {
+      try {
+        if (this.sftp && this.sftp.isConnected && this.sftp.isConnected()) {
+          await this.sftp.list(this.remoteBasePath);
+        }
+      } catch (error) {
+        this.logger.warn('Keep-alive ping failed, connection may be lost:', error);
+        // Connection is likely lost, clear the interval
+        if (this.keepAliveInterval) {
+          clearInterval(this.keepAliveInterval);
+          this.keepAliveInterval = null;
+        }
+      }
+    }, 30000); // 30 seconds
+  }
+
+  /**
+   * Stop keep-alive mechanism
+   */
+  private stopKeepAlive(): void {
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
+    }
+  }
+
+  /**
    * Cleanup SFTP connection
    */
   async onModuleDestroy() {
+    this.stopKeepAlive();
+    
     if (this.sftp) {
       try {
         if (typeof this.sftp.end === 'function') {
