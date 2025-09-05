@@ -512,6 +512,7 @@ export class ImageService {
    * Get image file from VPS
    */
   async getImageFile(imageId: string): Promise<Buffer> {
+    const startTime = Date.now();
     try {
       // Get metadata from cache to find the filename
       const metadata = ImageService.metadataCache.get(imageId);
@@ -519,9 +520,20 @@ export class ImageService {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Download file from VPS using cached metadata (connection should be maintained by keep-alive)
+      // Ensure connection is active before download
+      if (!this.isConnected()) {
+        this.logger.log(`SFTP connection lost, reconnecting for download: ${imageId}`);
+        await this.ensureConnection();
+      }
+
+      // Download file from VPS using cached metadata
       const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
+      const downloadStart = Date.now();
       const fileBuffer = await ImageService.sftpInstance.get(filePath);
+      const downloadTime = Date.now() - downloadStart;
+      const totalTime = Date.now() - startTime;
+      
+      this.logger.log(`Download completed: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB) - Download: ${downloadTime}ms, Total: ${totalTime}ms`);
       return fileBuffer;
     } catch (error) {
       this.logger.error('Failed to get image file:', error);
