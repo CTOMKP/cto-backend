@@ -24,25 +24,44 @@ export async function createApp() {
   // Global prefix - MUST be set BEFORE Swagger configuration
   app.setGlobalPrefix('api');
 
-  // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('CTO Vetting API')
-    .setDescription('Backend API for CTO Marketplace Solana Vetting System with Authentication')
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter JWT token',
-        in: 'header',
-      },
-      'JWT-auth',
-    )
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // Add a simple API info endpoint for production
+  if (process.env.NODE_ENV === 'production') {
+    app.getHttpAdapter().getInstance().get('/api', (req: Request, res: Response) => {
+      res.json({
+        message: 'CTO Vetting API',
+        version: '1.0.0',
+        endpoints: {
+          health: '/api/health',
+          auth: '/api/auth/*',
+          scan: '/api/scan/*',
+          images: '/api/images/*'
+        },
+        documentation: 'Available in development mode only'
+      });
+    });
+  }
+
+  // Swagger documentation (only in development)
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('CTO Vetting API')
+      .setDescription('Backend API for CTO Marketplace Solana Vetting System with Authentication')
+      .setVersion('1.0')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          name: 'JWT',
+          description: 'Enter JWT token',
+          in: 'header',
+        },
+        'JWT-auth',
+      )
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   await app.init();
   return app;
