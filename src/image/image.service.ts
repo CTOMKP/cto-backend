@@ -276,21 +276,70 @@ export class ImageService {
   private async preWarmCache(): Promise<void> {
     try {
       // Check if VPS is configured
-      const host = this.configService.get('CONTABO_HOST');
-      const username = this.configService.get('CONTABO_USERNAME');
-      const password = this.configService.get('CONTABO_PASSWORD');
-      
-      if (!host || !username || !password) {
+      if (!this.isVpsConfigured()) {
         return; // Skip if VPS not configured
       }
 
       // Connect and fetch initial data
       await this.ensureConnection();
-      await this.refreshFileListCache();
+      await this.populateCacheFromVPS();
       
       this.logger.log('Cache pre-warmed successfully');
     } catch (error) {
       this.logger.warn('Failed to pre-warm cache:', error);
+    }
+  }
+
+  /**
+   * Populate cache from VPS files
+   */
+  private async populateCacheFromVPS(): Promise<void> {
+    try {
+      await this.ensureConnection();
+      const files = await this.getCachedFileList();
+      
+      // Filter for image files
+      const imageFiles = files.filter(file => 
+        file.type === '-' && 
+        file.name.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
+      );
+      
+      // Cache metadata for all images
+      for (const file of imageFiles) {
+        try {
+          const fileExtension = path.extname(file.name);
+          const id = file.name.replace(fileExtension, '');
+          
+          // Skip if already cached
+          if (ImageService.metadataCache.has(id)) {
+            continue;
+          }
+          
+          const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${file.name}`);
+          
+          const metadata: ImageMetadata = {
+            id,
+            filename: file.name,
+            originalName: file.name,
+            size: stats.size || 0,
+            mimeType: this.getMimeType(fileExtension),
+            uploadDate: new Date(stats.modifyTime || Date.now()),
+            path: `${this.remoteBasePath}/${file.name}`,
+            url: `${this.baseUrl}/${file.name}`,
+            description: undefined,
+            category: undefined,
+          };
+          
+          ImageService.metadataCache.set(id, metadata);
+        } catch (error) {
+          this.logger.warn(`Failed to cache metadata for ${file.name}:`, error);
+        }
+      }
+      
+      this.logger.log(`Populated cache with ${ImageService.metadataCache.size} images`);
+    } catch (error) {
+      this.logger.error('Failed to populate cache from VPS:', error);
+      throw error;
     }
   }
 
@@ -384,12 +433,22 @@ export class ImageService {
         );
       }
 
-      // Check cache first - this should be fast since keep-alive pre-caches everything
+      // Check cache first
       if (ImageService.metadataCache.has(imageId)) {
         return ImageService.metadataCache.get(imageId)!;
       }
 
-      // If not in cache, it means the file doesn't exist or cache is stale
+      // If cache is empty, try to populate it first
+      if (ImageService.metadataCache.size === 0) {
+        await this.populateCacheFromVPS();
+        
+        // Check cache again after population
+        if (ImageService.metadataCache.has(imageId)) {
+          return ImageService.metadataCache.get(imageId)!;
+        }
+      }
+
+      // If still not found, the image doesn't exist
       throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
     } catch (error) {
       this.logger.error('Failed to get image:', error);
@@ -419,7 +478,12 @@ export class ImageService {
         );
       }
       
-      // Return all cached metadata - keep-alive should have pre-cached everything
+      // If cache is empty, try to populate it first
+      if (ImageService.metadataCache.size === 0) {
+        await this.populateCacheFromVPS();
+      }
+      
+      // Return all cached metadata
       const allImages = Array.from(ImageService.metadataCache.values());
       
       return allImages;
