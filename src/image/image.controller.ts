@@ -70,10 +70,16 @@ export class ImageController {
       const imageBuffer = await this.imageService.getImageFile(id);
       const metadata = await this.imageService.getImage(id);
       
+      // Ultra-fast response headers for maximum speed
       res.set({
         'Content-Type': metadata.mimeType,
         'Content-Disposition': `attachment; filename="${metadata.originalName}"`,
-        'Content-Length': metadata.size,
+        'Content-Length': imageBuffer.length.toString(),
+        'Cache-Control': 'public, max-age=31536000', // 1 year cache
+        'ETag': `"${metadata.id}"`,
+        'Accept-Ranges': 'bytes',
+        'Connection': 'keep-alive',
+        'X-Content-Type-Options': 'nosniff',
       });
       
       res.send(imageBuffer);

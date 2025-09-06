@@ -28,8 +28,9 @@ export class ImageService {
   // Performance optimizations - static to persist across requests
   private static metadataCache: Map<string, ImageMetadata> = new Map();
   private static fileListCache: { files: any[], timestamp: number } | null = null;
+  private static fileCache: Map<string, Buffer> = new Map(); // Local file cache for instant downloads
   private static readonly CACHE_TTL = 300000; // 5 minutes cache (production recommended)
-  private static readonly KEEP_ALIVE_INTERVAL = 120000; // 2 minutes keep-alive
+  private static readonly KEEP_ALIVE_INTERVAL = 180000; // 3 minutes keep-alive
   private static connectionPromise: Promise<void> | null = null;
   private static keepAliveInterval: NodeJS.Timeout | null = null;
   private static sftpInstance: Client | null = null;
@@ -108,10 +109,16 @@ export class ImageService {
         port,
         username,
         password,
-        // Connection options for better stability
-        keepaliveInterval: 180000, // 3 minutes (180 seconds)
-        keepaliveCountMax: 3,
-        readyTimeout: 20000, // 20 seconds
+        // Ultra-fast connection options
+        keepaliveInterval: 30000, // 30 seconds for faster recovery
+        keepaliveCountMax: 5,
+        readyTimeout: 10000, // 10 seconds timeout
+        algorithms: {
+          kex: ['diffie-hellman-group14-sha256', 'ecdh-sha2-nistp256'],
+          cipher: ['aes128-ctr', 'aes192-ctr', 'aes256-ctr'],
+          hmac: ['hmac-sha2-256', 'hmac-sha2-512'],
+          compress: ['none'] // Disable compression for speed
+        },
         // Alternative: use private key
         // privateKey: fs.readFileSync(this.configService.get('CONTABO_PRIVATE_KEY_PATH')),
       });
@@ -251,6 +258,7 @@ export class ImageService {
   private clearFileListCache(): void {
     ImageService.fileListCache = null;
     ImageService.metadataCache.clear();
+    ImageService.fileCache.clear(); // Also clear file cache
   }
 
   /**
@@ -278,6 +286,9 @@ export class ImageService {
   private updateCacheAfterDelete(imageId: string, filename: string): void {
     // Remove metadata from cache
     ImageService.metadataCache.delete(imageId);
+    
+    // Remove from file cache
+    ImageService.fileCache.delete(imageId);
     
     // Update file list cache by removing the deleted file
     if (ImageService.fileListCache) {
@@ -513,7 +524,7 @@ export class ImageService {
 
 
   /**
-   * Get image file from VPS
+   * Get image file - INSTANT download from local cache
    */
   async getImageFile(imageId: string): Promise<Buffer> {
     const startTime = Date.now();
@@ -524,22 +535,66 @@ export class ImageService {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Let SFTP client handle connection automatically
-      // No need to test connection - SFTP client will reconnect if needed
+      // Check if file is already cached locally
+      if (ImageService.fileCache.has(imageId)) {
+        const cachedFile = ImageService.fileCache.get(imageId);
+        const totalTime = Date.now() - startTime;
+        this.logger.log(`INSTANT download from cache: ${metadata.originalName} (${(cachedFile.length / 1024).toFixed(1)}KB) - Total: ${totalTime}ms`);
+        return cachedFile;
+      }
 
-      // Download file from VPS using cached metadata
+      // File not in cache, download from VPS with streaming for maximum speed
+      this.logger.log(`Streaming download: ${metadata.originalName}`);
       const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
       const downloadStart = Date.now();
-      const fileBuffer = await ImageService.sftpInstance.get(filePath);
-      const downloadTime = Date.now() - downloadStart;
-      const totalTime = Date.now() - startTime;
       
-      this.logger.log(`Download completed: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB) - Download: ${downloadTime}ms, Total: ${totalTime}ms`);
+      // Use streaming download for maximum speed
+      const fileBuffer = await this.streamDownload(filePath);
+      const downloadTime = Date.now() - downloadStart;
+      
+      // Cache the file for instant future downloads
+      ImageService.fileCache.set(imageId, fileBuffer);
+      
+      const totalTime = Date.now() - startTime;
+      const speedKBps = (fileBuffer.length / 1024) / (downloadTime / 1000);
+      this.logger.log(`Streaming download completed: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB) - Speed: ${speedKBps.toFixed(1)}KB/s - Download: ${downloadTime}ms, Total: ${totalTime}ms`);
       return fileBuffer;
     } catch (error) {
       this.logger.error('Failed to get image file:', error);
       throw new HttpException('Failed to get image file', HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  /**
+   * Stream download for maximum speed
+   */
+  private async streamDownload(filePath: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let totalSize = 0;
+      
+      // Create a high-speed stream
+      const stream = ImageService.sftpInstance.createReadStream(filePath, {
+        flags: 'r',
+        encoding: null,
+        highWaterMark: 64 * 1024, // 64KB chunks for optimal speed
+        autoClose: true
+      });
+      
+      stream.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+        totalSize += chunk.length;
+      });
+      
+      stream.on('end', () => {
+        const buffer = Buffer.concat(chunks, totalSize);
+        resolve(buffer);
+      });
+      
+      stream.on('error', (error) => {
+        reject(error);
+      });
+    });
   }
 
   /**
@@ -638,13 +693,16 @@ export class ImageService {
       clearInterval(ImageService.keepAliveInterval);
     }
 
-    // Ping every 3 minutes to keep connection alive (less aggressive)
+    // Ping every 3 minutes to keep connection alive AND pre-cache files
     ImageService.keepAliveInterval = setInterval(async () => {
       try {
         if (this.isConnected()) {
           // Simple ping to keep connection alive
           await ImageService.sftpInstance.list(this.remoteBasePath);
-          this.logger.log(`Keep-alive: Connection maintained (${ImageService.metadataCache.size} images cached)`);
+          this.logger.log(`Keep-alive: Connection maintained (${ImageService.metadataCache.size} images cached, ${ImageService.fileCache.size} files cached)`);
+          
+          // Pre-cache files that aren't cached yet
+          await this.preCacheFiles();
         } else {
           this.logger.warn('Keep-alive: SFTP connection lost, attempting to reconnect...');
           await this.ensureConnection();
@@ -659,6 +717,49 @@ export class ImageService {
         }
       }
     }, ImageService.KEEP_ALIVE_INTERVAL); // 3 minutes interval
+  }
+
+  /**
+   * Pre-cache files that aren't cached yet for instant downloads
+   */
+  private async preCacheFiles(): Promise<void> {
+    try {
+      const uncachedImages = Array.from(ImageService.metadataCache.values())
+        .filter(metadata => !ImageService.fileCache.has(metadata.id));
+      
+      if (uncachedImages.length === 0) {
+        return; // All files are already cached
+      }
+      
+      this.logger.log(`Pre-caching ${uncachedImages.length} files for instant downloads...`);
+      
+      // Cache files in parallel (but limit concurrency to avoid overwhelming the server)
+      const batchSize = 3;
+      for (let i = 0; i < uncachedImages.length; i += batchSize) {
+        const batch = uncachedImages.slice(i, i + batchSize);
+        const cachePromises = batch.map(async (metadata) => {
+          try {
+            const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
+            const fileBuffer = await this.streamDownload(filePath);
+            ImageService.fileCache.set(metadata.id, fileBuffer);
+            this.logger.log(`Pre-cached: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB)`);
+          } catch (error) {
+            this.logger.warn(`Failed to pre-cache ${metadata.originalName}:`, error.message);
+          }
+        });
+        
+        await Promise.all(cachePromises);
+        
+        // Small delay between batches to avoid overwhelming the server
+        if (i + batchSize < uncachedImages.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      this.logger.log(`Pre-caching completed: ${ImageService.fileCache.size} files cached`);
+    } catch (error) {
+      this.logger.error('Pre-caching error:', error);
+    }
   }
 
   /**
