@@ -8,9 +8,9 @@ A comprehensive Solana token vetting API built with Node.js and Express. This ba
 - **Token Scanning API**: Single and batch token analysis
 - **4-Pillar Vetting System**: 
   - Smart Contract Audit
-  - Wallet Reputation & Behavior Engine
-  - Liquidity Analysis
-  - Risk Assessment
+  - Wallet Reputation & Behavior Analysis
+  - Governance & Transparency Scoring
+  - AI-Powered Risk & Summary Reports
 - **Tier Classification**: Seed, Sprout, Bloom, Stellar badges
 - **Risk Scoring**: 0-100 scale with tier-specific weighting
 - **AI-Generated Summaries**: Intelligent analysis and recommendations
@@ -234,30 +234,31 @@ SKIP_API_VALIDATION=false
 ```
 
 ## 🏗️ Tier System
+Projects move through 4 listing tiers based on age, liquidity, locks, audits, and risk score.
 
-### Seed Tier 🌱
+### Seed Tier 
 - **Age**: 14-21 days
-- **Liquidity**: $5K-$100K
-- **LP Lock**: 0-12 months
-- **Target Risk Score**: 70
+- **Liquidity**: $10k–20k
+- **LP Lock**: 6–12 months (burn preferred)
+- **Target Risk Score**: ≤ 70 (Medium or better)
 
-### Sprout Tier 🌿
-- **Age**: 21+ days  
-- **Liquidity**: $15K-$10M
-- **LP Lock**: 0+ months
-- **Target Risk Score**: 65
+### Sprout Tier 
+- **Age**: 21–30 days  
+- **Liquidity**: $20k–50k (min. $20k)
+- **LP Lock**: 12–18 months
+- **Target Risk Score**: < 50 (Low)
 
-### Bloom Tier 🌸
-- **Age**: 30+ days
-- **Liquidity**: $25K-$50M  
-- **LP Lock**: 0+ months
-- **Target Risk Score**: 60
+### Bloom Tier 
+- **Age**: 30–60 days
+- **Liquidity**: $50k–100k (min. $50k) 
+- **LP Lock**: 24–36 months (36m rec. / 15% burn = 24m)
+- **Target Risk Score**: < 50 (Low)
 
 ### Stellar Tier ⭐
-- **Age**: 90+ days
-- **Liquidity**: $100K+
-- **LP Lock**: 0+ months
-- **Target Risk Score**: 50
+- **Age**: 60+ days
+- **Liquidity**: $100k–200k (min. $100k)
+- **LP Lock**: 24–36 months (20% burn = 24m)
+- **Target Risk Score**: < 30 (Very Low)
 
 ## 🚀 Deployment
 
