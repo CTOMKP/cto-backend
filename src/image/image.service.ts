@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as Client from 'ssh2-sftp-client';
 import { v4 as uuidv4 } from 'uuid';
+import { RedisService } from './redis.service';
 
 export interface ImageMetadata {
   id: string;
@@ -35,7 +36,10 @@ export class ImageService {
   private static keepAliveInterval: NodeJS.Timeout | null = null;
   private static sftpInstance: Client | null = null;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly redisService: RedisService
+  ) {
     this.remoteBasePath = this.configService.get('CONTABO_IMAGE_PATH') || '/var/www/html/images';
     this.baseUrl = this.configService.get('CONTABO_BASE_URL') || 'https://your-domain.com/images';
     
@@ -225,9 +229,14 @@ export class ImageService {
    * Get cached file list or fetch from SFTP
    */
   private async getCachedFileList(): Promise<any[]> {
+    // Try Redis first
+    const redisFileList = await this.redisService.getFileList();
+    if (redisFileList && redisFileList.length > 0) {
+      return redisFileList;
+    }
+
+    // Fallback to in-memory cache
     const now = Date.now();
-    
-    // Return cached files if cache is still valid
     if (ImageService.fileListCache && (now - ImageService.fileListCache.timestamp) < ImageService.CACHE_TTL) {
       return ImageService.fileListCache.files;
     }
@@ -243,7 +252,10 @@ export class ImageService {
     await this.ensureConnection();
     const files = await ImageService.sftpInstance.list(this.remoteBasePath);
     
-    // Update cache
+    // Update Redis cache
+    await this.redisService.setFileList(files.map(f => f.name), ImageService.CACHE_TTL / 1000);
+    
+    // Update in-memory cache as fallback
     ImageService.fileListCache = {
       files,
       timestamp: Date.now()
@@ -255,17 +267,24 @@ export class ImageService {
   /**
    * Clear file list cache (call after upload/delete operations)
    */
-  private clearFileListCache(): void {
+  private async clearFileListCache(): Promise<void> {
+    // Clear Redis cache
+    await this.redisService.clearImageCache();
+    
+    // Clear in-memory cache as fallback
     ImageService.fileListCache = null;
     ImageService.metadataCache.clear();
-    ImageService.fileCache.clear(); // Also clear file cache
+    ImageService.fileCache.clear();
   }
 
   /**
    * Update cache after upload operation
    */
-  private updateCacheAfterUpload(metadata: ImageMetadata): void {
-    // Add new metadata to cache
+  private async updateCacheAfterUpload(metadata: ImageMetadata): Promise<void> {
+    // Add new metadata to Redis cache
+    await this.redisService.setImageMetadata(metadata.id, metadata, ImageService.CACHE_TTL / 1000);
+    
+    // Add new metadata to in-memory cache as fallback
     ImageService.metadataCache.set(metadata.id, metadata);
     
     // Update file list cache by adding the new file
@@ -278,13 +297,24 @@ export class ImageService {
       };
       ImageService.fileListCache.files.push(newFile);
     }
+    
+    // Update Redis file list
+    const currentFiles = await this.redisService.getFileList();
+    if (currentFiles) {
+      currentFiles.push(metadata.originalName);
+      await this.redisService.setFileList(currentFiles, ImageService.CACHE_TTL / 1000);
+    }
   }
 
   /**
    * Update cache after delete operation
    */
-  private updateCacheAfterDelete(imageId: string, filename: string): void {
-    // Remove metadata from cache
+  private async updateCacheAfterDelete(imageId: string, filename: string): Promise<void> {
+    // Remove from Redis cache
+    await this.redisService.del(`image:metadata:${imageId}`);
+    await this.redisService.del(`image:file:${imageId}`);
+    
+    // Remove metadata from in-memory cache
     ImageService.metadataCache.delete(imageId);
     
     // Remove from file cache
@@ -295,6 +325,13 @@ export class ImageService {
       ImageService.fileListCache.files = ImageService.fileListCache.files.filter(
         file => file.name !== filename
       );
+    }
+    
+    // Update Redis file list
+    const currentFiles = await this.redisService.getFileList();
+    if (currentFiles) {
+      const updatedFiles = currentFiles.filter(file => file !== filename);
+      await this.redisService.setFileList(updatedFiles, ImageService.CACHE_TTL / 1000);
     }
   }
 
@@ -308,11 +345,16 @@ export class ImageService {
         return; // Skip if VPS not configured
       }
 
+      this.logger.log('🔥 AGGRESSIVE pre-warming: Downloading ALL images for instant access...');
+      
       // Connect and fetch initial data
       await this.ensureConnection();
       await this.populateCacheFromVPS();
       
-      this.logger.log('Cache pre-warmed successfully');
+      // AGGRESSIVE: Pre-cache ALL files for instant downloads
+      await this.preCacheFiles();
+      
+      this.logger.log(`🚀 AGGRESSIVE pre-warming completed: ${ImageService.metadataCache.size} images, ${ImageService.fileCache.size} files cached for INSTANT downloads!`);
     } catch (error) {
       this.logger.warn('Failed to pre-warm cache:', error);
     }
@@ -358,6 +400,10 @@ export class ImageService {
             category: undefined,
           };
           
+          // Cache in Redis
+          await this.redisService.setImageMetadata(id, metadata, ImageService.CACHE_TTL / 1000);
+          
+          // Cache in memory as fallback
           ImageService.metadataCache.set(id, metadata);
         } catch (error) {
           this.logger.warn(`Failed to cache metadata for ${file.name}:`, error);
@@ -404,7 +450,7 @@ export class ImageService {
       };
 
       // Update cache directly instead of clearing it
-      this.updateCacheAfterUpload(metadata);
+      await this.updateCacheAfterUpload(metadata);
 
       return metadata;
     } catch (error) {
@@ -429,7 +475,7 @@ export class ImageService {
       await ImageService.sftpInstance.delete(filePath);
 
       // Update cache directly instead of clearing it
-      this.updateCacheAfterDelete(imageId, metadata.originalName);
+      await this.updateCacheAfterDelete(imageId, metadata.originalName);
 
       return true;
     } catch (error) {
@@ -451,7 +497,13 @@ export class ImageService {
         );
       }
 
-      // Check cache first
+      // Check Redis cache first
+      const redisMetadata = await this.redisService.getImageMetadata(imageId);
+      if (redisMetadata) {
+        return redisMetadata;
+      }
+
+      // Check in-memory cache as fallback
       if (ImageService.metadataCache.has(imageId)) {
         return ImageService.metadataCache.get(imageId)!;
       }
@@ -496,7 +548,21 @@ export class ImageService {
         );
       }
       
-      // If cache is empty, try to populate it first
+      // Try to get from Redis first
+      const redisKeys = await this.redisService.keys('image:metadata:*');
+      if (redisKeys.length > 0) {
+        const allImages = [];
+        for (const key of redisKeys) {
+          const imageId = key.replace('image:metadata:', '');
+          const metadata = await this.redisService.getImageMetadata(imageId);
+          if (metadata) {
+            allImages.push(metadata);
+          }
+        }
+        return allImages;
+      }
+      
+      // Fallback to in-memory cache
       if (ImageService.metadataCache.size === 0) {
         await this.populateCacheFromVPS();
       }
@@ -530,16 +596,24 @@ export class ImageService {
     const startTime = Date.now();
     try {
       // Get metadata from cache to find the filename
-      const metadata = ImageService.metadataCache.get(imageId);
+      const metadata = await this.getImage(imageId);
       if (!metadata) {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Check if file is already cached locally
+      // Check Redis cache first
+      const redisFile = await this.redisService.getImageFile(imageId);
+      if (redisFile) {
+        const totalTime = Date.now() - startTime;
+        this.logger.log(`INSTANT download from Redis: ${metadata.originalName} (${(redisFile.length / 1024).toFixed(1)}KB) - Total: ${totalTime}ms`);
+        return redisFile;
+      }
+
+      // Check if file is already cached locally as fallback
       if (ImageService.fileCache.has(imageId)) {
         const cachedFile = ImageService.fileCache.get(imageId);
         const totalTime = Date.now() - startTime;
-        this.logger.log(`INSTANT download from cache: ${metadata.originalName} (${(cachedFile.length / 1024).toFixed(1)}KB) - Total: ${totalTime}ms`);
+        this.logger.log(`INSTANT download from local cache: ${metadata.originalName} (${(cachedFile.length / 1024).toFixed(1)}KB) - Total: ${totalTime}ms`);
         return cachedFile;
       }
 
@@ -552,7 +626,10 @@ export class ImageService {
       const fileBuffer = await this.streamDownload(filePath);
       const downloadTime = Date.now() - downloadStart;
       
-      // Cache the file for instant future downloads
+      // Cache the file in Redis for distributed access
+      await this.redisService.setImageFile(imageId, fileBuffer, ImageService.CACHE_TTL / 1000);
+      
+      // Also cache locally as fallback
       ImageService.fileCache.set(imageId, fileBuffer);
       
       const totalTime = Date.now() - startTime;
@@ -637,7 +714,10 @@ export class ImageService {
       }
 
       // Get current metadata from cache (should be fast)
-      const currentMetadata = ImageService.metadataCache.get(imageId);
+      let currentMetadata = await this.redisService.getImageMetadata(imageId);
+      if (!currentMetadata) {
+        currentMetadata = ImageService.metadataCache.get(imageId);
+      }
       if (!currentMetadata) {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
@@ -648,7 +728,10 @@ export class ImageService {
         ...editData,
       };
 
-      // Update cache directly (no database operations needed)
+      // Update Redis cache
+      await this.redisService.setImageMetadata(imageId, updatedMetadata, ImageService.CACHE_TTL / 1000);
+      
+      // Update in-memory cache as fallback
       ImageService.metadataCache.set(imageId, updatedMetadata);
 
       return updatedMetadata;
@@ -685,7 +768,7 @@ export class ImageService {
   }
 
   /**
-   * Start keep-alive mechanism to maintain SFTP connection and refresh cache
+   * Start keep-alive mechanism - now less frequent since Redis is primary cache
    */
   private startKeepAlive(): void {
     // Clear existing interval
@@ -693,16 +776,25 @@ export class ImageService {
       clearInterval(ImageService.keepAliveInterval);
     }
 
-    // Ping every 3 minutes to keep connection alive AND pre-cache files
+    // Reduced frequency: Ping every 30 minutes since Redis is primary cache
     ImageService.keepAliveInterval = setInterval(async () => {
       try {
+        // Check Redis health first
+        const redisHealthy = await this.redisService.isRedisAvailable();
+        if (!redisHealthy) {
+          this.logger.warn('Keep-alive: Redis connection lost, attempting to reconnect...');
+          // Redis will auto-reconnect on next operation
+        }
+
         if (this.isConnected()) {
-          // Simple ping to keep connection alive
+          // Simple ping to keep SFTP connection alive
           await ImageService.sftpInstance.list(this.remoteBasePath);
-          this.logger.log(`Keep-alive: Connection maintained (${ImageService.metadataCache.size} images cached, ${ImageService.fileCache.size} files cached)`);
+          this.logger.log(`Keep-alive: SFTP maintained, Redis: ${redisHealthy ? 'OK' : 'Issues'} (${ImageService.metadataCache.size} local, Redis: primary cache)`);
           
-          // Pre-cache files that aren't cached yet
-          await this.preCacheFiles();
+          // Only pre-cache if Redis is healthy and we have uncached files
+          if (redisHealthy) {
+            await this.preCacheFiles();
+          }
         } else {
           this.logger.warn('Keep-alive: SFTP connection lost, attempting to reconnect...');
           await this.ensureConnection();
@@ -716,7 +808,7 @@ export class ImageService {
           this.logger.error('Keep-alive reconnection failed:', reconnectError);
         }
       }
-    }, ImageService.KEEP_ALIVE_INTERVAL); // 3 minutes interval
+    }, ImageService.KEEP_ALIVE_INTERVAL); // Now 30 minutes interval
   }
 
   /**
@@ -724,25 +816,39 @@ export class ImageService {
    */
   private async preCacheFiles(): Promise<void> {
     try {
+      // Check if Redis is available first
+      const redisHealthy = await this.redisService.isRedisAvailable();
+      if (!redisHealthy) {
+        this.logger.warn('Pre-caching skipped: Redis not available');
+        return;
+      }
+
       const uncachedImages = Array.from(ImageService.metadataCache.values())
         .filter(metadata => !ImageService.fileCache.has(metadata.id));
       
       if (uncachedImages.length === 0) {
-        return; // All files are already cached
+        return; // All files are already cached locally
       }
       
-      this.logger.log(`Pre-caching ${uncachedImages.length} files for instant downloads...`);
+      this.logger.log(`🚀 Redis-aware pre-caching: ${uncachedImages.length} files for distributed access...`);
       
-      // Cache files in parallel (but limit concurrency to avoid overwhelming the server)
-      const batchSize = 3;
+      // Cache files in parallel with Redis as primary storage
+      const batchSize = 3; // Reduced batch size for less aggressive caching
+      let cachedCount = 0;
       for (let i = 0; i < uncachedImages.length; i += batchSize) {
         const batch = uncachedImages.slice(i, i + batchSize);
         const cachePromises = batch.map(async (metadata) => {
           try {
             const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
             const fileBuffer = await this.streamDownload(filePath);
+            
+            // Cache in Redis for distributed access
+            await this.redisService.setImageFile(metadata.id, fileBuffer, ImageService.CACHE_TTL / 1000);
+            
+            // Also cache locally as fallback
             ImageService.fileCache.set(metadata.id, fileBuffer);
-            this.logger.log(`Pre-cached: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB)`);
+            cachedCount++;
+            this.logger.log(`⚡ Pre-cached [${cachedCount}/${uncachedImages.length}]: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB) → Redis`);
           } catch (error) {
             this.logger.warn(`Failed to pre-cache ${metadata.originalName}:`, error.message);
           }
@@ -750,13 +856,13 @@ export class ImageService {
         
         await Promise.all(cachePromises);
         
-        // Small delay between batches to avoid overwhelming the server
+        // Longer delay between batches since we're less aggressive now
         if (i + batchSize < uncachedImages.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 200)); // Increased from 50ms to 200ms
         }
       }
       
-      this.logger.log(`Pre-caching completed: ${ImageService.fileCache.size} files cached`);
+      this.logger.log(`Pre-caching completed: ${ImageService.fileCache.size} local, Redis: distributed cache`);
     } catch (error) {
       this.logger.error('Pre-caching error:', error);
     }

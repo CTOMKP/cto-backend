@@ -28,6 +28,7 @@
     "@nestjs/swagger": "^11.2.0",
     "@types/compression": "^1.8.1",
     "@types/multer": "^2.0.0",
+    "@types/redis": "^4.0.10",
     "@types/uuid": "^10.0.0",
     "axios": "^1.11.0",
     "bcryptjs": "^3.0.2",
@@ -42,6 +43,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
+    "redis": "^5.8.2",
     "ssh2-sftp-client": "^12.0.1",
     "uuid": "^11.1.0"
   },
