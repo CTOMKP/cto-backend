@@ -406,7 +406,7 @@ export class ImageService {
             mimeType: this.getMimeType(fileExtension),
             uploadDate: new Date(stats.modifyTime || Date.now()),
             path: `${this.remoteBasePath}/${file.name}`,
-            url: `${this.baseUrl}/${file.name}`,
+            url: `/api/images/${id}/view`, // Use app's view endpoint for display
             description: undefined,
             category: undefined,
           };
@@ -476,7 +476,7 @@ export class ImageService {
         mimeType: file.mimetype || this.getMimeType(fileExtension),
         uploadDate: new Date(),
         path: remotePath,
-        url: `${this.baseUrl}/${filename}`,
+        url: `/api/images/${filename.replace(/\.[^/.]+$/, "")}/view`, // Use app's view endpoint for display
         description: undefined,
         category: undefined,
       };
@@ -822,10 +822,10 @@ export class ImageService {
         try {
           const metadata = await this.redisService.getImageMetadata(imageId);
           if (metadata) {
-            // Update the URL with the new base URL
+            // Update the URL to use app's download endpoint
             const updatedMetadata: ImageMetadata = {
               ...metadata,
-              url: `${currentBaseUrl}/${metadata.originalName}`,
+              url: `/api/images/${metadata.id}/view`,
             };
             
             // Update Redis cache
@@ -899,7 +899,7 @@ export class ImageService {
           // Update the originalName to reflect the new filename
           currentMetadata.originalName = newFilename;
           currentMetadata.path = newPath;
-          currentMetadata.url = `${this.baseUrl}/${newFilename}`;
+          currentMetadata.url = `/api/images/${currentMetadata.id}/view`; // Use app's view endpoint for display
           
           this.logger.log(`File renamed from ${currentMetadata.originalName} to ${newFilename}`);
         } catch (sftpError) {
