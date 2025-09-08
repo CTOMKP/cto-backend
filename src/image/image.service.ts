@@ -286,28 +286,44 @@ export class ImageService {
    * Update cache after upload operation
    */
   private async updateCacheAfterUpload(metadata: ImageMetadata): Promise<void> {
-    // Add new metadata to Redis cache
-    await this.redisService.setImageMetadata(metadata.id, metadata, ImageService.CACHE_TTL / 1000);
-    
-    // Add new metadata to in-memory cache as fallback
-    ImageService.metadataCache.set(metadata.id, metadata);
-    
-    // Update file list cache by adding the new file
-    if (ImageService.fileListCache) {
-      const newFile = {
-        name: metadata.originalName,
-        type: '-',
-        size: metadata.size,
-        modifyTime: metadata.uploadDate.getTime()
-      };
-      ImageService.fileListCache.files.push(newFile);
-    }
-    
-    // Update Redis file list
-    const currentFiles = await this.redisService.getFileList();
-    if (currentFiles) {
-      currentFiles.push(metadata.originalName);
-      await this.redisService.setFileList(currentFiles, ImageService.CACHE_TTL / 1000);
+    try {
+      // Add new metadata to Redis cache
+      await this.redisService.setImageMetadata(metadata.id, metadata, ImageService.CACHE_TTL / 1000);
+      
+      // Add new metadata to in-memory cache as fallback
+      ImageService.metadataCache.set(metadata.id, metadata);
+      
+      // Update file list cache by adding the new file
+      if (ImageService.fileListCache) {
+        const newFile = {
+          name: metadata.originalName,
+          type: '-',
+          size: metadata.size,
+          modifyTime: metadata.uploadDate.getTime()
+        };
+        ImageService.fileListCache.files.push(newFile);
+      } else {
+        // If file list cache is null, initialize it with the new file
+        ImageService.fileListCache = {
+          files: [{
+            name: metadata.originalName,
+            type: '-',
+            size: metadata.size,
+            modifyTime: metadata.uploadDate.getTime()
+          }],
+          timestamp: Date.now()
+        };
+      }
+      
+      // Update Redis file list - get current files and add new one
+      const currentFiles = await this.redisService.getFileList();
+      const updatedFiles = currentFiles ? [...currentFiles, metadata.originalName] : [metadata.originalName];
+      await this.redisService.setFileList(updatedFiles, ImageService.CACHE_TTL / 1000);
+      
+      this.logger.log(`✅ Cache updated for new upload: ${metadata.originalName}`);
+    } catch (error) {
+      this.logger.error('Failed to update cache after upload:', error);
+      // Don't throw error - upload was successful, just cache update failed
     }
   }
 
@@ -458,7 +474,7 @@ export class ImageService {
         filename: file.originalname, // Editable display name (starts as original name)
         originalName: filename, // Timestamped filename (immutable)
         size: file.size,
-        mimeType: file.mimeType,
+        mimeType: file.mimetype || this.getMimeType(fileExtension), // Use correct property name
         uploadDate: new Date(),
         path: remotePath,
         url: `${this.baseUrl}/${filename}`,
@@ -475,6 +491,14 @@ export class ImageService {
         this.logger.log(`🚀 OPTIMIZED upload: ${metadata.originalName} (${(file.size / 1024).toFixed(1)}KB) - Upload Speed: ${uploadSpeedKBps.toFixed(1)}KB/s - Upload: ${uploadTime}ms, Total: ${totalTime}ms`);
       } else {
         this.logger.log(`🚀 REDIS-ONLY upload: ${metadata.originalName} (${(file.size / 1024).toFixed(1)}KB) - Cached in Redis - Total: ${totalTime}ms`);
+      }
+
+      // Verify the upload was successful by checking if metadata is in cache
+      const cachedMetadata = await this.redisService.getImageMetadata(metadata.id);
+      if (!cachedMetadata) {
+        this.logger.warn(`⚠️ Upload completed but metadata not found in cache for ${metadata.id}`);
+      } else {
+        this.logger.log(`✅ Upload verified: ${metadata.id} is cached and accessible`);
       }
 
       return metadata;
@@ -790,6 +814,57 @@ export class ImageService {
   }
 
   /**
+   * Update all image URLs when domain changes (admin endpoint)
+   */
+  async updateImageUrlsForNewDomain(): Promise<{ success: boolean; message: string; updatedCount: number }> {
+    try {
+      this.logger.log('🔄 Updating image URLs for new domain...');
+      
+      const currentBaseUrl = this.configService.get('CONTABO_BASE_URL') || 'https://your-domain.com/images';
+      let updatedCount = 0;
+      
+      // Get all cached images
+      const allImages = Array.from(ImageService.metadataCache.values());
+      
+      for (const metadata of allImages) {
+        try {
+          // Update the URL with the new base URL
+          const updatedMetadata: ImageMetadata = {
+            ...metadata,
+            url: `${currentBaseUrl}/${metadata.originalName}`,
+          };
+          
+          // Update Redis cache
+          await this.redisService.setImageMetadata(metadata.id, updatedMetadata, ImageService.CACHE_TTL / 1000);
+          
+          // Update in-memory cache
+          ImageService.metadataCache.set(metadata.id, updatedMetadata);
+          
+          updatedCount++;
+        } catch (error) {
+          this.logger.warn(`Failed to update URL for image ${metadata.id}:`, error);
+        }
+      }
+      
+      this.logger.log(`✅ Updated URLs for ${updatedCount} images with new domain: ${currentBaseUrl}`);
+      
+      return {
+        success: true,
+        message: `Updated URLs for ${updatedCount} images`,
+        updatedCount: updatedCount
+      };
+    } catch (error) {
+      this.logger.error('Failed to update image URLs:', error);
+      return {
+        success: false,
+        message: `Failed to update URLs: ${error.message}`,
+        updatedCount: 0
+      };
+    }
+  }
+
+
+  /**
    * Edit image metadata
    */
   async editImageMetadata(imageId: string, editData: { filename?: string; description?: string; category?: string }): Promise<ImageMetadata> {
@@ -809,6 +884,33 @@ export class ImageService {
       }
       if (!currentMetadata) {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
+      }
+      
+      // If filename is being changed, we need to rename the file on the server
+      if (editData.filename && editData.filename !== currentMetadata.filename) {
+        try {
+          await this.ensureConnection();
+          
+          // Create new filename with proper extension
+          const fileExtension = path.extname(currentMetadata.originalName);
+          const sanitizedNewName = editData.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const newFilename = `${sanitizedNewName}${fileExtension}`;
+          const oldPath = `${this.remoteBasePath}/${currentMetadata.originalName}`;
+          const newPath = `${this.remoteBasePath}/${newFilename}`;
+          
+          // Rename file on server
+          await ImageService.sftpInstance.rename(oldPath, newPath);
+          
+          // Update the originalName to reflect the new filename
+          currentMetadata.originalName = newFilename;
+          currentMetadata.path = newPath;
+          currentMetadata.url = `${this.baseUrl}/${newFilename}`;
+          
+          this.logger.log(`File renamed from ${currentMetadata.originalName} to ${newFilename}`);
+        } catch (sftpError) {
+          this.logger.warn('SFTP rename failed, updating metadata only:', sftpError.message);
+          // Continue with metadata update even if rename fails
+        }
       }
       
       // Update metadata with new values
