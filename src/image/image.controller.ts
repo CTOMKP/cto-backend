@@ -161,4 +161,14 @@ export class ImageController {
     };
   }
 
+  /**
+   * Manually refresh cache from VPS (admin endpoint)
+   * POST /images/admin/refresh-cache
+   */
+  @Post('admin/refresh-cache')
+  @UseGuards(JwtAuthGuard)
+  async refreshCache(): Promise<{ success: boolean; message: string; count: number }> {
+    return this.imageService.refreshCacheFromVPS();
+  }
+
 }
