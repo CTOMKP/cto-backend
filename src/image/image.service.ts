@@ -318,7 +318,7 @@ export class ImageService {
       const updatedFiles = currentFiles ? [...currentFiles, metadata.originalName] : [metadata.originalName];
       await this.redisService.setFileList(updatedFiles, ImageService.CACHE_TTL / 1000);
       
-      this.logger.log(`✅ Metadata cache updated for new upload: ${metadata.originalName}`);
+      this.logger.log(`✅ Metadata cache updated for new upload: ${metadata.originalName} (Total cached: ${ImageService.metadataCache.size})`);
     } catch (error) {
       this.logger.error('Failed to update metadata cache after upload:', error);
       // Don't throw error - upload was successful, just cache update failed
@@ -613,6 +613,17 @@ export class ImageService {
         );
       }
       
+      // Always ensure cache is populated first
+      if (ImageService.metadataCache.size === 0) {
+        try {
+          this.logger.log('Cache empty, populating from VPS...');
+          await this.populateMetadataFromVPS();
+        } catch (sftpError) {
+          this.logger.warn('SFTP populate metadata cache failed:', sftpError.message);
+          // Continue with whatever we have in cache
+        }
+      }
+      
       // Try to get from Redis first
       const redisKeys = await this.redisService.keys('image:metadata:*');
       if (redisKeys.length > 0) {
@@ -624,21 +635,13 @@ export class ImageService {
             allImages.push(metadata);
           }
         }
+        this.logger.log(`Returning ${allImages.length} images from Redis cache`);
         return allImages;
       }
       
       // Fallback to in-memory cache
-      if (ImageService.metadataCache.size === 0) {
-        try {
-          await this.populateMetadataFromVPS();
-        } catch (sftpError) {
-          this.logger.warn('SFTP populate metadata cache failed, using empty list:', sftpError.message);
-          return []; // Return empty array if SFTP fails
-        }
-      }
-      
-      // Return all cached metadata
       const allImages = Array.from(ImageService.metadataCache.values());
+      this.logger.log(`Returning ${allImages.length} images from in-memory cache`);
       
       return allImages;
     } catch (error) {
@@ -660,9 +663,10 @@ export class ImageService {
 
 
   /**
-   * Get image file URL for direct serving (no file content caching)
+   * Get image file buffer for seamless serving (lazy loading)
    */
-  async getImageFileUrl(imageId: string): Promise<string> {
+  async getImageFile(imageId: string): Promise<Buffer> {
+    const startTime = Date.now();
     try {
       // Get metadata from cache to find the filename
       const metadata = await this.getImage(imageId);
@@ -670,12 +674,26 @@ export class ImageService {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Return direct URL for web server serving
-      this.logger.log(`Direct file URL requested: ${metadata.originalName} -> ${metadata.url}`);
-      return metadata.url;
+      // Download file from SFTP on-demand (lazy loading)
+      try {
+        await this.ensureConnection();
+        const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
+        
+        // Use SFTP get method for reliable file download
+        const fileBuffer = await ImageService.sftpInstance.get(filePath);
+        
+        const totalTime = Date.now() - startTime;
+        const speedKBps = (fileBuffer.length / 1024) / (totalTime / 1000);
+        this.logger.log(`✅ Seamless download: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB) - Speed: ${speedKBps.toFixed(1)}KB/s - Total: ${totalTime}ms`);
+        
+        return fileBuffer;
+      } catch (sftpError) {
+        this.logger.error('SFTP download failed:', sftpError);
+        throw new HttpException('Image file not available', HttpStatus.NOT_FOUND);
+      }
     } catch (error) {
-      this.logger.error('Failed to get image file URL:', error);
-      throw new HttpException('Failed to get image file URL', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.error('Failed to get image file:', error);
+      throw new HttpException('Failed to get image file', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -712,6 +730,9 @@ export class ImageService {
   async refreshCacheFromVPS(): Promise<{ success: boolean; message: string; count: number }> {
     try {
       this.logger.log('🔄 Manual metadata cache refresh requested...');
+      
+      // Clear existing cache first
+      await this.clearFileListCache();
       
       // Try to connect and populate metadata cache only
       await this.ensureConnection();

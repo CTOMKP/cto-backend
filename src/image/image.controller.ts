@@ -61,16 +61,34 @@ export class ImageController {
   }
 
   /**
-   * Redirect to direct image file URL for web server serving
+   * Download image file - seamless serving through the app
    * GET /images/:id/download
    */
   @Get(':id/download')
   async downloadImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    const startTime = Date.now();
     try {
-      const directUrl = await this.imageService.getImageFileUrl(id);
+      const imageBuffer = await this.imageService.getImageFile(id);
+      const metadata = await this.imageService.getImage(id);
       
-      // Redirect to direct file URL for web server serving
-      res.redirect(302, directUrl);
+      // Set proper headers for seamless download
+      res.set({
+        'Content-Type': metadata.mimeType,
+        'Content-Disposition': `attachment; filename="${metadata.filename}"`,
+        'Content-Length': imageBuffer.length.toString(),
+        'Cache-Control': 'public, max-age=3600', // 1 hour cache
+        'ETag': `"${metadata.id}"`,
+        'Accept-Ranges': 'bytes',
+        'Connection': 'keep-alive',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      
+      // Send file buffer directly
+      res.end(imageBuffer);
+      
+      const totalTime = Date.now() - startTime;
+      const speedKBps = (imageBuffer.length / 1024) / (totalTime / 1000);
+      console.log(`🚀 Seamless download: ${metadata.originalName} (${(imageBuffer.length / 1024).toFixed(1)}KB) - Speed: ${speedKBps.toFixed(1)}KB/s - Total: ${totalTime}ms`);
       
     } catch (error) {
       res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
