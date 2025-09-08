@@ -181,40 +181,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.set(`image:metadata:${imageId}`, metadata, ttlSeconds);
   }
 
-  async getImageFile(imageId: string): Promise<Buffer | null> {
-    try {
-      if (!await this.isRedisAvailable()) {
-        return null;
-      }
-
-      // Use direct buffer operations for maximum performance
-      const data = await this.client.get(`image:file:${imageId}`);
-      return data ? Buffer.from(data as string, 'base64') : null;
-    } catch (error) {
-      this.logger.warn(`Failed to get image file ${imageId}:`, error.message);
-      return null;
-    }
-  }
-
-  async setImageFile(imageId: string, buffer: Buffer, ttlSeconds?: number): Promise<boolean> {
-    try {
-      if (!await this.isRedisAvailable()) {
-        return false;
-      }
-
-      // Store as binary data for better performance (no base64 conversion)
-      if (ttlSeconds) {
-        await this.client.setEx(`image:file:${imageId}`, ttlSeconds, buffer);
-      } else {
-        await this.client.set(`image:file:${imageId}`, buffer);
-      }
-      
-      return true;
-    } catch (error) {
-      this.logger.warn(`Failed to set image file ${imageId}:`, error.message);
-      return false;
-    }
-  }
 
   async getFileList(): Promise<string[]> {
     return this.get('image:filelist') || [];
@@ -230,9 +196,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         return false;
       }
 
-      const keys = await this.keys('image:*');
-      if (keys.length > 0) {
-        await this.client.del(keys);
+      // Only clear metadata and file list, not file content
+      const keys = await this.keys('image:metadata:*');
+      const fileListKeys = await this.keys('image:filelist');
+      const allKeys = [...keys, ...fileListKeys];
+      
+      if (allKeys.length > 0) {
+        await this.client.del(allKeys);
       }
       return true;
     } catch (error) {
