@@ -25,7 +25,7 @@ export class ImageService {
   private sftp: Client;
   private readonly remoteBasePath: string;
   private readonly baseUrl: string;
-  
+
   // Performance optimizations - static to persist across requests
   private static metadataCache: Map<string, ImageMetadata> = new Map();
   private static fileListCache: { files: any[], timestamp: number } | null = null;
@@ -155,9 +155,9 @@ export class ImageService {
    * Check if VPS is configured (cached check)
    */
   private isVpsConfigured(): boolean {
-    const host = this.configService.get('CONTABO_HOST');
-    const username = this.configService.get('CONTABO_USERNAME');
-    const password = this.configService.get('CONTABO_PASSWORD');
+      const host = this.configService.get('CONTABO_HOST');
+      const username = this.configService.get('CONTABO_USERNAME');
+      const password = this.configService.get('CONTABO_PASSWORD');
     return !!(host && username && password);
   }
 
@@ -186,7 +186,7 @@ export class ImageService {
       ImageService.connectionPromise = this.connectSFTP();
       await ImageService.connectionPromise;
       ImageService.connectionPromise = null;
-    } catch (error) {
+      } catch (error) {
       ImageService.connectionPromise = null;
       this.logger.error('Failed to ensure SFTP connection:', error);
       // Don't try to reconnect if VPS is not configured
@@ -241,8 +241,14 @@ export class ImageService {
       return ImageService.fileListCache.files;
     }
 
-    // Cache expired, fetch fresh data
-    return this.refreshFileListCache();
+    // Cache expired or empty, ALWAYS try to fetch fresh data from VPS
+    this.logger.log('🔄 Cache empty/expired, fetching fresh file list from VPS...');
+    try {
+      return await this.refreshFileListCache();
+    } catch (sftpError) {
+      this.logger.warn('SFTP file list refresh failed, using empty list:', sftpError.message);
+      return [];
+    }
   }
 
   /**
@@ -347,16 +353,53 @@ export class ImageService {
 
       this.logger.log('🔥 AGGRESSIVE pre-warming: Downloading ALL images for instant access...');
       
-      // Connect and fetch initial data
-      await this.ensureConnection();
-      await this.populateCacheFromVPS();
-      
-      // AGGRESSIVE: Pre-cache ALL files for instant downloads
-      await this.preCacheFiles();
-      
-      this.logger.log(`🚀 AGGRESSIVE pre-warming completed: ${ImageService.metadataCache.size} images, ${ImageService.fileCache.size} files cached for INSTANT downloads!`);
+      try {
+        // Connect and fetch initial data
+        await this.ensureConnection();
+        await this.populateCacheFromVPS();
+        
+        // AGGRESSIVE: Pre-cache ALL files for instant downloads
+        await this.preCacheFiles();
+        
+        this.logger.log(`🚀 AGGRESSIVE pre-warming completed: ${ImageService.metadataCache.size} images, ${ImageService.fileCache.size} files cached for INSTANT downloads!`);
+      } catch (sftpError) {
+        this.logger.warn('SFTP connection failed, using Redis-only mode:', sftpError.message);
+        this.logger.log('🔄 Redis-only mode: Operations will use existing Redis cache');
+        
+        // Try to load existing cache from Redis
+        await this.loadCacheFromRedis();
+      }
     } catch (error) {
       this.logger.warn('Failed to pre-warm cache:', error);
+    }
+  }
+
+  /**
+   * Load existing cache from Redis when SFTP fails
+   */
+  private async loadCacheFromRedis(): Promise<void> {
+    try {
+      this.logger.log('🔄 Loading existing cache from Redis...');
+      
+      // Get all metadata keys from Redis
+      const redisKeys = await this.redisService.keys('image:metadata:*');
+      
+      if (redisKeys.length > 0) {
+        // Load metadata into in-memory cache
+        for (const key of redisKeys) {
+          const imageId = key.replace('image:metadata:', '');
+          const metadata = await this.redisService.getImageMetadata(imageId);
+          if (metadata) {
+            ImageService.metadataCache.set(imageId, metadata);
+          }
+        }
+        
+        this.logger.log(`✅ Loaded ${ImageService.metadataCache.size} images from Redis cache`);
+      } else {
+        this.logger.log('⚠️ No existing cache found in Redis - will fetch from VPS on first request');
+      }
+    } catch (error) {
+      this.logger.warn('Failed to load cache from Redis:', error);
     }
   }
 
@@ -421,9 +464,8 @@ export class ImageService {
    * Upload image to Contabo VPS
    */
   async uploadImage(file: any): Promise<ImageMetadata> {
+    const startTime = Date.now();
     try {
-      // Connection should be maintained by keep-alive ping
-
       // Use original filename with timestamp to avoid conflicts
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'); // Sanitize filename
       const timestamp = Date.now();
@@ -432,8 +474,20 @@ export class ImageService {
       const filename = `${nameWithoutExt}_${timestamp}${fileExtension}`;
       const remotePath = `${this.remoteBasePath}/${filename}`;
 
-      // Upload file to VPS
-      await ImageService.sftpInstance.put(file.buffer, remotePath);
+      // Try to upload to VPS, fallback to Redis-only if SFTP fails
+      let uploadTime = 0;
+      try {
+        // Ensure SFTP connection for upload
+        await this.ensureConnection();
+        
+        // Upload file to VPS with optimized settings
+        const uploadStart = Date.now();
+        await ImageService.sftpInstance.put(file.buffer, remotePath);
+        uploadTime = Date.now() - uploadStart;
+      } catch (sftpError) {
+        this.logger.warn('SFTP upload failed, using Redis-only mode:', sftpError.message);
+        // Continue with Redis-only mode - file will be cached but not on VPS
+      }
 
       // Create metadata
       const metadata: ImageMetadata = {
@@ -452,6 +506,14 @@ export class ImageService {
       // Update cache directly instead of clearing it
       await this.updateCacheAfterUpload(metadata);
 
+      const totalTime = Date.now() - startTime;
+      if (uploadTime > 0) {
+        const uploadSpeedKBps = (file.size / 1024) / (uploadTime / 1000);
+        this.logger.log(`🚀 OPTIMIZED upload: ${metadata.originalName} (${(file.size / 1024).toFixed(1)}KB) - Upload Speed: ${uploadSpeedKBps.toFixed(1)}KB/s - Upload: ${uploadTime}ms, Total: ${totalTime}ms`);
+      } else {
+        this.logger.log(`🚀 REDIS-ONLY upload: ${metadata.originalName} (${(file.size / 1024).toFixed(1)}KB) - Cached in Redis - Total: ${totalTime}ms`);
+      }
+
       return metadata;
     } catch (error) {
       this.logger.error('Failed to upload image:', error);
@@ -463,6 +525,7 @@ export class ImageService {
    * Delete image from Contabo VPS
    */
   async deleteImage(imageId: string): Promise<boolean> {
+    const startTime = Date.now();
     try {
       // Get metadata from cache to find the filename
       const metadata = ImageService.metadataCache.get(imageId);
@@ -470,12 +533,31 @@ export class ImageService {
         throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
       }
 
-      // Delete file from VPS using cached metadata (connection should be maintained by keep-alive)
-      const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
-      await ImageService.sftpInstance.delete(filePath);
+      // Try to delete from VPS, fallback to Redis-only if SFTP fails
+      let deleteTime = 0;
+      try {
+        // Ensure SFTP connection for delete
+        await this.ensureConnection();
+
+        // Delete file from VPS using cached metadata
+        const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
+        const deleteStart = Date.now();
+        await ImageService.sftpInstance.delete(filePath);
+        deleteTime = Date.now() - deleteStart;
+      } catch (sftpError) {
+        this.logger.warn('SFTP delete failed, using Redis-only mode:', sftpError.message);
+        // Continue with Redis-only mode - file will be removed from cache but not from VPS
+      }
 
       // Update cache directly instead of clearing it
       await this.updateCacheAfterDelete(imageId, metadata.originalName);
+
+      const totalTime = Date.now() - startTime;
+      if (deleteTime > 0) {
+        this.logger.log(`🚀 OPTIMIZED delete: ${metadata.originalName} - Delete: ${deleteTime}ms, Total: ${totalTime}ms`);
+      } else {
+        this.logger.log(`🚀 REDIS-ONLY delete: ${metadata.originalName} - Removed from Redis cache - Total: ${totalTime}ms`);
+      }
 
       return true;
     } catch (error) {
@@ -500,7 +582,10 @@ export class ImageService {
       // Check Redis cache first
       const redisMetadata = await this.redisService.getImageMetadata(imageId);
       if (redisMetadata) {
+        this.logger.log(`✅ Found image ${imageId} in Redis cache`);
         return redisMetadata;
+      } else {
+        this.logger.log(`🔄 Image ${imageId} not in Redis cache, will fetch from VPS...`);
       }
 
       // Check in-memory cache as fallback
@@ -508,13 +593,19 @@ export class ImageService {
         return ImageService.metadataCache.get(imageId)!;
       }
 
-      // If cache is empty, try to populate it first
+      // If cache is empty, ALWAYS try to populate it first from VPS
       if (ImageService.metadataCache.size === 0) {
-        await this.populateCacheFromVPS();
-        
-        // Check cache again after population
-        if (ImageService.metadataCache.has(imageId)) {
-          return ImageService.metadataCache.get(imageId)!;
+        this.logger.log('🔄 Cache empty, fetching fresh data from VPS for getImage...');
+        try {
+          await this.populateCacheFromVPS();
+          
+          // Check cache again after population
+          if (ImageService.metadataCache.has(imageId)) {
+            return ImageService.metadataCache.get(imageId)!;
+          }
+        } catch (sftpError) {
+          this.logger.warn('SFTP populate cache failed for getImage:', sftpError.message);
+          // Continue to throw "not found" error
         }
       }
 
@@ -559,12 +650,21 @@ export class ImageService {
             allImages.push(metadata);
           }
         }
+        this.logger.log(`✅ Found ${allImages.length} images in Redis cache`);
         return allImages;
+      } else {
+        this.logger.log('🔄 Redis cache empty, will fetch from VPS...');
       }
       
       // Fallback to in-memory cache
       if (ImageService.metadataCache.size === 0) {
-        await this.populateCacheFromVPS();
+        this.logger.log('🔄 In-memory cache empty, fetching fresh data from VPS...');
+        try {
+          await this.populateCacheFromVPS();
+        } catch (sftpError) {
+          this.logger.warn('SFTP populate cache failed, using empty list:', sftpError.message);
+          return []; // Return empty array if SFTP fails
+        }
       }
       
       // Return all cached metadata
@@ -607,6 +707,8 @@ export class ImageService {
         const totalTime = Date.now() - startTime;
         this.logger.log(`INSTANT download from Redis: ${metadata.originalName} (${(redisFile.length / 1024).toFixed(1)}KB) - Total: ${totalTime}ms`);
         return redisFile;
+      } else {
+        this.logger.log(`🔄 File ${imageId} not in Redis cache, will fetch from VPS...`);
       }
 
       // Check if file is already cached locally as fallback
@@ -615,27 +717,34 @@ export class ImageService {
         const totalTime = Date.now() - startTime;
         this.logger.log(`INSTANT download from local cache: ${metadata.originalName} (${(cachedFile.length / 1024).toFixed(1)}KB) - Total: ${totalTime}ms`);
         return cachedFile;
+      } else {
+        this.logger.log(`🔄 File ${imageId} not in local cache, will fetch from VPS...`);
       }
 
-      // File not in cache, download from VPS with streaming for maximum speed
-      this.logger.log(`Streaming download: ${metadata.originalName}`);
-      const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
-      const downloadStart = Date.now();
+      // File not in cache, ALWAYS try to download from VPS with streaming for maximum speed
+      try {
+        this.logger.log(`🔄 Streaming download from VPS: ${metadata.originalName}`);
+        const filePath = `${this.remoteBasePath}/${metadata.originalName}`;
+        const downloadStart = Date.now();
+        
+        // Use streaming download for maximum speed
+        const fileBuffer = await this.streamDownload(filePath);
+        const downloadTime = Date.now() - downloadStart;
       
-      // Use streaming download for maximum speed
-      const fileBuffer = await this.streamDownload(filePath);
-      const downloadTime = Date.now() - downloadStart;
-      
-      // Cache the file in Redis for distributed access
-      await this.redisService.setImageFile(imageId, fileBuffer, ImageService.CACHE_TTL / 1000);
-      
-      // Also cache locally as fallback
-      ImageService.fileCache.set(imageId, fileBuffer);
-      
-      const totalTime = Date.now() - startTime;
-      const speedKBps = (fileBuffer.length / 1024) / (downloadTime / 1000);
-      this.logger.log(`Streaming download completed: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB) - Speed: ${speedKBps.toFixed(1)}KB/s - Download: ${downloadTime}ms, Total: ${totalTime}ms`);
-      return fileBuffer;
+        // Cache the file in Redis for distributed access
+        await this.redisService.setImageFile(imageId, fileBuffer, ImageService.CACHE_TTL / 1000);
+        
+        // Also cache locally as fallback
+        ImageService.fileCache.set(imageId, fileBuffer);
+        
+        const totalTime = Date.now() - startTime;
+        const speedKBps = (fileBuffer.length / 1024) / (downloadTime / 1000);
+        this.logger.log(`✅ Streaming download completed: ${metadata.originalName} (${(fileBuffer.length / 1024).toFixed(1)}KB) - Speed: ${speedKBps.toFixed(1)}KB/s - Download: ${downloadTime}ms, Total: ${totalTime}ms`);
+        return fileBuffer;
+      } catch (sftpError) {
+        this.logger.warn('❌ SFTP download failed, file not available:', sftpError.message);
+        throw new HttpException('Image file not available', HttpStatus.NOT_FOUND);
+      }
     } catch (error) {
       this.logger.error('Failed to get image file:', error);
       throw new HttpException('Failed to get image file', HttpStatus.INTERNAL_SERVER_ERROR);
