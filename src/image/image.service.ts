@@ -281,27 +281,30 @@ export class ImageService {
   }
 
   /**
-   * Update metadata cache after upload operation (no file content caching)
+   * Update metadata cache after upload operation (simplified, no race conditions)
    */
   private async updateCacheAfterUpload(metadata: ImageMetadata): Promise<void> {
     try {
-      // Add new metadata to Redis cache
+      // Step 1: Add to Redis first (source of truth)
       await this.redisService.setImageMetadata(metadata.id, metadata, ImageService.CACHE_TTL / 1000);
       
-      // Add new metadata to in-memory cache as fallback
+      // Step 2: Add to in-memory cache
       ImageService.metadataCache.set(metadata.id, metadata);
       
-      // Update file list cache by adding the new file
+      // Step 3: Update file list in Redis
+      const currentFiles = await this.redisService.getFileList();
+      const updatedFiles = currentFiles ? [...currentFiles, metadata.originalName] : [metadata.originalName];
+      await this.redisService.setFileList(updatedFiles, ImageService.CACHE_TTL / 1000);
+      
+      // Step 4: Update in-memory file list cache
       if (ImageService.fileListCache) {
-        const newFile = {
+        ImageService.fileListCache.files.push({
           name: metadata.originalName,
           type: '-',
           size: metadata.size,
           modifyTime: metadata.uploadDate.getTime()
-        };
-        ImageService.fileListCache.files.push(newFile);
+        });
       } else {
-        // If file list cache is null, initialize it with the new file
         ImageService.fileListCache = {
           files: [{
             name: metadata.originalName,
@@ -313,15 +316,10 @@ export class ImageService {
         };
       }
       
-      // Update Redis file list - get current files and add new one
-      const currentFiles = await this.redisService.getFileList();
-      const updatedFiles = currentFiles ? [...currentFiles, metadata.originalName] : [metadata.originalName];
-      await this.redisService.setFileList(updatedFiles, ImageService.CACHE_TTL / 1000);
-      
-      this.logger.log(`✅ Metadata cache updated for new upload: ${metadata.originalName} (Total cached: ${ImageService.metadataCache.size})`);
+      this.logger.log(`✅ Cache updated: ${metadata.originalName} (Total: ${ImageService.metadataCache.size})`);
     } catch (error) {
-      this.logger.error('Failed to update metadata cache after upload:', error);
-      // Don't throw error - upload was successful, just cache update failed
+      this.logger.error('Failed to update cache after upload:', error);
+      throw error; // Re-throw to be handled by caller
     }
   }
 
@@ -444,28 +442,38 @@ export class ImageService {
       const filename = `${nameWithoutExt}_${timestamp}${fileExtension}`;
       const remotePath = `${this.remoteBasePath}/${filename}`;
 
-      // Try to upload to VPS, fallback to Redis-only if SFTP fails
+      // Upload to VPS first
       let uploadTime = 0;
+      let uploadSuccess = false;
       try {
         // Ensure SFTP connection for upload
         await this.ensureConnection();
         
-        // Upload file to VPS with optimized settings
+        // Upload file to VPS
         const uploadStart = Date.now();
         await ImageService.sftpInstance.put(file.buffer, remotePath);
         uploadTime = Date.now() - uploadStart;
+        
+        // Verify file exists on server
+        const fileExists = await ImageService.sftpInstance.exists(remotePath);
+        if (fileExists) {
+          uploadSuccess = true;
+          this.logger.log(`✅ File uploaded and verified: ${filename}`);
+        } else {
+          throw new Error('File upload verification failed');
+        }
       } catch (sftpError) {
-        this.logger.warn('SFTP upload failed, using Redis-only mode:', sftpError.message);
-        // Continue with Redis-only mode - file will be cached but not on VPS
+        this.logger.error('SFTP upload failed:', sftpError.message);
+        throw new HttpException('Failed to upload file to server', HttpStatus.INTERNAL_SERVER_ERROR);
       }
 
-      // Create metadata
+      // Create metadata only after successful upload
       const metadata: ImageMetadata = {
         id: filename.replace(/\.[^/.]+$/, ""), // Use filename without extension as ID
         filename: file.originalname, // Editable display name (starts as original name)
         originalName: filename, // Timestamped filename (immutable)
         size: file.size,
-        mimeType: file.mimetype || this.getMimeType(fileExtension), // Use correct property name
+        mimeType: file.mimetype || this.getMimeType(fileExtension),
         uploadDate: new Date(),
         path: remotePath,
         url: `${this.baseUrl}/${filename}`,
@@ -473,24 +481,18 @@ export class ImageService {
         category: undefined,
       };
 
-      // Update cache directly instead of clearing it
-      await this.updateCacheAfterUpload(metadata);
+      // Update cache (don't fail upload if cache update fails)
+      try {
+        await this.updateCacheAfterUpload(metadata);
+        this.logger.log(`✅ Cache updated for: ${metadata.originalName}`);
+      } catch (cacheError) {
+        this.logger.warn('Cache update failed, but upload was successful:', cacheError.message);
+        // Don't throw error - upload was successful
+      }
 
       const totalTime = Date.now() - startTime;
-      if (uploadTime > 0) {
-        const uploadSpeedKBps = (file.size / 1024) / (uploadTime / 1000);
-        this.logger.log(`🚀 OPTIMIZED upload: ${metadata.originalName} (${(file.size / 1024).toFixed(1)}KB) - Upload Speed: ${uploadSpeedKBps.toFixed(1)}KB/s - Upload: ${uploadTime}ms, Total: ${totalTime}ms`);
-      } else {
-        this.logger.log(`🚀 REDIS-ONLY upload: ${metadata.originalName} (${(file.size / 1024).toFixed(1)}KB) - Cached in Redis - Total: ${totalTime}ms`);
-      }
-
-      // Verify the upload was successful by checking if metadata is in cache
-      const cachedMetadata = await this.redisService.getImageMetadata(metadata.id);
-      if (!cachedMetadata) {
-        this.logger.warn(`⚠️ Upload completed but metadata not found in cache for ${metadata.id}`);
-      } else {
-        this.logger.log(`✅ Upload verified: ${metadata.id} is cached and accessible`);
-      }
+      const uploadSpeedKBps = (file.size / 1024) / (uploadTime / 1000);
+      this.logger.log(`🚀 Upload completed: ${metadata.originalName} (${(file.size / 1024).toFixed(1)}KB) - Speed: ${uploadSpeedKBps.toFixed(1)}KB/s - Upload: ${uploadTime}ms, Total: ${totalTime}ms`);
 
       return metadata;
     } catch (error) {
@@ -545,7 +547,7 @@ export class ImageService {
   }
 
   /**
-   * Get image metadata by ID
+   * Get image metadata by ID (Redis as source of truth)
    */
   async getImage(imageId: string): Promise<ImageMetadata> {
     try {
@@ -557,29 +559,39 @@ export class ImageService {
         );
       }
 
-      // Check Redis cache first
+      // Step 1: Check Redis first (source of truth)
       const redisMetadata = await this.redisService.getImageMetadata(imageId);
       if (redisMetadata) {
+        // Sync to in-memory cache
+        ImageService.metadataCache.set(imageId, redisMetadata);
         return redisMetadata;
       }
 
-      // Check in-memory cache as fallback
+      // Step 2: Check in-memory cache as fallback
       if (ImageService.metadataCache.has(imageId)) {
-        return ImageService.metadataCache.get(imageId)!;
+        const inMemoryMetadata = ImageService.metadataCache.get(imageId)!;
+        // Try to sync back to Redis
+        try {
+          await this.redisService.setImageMetadata(imageId, inMemoryMetadata, ImageService.CACHE_TTL / 1000);
+        } catch (syncError) {
+          this.logger.warn('Failed to sync in-memory metadata to Redis:', syncError.message);
+        }
+        return inMemoryMetadata;
       }
 
-      // If cache is empty, try to populate it first from VPS
+      // Step 3: If cache is empty, try to populate from VPS
       if (ImageService.metadataCache.size === 0) {
         try {
           await this.populateMetadataFromVPS();
           
-          // Check cache again after population
-          if (ImageService.metadataCache.has(imageId)) {
-            return ImageService.metadataCache.get(imageId)!;
+          // Check Redis again after population
+          const newRedisMetadata = await this.redisService.getImageMetadata(imageId);
+          if (newRedisMetadata) {
+            ImageService.metadataCache.set(imageId, newRedisMetadata);
+            return newRedisMetadata;
           }
         } catch (sftpError) {
           this.logger.warn('SFTP populate metadata cache failed for getImage:', sftpError.message);
-          // Continue to throw "not found" error
         }
       }
 
@@ -588,7 +600,6 @@ export class ImageService {
     } catch (error) {
       this.logger.error('Failed to get image:', error);
       
-      // If it's already an HttpException, re-throw it
       if (error instanceof HttpException) {
         throw error;
       }
@@ -601,7 +612,7 @@ export class ImageService {
   }
 
   /**
-   * List all images
+   * List all images (Redis as source of truth)
    */
   async listImages(): Promise<ImageMetadata[]> {
     try {
@@ -613,18 +624,7 @@ export class ImageService {
         );
       }
       
-      // Always ensure cache is populated first
-      if (ImageService.metadataCache.size === 0) {
-        try {
-          this.logger.log('Cache empty, populating from VPS...');
-          await this.populateMetadataFromVPS();
-        } catch (sftpError) {
-          this.logger.warn('SFTP populate metadata cache failed:', sftpError.message);
-          // Continue with whatever we have in cache
-        }
-      }
-      
-      // Try to get from Redis first
+      // Step 1: Try Redis first (source of truth)
       const redisKeys = await this.redisService.keys('image:metadata:*');
       if (redisKeys.length > 0) {
         const allImages = [];
@@ -633,26 +633,49 @@ export class ImageService {
           const metadata = await this.redisService.getImageMetadata(imageId);
           if (metadata) {
             allImages.push(metadata);
+            // Sync to in-memory cache
+            ImageService.metadataCache.set(imageId, metadata);
           }
         }
-        this.logger.log(`Returning ${allImages.length} images from Redis cache`);
+        this.logger.log(`✅ Returning ${allImages.length} images from Redis (source of truth)`);
         return allImages;
       }
       
-      // Fallback to in-memory cache
+      // Step 2: Redis empty, populate from VPS
+      this.logger.log('Redis empty, populating from VPS...');
+      try {
+        await this.populateMetadataFromVPS();
+        
+        // Try Redis again after population
+        const newRedisKeys = await this.redisService.keys('image:metadata:*');
+        if (newRedisKeys.length > 0) {
+          const allImages = [];
+          for (const key of newRedisKeys) {
+            const imageId = key.replace('image:metadata:', '');
+            const metadata = await this.redisService.getImageMetadata(imageId);
+            if (metadata) {
+              allImages.push(metadata);
+            }
+          }
+          this.logger.log(`✅ Returning ${allImages.length} images from Redis after VPS population`);
+          return allImages;
+        }
+      } catch (sftpError) {
+        this.logger.warn('VPS population failed:', sftpError.message);
+      }
+      
+      // Step 3: Fallback to in-memory cache
       const allImages = Array.from(ImageService.metadataCache.values());
-      this.logger.log(`Returning ${allImages.length} images from in-memory cache`);
+      this.logger.log(`⚠️ Fallback: Returning ${allImages.length} images from in-memory cache`);
       
       return allImages;
     } catch (error) {
       this.logger.error('Failed to list images:', error);
       
-      // If it's already an HttpException, re-throw it
       if (error instanceof HttpException) {
         throw error;
       }
       
-      // For other errors, throw a generic service unavailable error
       throw new HttpException(
         'Image storage service is temporarily unavailable. Please try again later.',
         HttpStatus.SERVICE_UNAVAILABLE
@@ -757,6 +780,31 @@ export class ImageService {
   }
 
   /**
+   * Sync in-memory cache with Redis (ensure consistency)
+   */
+  private async syncCacheWithRedis(): Promise<void> {
+    try {
+      const redisKeys = await this.redisService.keys('image:metadata:*');
+      let syncedCount = 0;
+      
+      for (const key of redisKeys) {
+        const imageId = key.replace('image:metadata:', '');
+        const redisMetadata = await this.redisService.getImageMetadata(imageId);
+        
+        if (redisMetadata) {
+          // Update in-memory cache with Redis data
+          ImageService.metadataCache.set(imageId, redisMetadata);
+          syncedCount++;
+        }
+      }
+      
+      this.logger.log(`✅ Cache synced: ${syncedCount} images synchronized with Redis`);
+    } catch (error) {
+      this.logger.warn('Failed to sync cache with Redis:', error.message);
+    }
+  }
+
+  /**
    * Update all image URLs when domain changes (admin endpoint)
    */
   async updateImageUrlsForNewDomain(): Promise<{ success: boolean; message: string; updatedCount: number }> {
@@ -766,26 +814,30 @@ export class ImageService {
       const currentBaseUrl = this.configService.get('CONTABO_BASE_URL') || 'https://your-domain.com/images';
       let updatedCount = 0;
       
-      // Get all cached images
-      const allImages = Array.from(ImageService.metadataCache.values());
+      // Get all cached images from Redis (source of truth)
+      const redisKeys = await this.redisService.keys('image:metadata:*');
       
-      for (const metadata of allImages) {
+      for (const key of redisKeys) {
+        const imageId = key.replace('image:metadata:', '');
         try {
-          // Update the URL with the new base URL
-          const updatedMetadata: ImageMetadata = {
-            ...metadata,
-            url: `${currentBaseUrl}/${metadata.originalName}`,
-          };
-          
-          // Update Redis cache
-          await this.redisService.setImageMetadata(metadata.id, updatedMetadata, ImageService.CACHE_TTL / 1000);
-          
-          // Update in-memory cache
-          ImageService.metadataCache.set(metadata.id, updatedMetadata);
-          
-          updatedCount++;
+          const metadata = await this.redisService.getImageMetadata(imageId);
+          if (metadata) {
+            // Update the URL with the new base URL
+            const updatedMetadata: ImageMetadata = {
+              ...metadata,
+              url: `${currentBaseUrl}/${metadata.originalName}`,
+            };
+            
+            // Update Redis cache
+            await this.redisService.setImageMetadata(imageId, updatedMetadata, ImageService.CACHE_TTL / 1000);
+            
+            // Update in-memory cache
+            ImageService.metadataCache.set(imageId, updatedMetadata);
+            
+            updatedCount++;
+          }
         } catch (error) {
-          this.logger.warn(`Failed to update URL for image ${metadata.id}:`, error);
+          this.logger.warn(`Failed to update URL for image ${imageId}:`, error);
         }
       }
       
