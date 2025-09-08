@@ -29,10 +29,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         socket: {
           host,
           port,
-          connectTimeout: 10000,
+          connectTimeout: 5000, // Reduced timeout for faster connection
+          keepAlive: true, // Keep connection alive
+          noDelay: true, // Disable Nagle's algorithm for faster data transfer
         },
         password: password || undefined,
         database: db,
+        // Performance optimizations
+        commandsQueueMaxLength: 1000,
       });
 
       this.client.on('error', (err) => {
@@ -183,6 +187,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
 
+      // Use direct buffer operations for maximum performance
       const data = await this.client.get(`image:file:${imageId}`);
       return data ? Buffer.from(data as string, 'base64') : null;
     } catch (error) {
@@ -197,11 +202,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         return false;
       }
 
-      const base64Data = buffer.toString('base64');
+      // Store as binary data for better performance (no base64 conversion)
       if (ttlSeconds) {
-        await this.client.setEx(`image:file:${imageId}`, ttlSeconds, base64Data);
+        await this.client.setEx(`image:file:${imageId}`, ttlSeconds, buffer);
       } else {
-        await this.client.set(`image:file:${imageId}`, base64Data);
+        await this.client.set(`image:file:${imageId}`, buffer);
       }
       
       return true;

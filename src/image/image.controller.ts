@@ -61,11 +61,12 @@ export class ImageController {
   }
 
   /**
-   * Download image file from VPS
+   * Download image file from VPS - OPTIMIZED for maximum speed
    * GET /images/:id/download
    */
   @Get(':id/download')
   async downloadImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    const startTime = Date.now();
     try {
       const imageBuffer = await this.imageService.getImageFile(id);
       const metadata = await this.imageService.getImage(id);
@@ -80,9 +81,16 @@ export class ImageController {
         'Accept-Ranges': 'bytes',
         'Connection': 'keep-alive',
         'X-Content-Type-Options': 'nosniff',
+        'X-Accel-Buffering': 'no', // Disable nginx buffering for faster streaming
       });
       
-      res.send(imageBuffer);
+      // Direct buffer send for maximum speed (no streaming overhead)
+      res.end(imageBuffer);
+      
+      const totalTime = Date.now() - startTime;
+      const speedKBps = (imageBuffer.length / 1024) / (totalTime / 1000);
+      console.log(`🚀 OPTIMIZED download: ${metadata.originalName} (${(imageBuffer.length / 1024).toFixed(1)}KB) - Speed: ${speedKBps.toFixed(1)}KB/s - Total: ${totalTime}ms`);
+      
     } catch (error) {
       res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
     }
