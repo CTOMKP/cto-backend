@@ -171,4 +171,15 @@ export class ImageController {
     return this.imageService.refreshCacheFromVPS();
   }
 
+  /**
+   * Update all image URLs for new domain (admin endpoint)
+   * POST /images/admin/update-urls
+   */
+  @Post('admin/update-urls')
+  @UseGuards(JwtAuthGuard)
+  async updateImageUrls(): Promise<{ success: boolean; message: string; updatedCount: number }> {
+    return this.imageService.updateImageUrlsForNewDomain();
+  }
+
+
 }
