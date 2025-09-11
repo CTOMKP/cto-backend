@@ -558,19 +558,38 @@ export class ImageService {
           const fileExtension = path.extname(file.name);
           const id = file.name.replace(fileExtension, '');
           
-          const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${file.name}`);
-          const metadata: ImageMetadata = {
-            id,
-            filename: file.name,
-            originalName: file.name,
-            size: stats.size || 0,
-            mimeType: this.getMimeType(fileExtension),
-            uploadDate: new Date(stats.modifyTime || Date.now()),
-            path: `${this.remoteBasePath}/${file.name}`,
-            url: `${this.baseUrl}/api/images/${id}/view`,
-            description: undefined,
-            category: undefined,
-          };
+          // Check if we already have edited metadata for this image
+          const existingMetadata = ImageService.metadataCache.get(id) || await this.redisService.getImageMetadata(id);
+          
+          let metadata: ImageMetadata;
+          
+          if (existingMetadata) {
+            // Preserve existing edited metadata, only update file system properties
+            const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${file.name}`);
+            metadata = {
+              ...existingMetadata, // Keep edited fields (filename, description, category)
+              originalName: file.name, // Update from VPS
+              size: stats.size || existingMetadata.size, // Update from VPS
+              uploadDate: new Date(stats.modifyTime || existingMetadata.uploadDate.getTime()), // Update from VPS
+              path: `${this.remoteBasePath}/${file.name}`, // Update from VPS
+              url: `${this.baseUrl}/api/images/${id}/view`, // Update from VPS
+            };
+          } else {
+            // New image, create fresh metadata
+            const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${file.name}`);
+            metadata = {
+              id,
+              filename: file.name,
+              originalName: file.name,
+              size: stats.size || 0,
+              mimeType: this.getMimeType(fileExtension),
+              uploadDate: new Date(stats.modifyTime || Date.now()),
+              path: `${this.remoteBasePath}/${file.name}`,
+              url: `${this.baseUrl}/api/images/${id}/view`,
+              description: undefined,
+              category: undefined,
+            };
+          }
 
           ImageService.metadataCache.set(id, metadata);
           allMetadata.push(metadata);
