@@ -486,6 +486,25 @@ export class ImageService {
         ...editData,
       };
 
+      // If filename changed, rename the file on VPS
+      if (editData.filename && editData.filename !== currentMetadata.filename) {
+        await this.ensureConnection();
+        
+        const oldPath = `${this.remoteBasePath}/${currentMetadata.originalName}`;
+        const newFilename = this.sanitizeFilename(editData.filename);
+        const newPath = `${this.remoteBasePath}/${newFilename}`;
+        
+        // Rename file on VPS
+        await ImageService.sftpInstance.rename(oldPath, newPath);
+        
+        // Update the originalName to reflect the new filename
+        updatedMetadata.originalName = newFilename;
+        updatedMetadata.path = newPath;
+        updatedMetadata.url = `${this.baseUrl}/api/images/${imageId}/view`;
+        
+        this.logger.log(`Renamed file on VPS: ${currentMetadata.originalName} → ${newFilename}`);
+      }
+
       // Update caches
       ImageService.metadataCache.set(imageId, updatedMetadata);
       await this.redisService.setImageMetadata(imageId, updatedMetadata);
@@ -568,10 +587,10 @@ export class ImageService {
             const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${file.name}`);
             metadata = {
               ...existingMetadata, // Keep edited fields (filename, description, category)
-              originalName: file.name, // Update from VPS
+              originalName: existingMetadata.originalName, // Keep the edited filename
               size: stats.size || existingMetadata.size, // Update from VPS
               uploadDate: new Date(stats.modifyTime || existingMetadata.uploadDate.getTime()), // Update from VPS
-              path: `${this.remoteBasePath}/${file.name}`, // Update from VPS
+              path: `${this.remoteBasePath}/${existingMetadata.originalName}`, // Use edited filename
               url: `${this.baseUrl}/api/images/${id}/view`, // Update from VPS
             };
           } else {
@@ -610,6 +629,21 @@ export class ImageService {
 
 
 
+
+  /**
+   * Sanitize filename for VPS storage
+   */
+  private sanitizeFilename(filename: string): string {
+    // Remove invalid characters and ensure it's safe for VPS
+    const sanitized = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+    
+    // Ensure it has a proper extension
+    if (!sanitized.includes('.')) {
+      return `${sanitized}.jpg`; // Default to .jpg if no extension
+    }
+    
+    return sanitized;
+  }
 
   /**
    * Get MIME type from file extension
