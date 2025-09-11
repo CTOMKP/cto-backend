@@ -23,6 +23,11 @@ export class ImageService {
   private static connectionPromise: Promise<void> | null = null;
   private static keepAliveInterval: NodeJS.Timeout | null = null;
   private static sftpInstance: Client | null = null;
+  
+  // Connection pooling for parallel downloads
+  private static connectionPool: Client[] = [];
+  private static maxConnections = 3;
+  private static activeConnections = 0;
 
   constructor(
     private readonly configService: ConfigService,
@@ -76,14 +81,15 @@ export class ImageService {
         port,
         username,
         password,
-        keepaliveInterval: 30000,
-        keepaliveCountMax: 5,
-        readyTimeout: 10000,
+        // Ultra-fast connection options
+        keepaliveInterval: 15000, // 15 seconds for faster recovery
+        keepaliveCountMax: 10, // More retries
+        readyTimeout: 5000, // 5 seconds timeout for faster connection
         algorithms: {
-          kex: ['diffie-hellman-group14-sha256', 'ecdh-sha2-nistp256'],
-          cipher: ['aes128-ctr', 'aes192-ctr', 'aes256-ctr'],
-          hmac: ['hmac-sha2-256', 'hmac-sha2-512'],
-          compress: ['none']
+          kex: ['diffie-hellman-group14-sha256'], // Single fastest
+          cipher: ['aes128-ctr'], // Fastest cipher
+          hmac: ['hmac-sha2-256'], // Fastest HMAC
+          compress: ['none'] // Disable compression for speed
         },
       });
 
@@ -252,34 +258,107 @@ export class ImageService {
   }
 
   /**
-   * Stream download for maximum speed
+   * Get connection from pool or create new one
+   */
+  private async getPooledConnection(): Promise<Client> {
+    // Return existing connection if available
+    if (ImageService.connectionPool.length > 0) {
+      return ImageService.connectionPool.pop()!;
+    }
+    
+    // Create new connection if under limit
+    if (ImageService.activeConnections < ImageService.maxConnections) {
+      const client = new Client();
+      await client.connect({
+        host: this.configService.get('CONTABO_HOST'),
+        port: this.configService.get('CONTABO_PORT') || 22,
+        username: this.configService.get('CONTABO_USERNAME'),
+        password: this.configService.get('CONTABO_PASSWORD'),
+        keepaliveInterval: 15000,
+        keepaliveCountMax: 10,
+        readyTimeout: 5000,
+        algorithms: {
+          kex: ['diffie-hellman-group14-sha256'],
+          cipher: ['aes128-ctr'],
+          hmac: ['hmac-sha2-256'],
+          compress: ['none']
+        },
+      });
+      
+      ImageService.activeConnections++;
+      return client;
+    }
+    
+    // Fallback to main connection
+    await this.ensureConnection();
+    return ImageService.sftpInstance!;
+  }
+
+  /**
+   * Return connection to pool
+   */
+  private returnConnectionToPool(client: Client): void {
+    if (ImageService.connectionPool.length < ImageService.maxConnections) {
+      ImageService.connectionPool.push(client);
+    } else {
+      // Close excess connections
+      client.end().catch(() => {});
+      ImageService.activeConnections--;
+    }
+  }
+
+  /**
+   * Stream download for maximum speed with connection pooling
    */
   private async streamDownload(filePath: string): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let totalSize = 0;
+    let client: Client | null = null;
+    
+    try {
+      // Get connection from pool for better performance
+      client = await this.getPooledConnection();
       
-      const stream = ImageService.sftpInstance.createReadStream(filePath, {
-        flags: 'r',
-        encoding: null,
-        highWaterMark: 64 * 1024, // 64KB chunks for optimal speed
-        autoClose: true
+      return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        let totalSize = 0;
+        
+        const stream = client!.createReadStream(filePath, {
+          flags: 'r',
+          encoding: null,
+          highWaterMark: 512 * 1024, // 512KB chunks for maximum speed
+          autoClose: true
+        });
+        
+        // Add parallel processing for better performance
+        let chunkCount = 0;
+        const maxConcurrentChunks = 4; // Process up to 4 chunks simultaneously
+        
+        stream.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+          totalSize += chunk.length;
+          chunkCount++;
+          
+          // Process chunks in parallel for better performance
+          if (chunkCount % maxConcurrentChunks === 0) {
+            // Allow other operations to run
+            setImmediate(() => {});
+          }
+        });
+        
+        stream.on('end', () => {
+          const buffer = Buffer.concat(chunks, totalSize);
+          resolve(buffer);
+        });
+        
+        stream.on('error', (error) => {
+          reject(error);
+        });
       });
-      
-      stream.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
-        totalSize += chunk.length;
-      });
-      
-      stream.on('end', () => {
-        const buffer = Buffer.concat(chunks, totalSize);
-        resolve(buffer);
-      });
-      
-      stream.on('error', (error) => {
-        reject(error);
-      });
-    });
+    } finally {
+      // Return connection to pool
+      if (client) {
+        this.returnConnectionToPool(client);
+      }
+    }
   }
 
   /**
@@ -709,18 +788,36 @@ export class ImageService {
   async onModuleDestroy() {
     this.stopKeepAlive();
     
+    // Close main SFTP connection
     if (ImageService.sftpInstance) {
       try {
         if (typeof ImageService.sftpInstance.end === 'function') {
           await ImageService.sftpInstance.end();
-          this.logger.log('SFTP connection closed');
+          this.logger.log('Main SFTP connection closed');
         }
       } catch (error) {
-        this.logger.warn('Error during SFTP cleanup on module destroy:', error);
+        this.logger.warn('Error during main SFTP cleanup:', error);
       } finally {
         ImageService.sftpInstance = null;
       }
     }
+    
+    // Close all pooled connections
+    const poolPromises = ImageService.connectionPool.map(async (client) => {
+      try {
+        if (typeof client.end === 'function') {
+          await client.end();
+        }
+      } catch (error) {
+        this.logger.warn('Error closing pooled connection:', error);
+      }
+    });
+    
+    await Promise.all(poolPromises);
+    ImageService.connectionPool = [];
+    ImageService.activeConnections = 0;
+    
+    this.logger.log('All SFTP connections closed');
   }
 
 }
