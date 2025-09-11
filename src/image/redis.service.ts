@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, RedisClientType } from 'redis';
+import { ImageMetadata } from './types';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -96,7 +97,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async set(key: string, value: any, ttlSeconds?: number): Promise<boolean> {
+  async set(key: string, value: unknown, ttlSeconds?: number): Promise<boolean> {
     try {
       if (!await this.isRedisAvailable()) {
         return false;
@@ -173,21 +174,77 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Image-specific cache operations
-  async getImageMetadata(imageId: string): Promise<any> {
-    return this.get(`image:metadata:${imageId}`);
+  async getImageMetadata(imageId: string): Promise<ImageMetadata | null> {
+    return this.get<ImageMetadata>(`image:metadata:${imageId}`);
   }
 
-  async setImageMetadata(imageId: string, metadata: any, ttlSeconds?: number): Promise<boolean> {
+  async setImageMetadata(imageId: string, metadata: ImageMetadata, ttlSeconds?: number): Promise<boolean> {
     return this.set(`image:metadata:${imageId}`, metadata, ttlSeconds);
   }
 
 
-  async getFileList(): Promise<string[]> {
-    return this.get('image:filelist') || [];
+  async getFileList(): Promise<ImageMetadata[]> {
+    const result = await this.get<ImageMetadata[]>('image:filelist');
+    return result || [];
   }
 
-  async setFileList(fileList: string[], ttlSeconds?: number): Promise<boolean> {
+  async setFileList(fileList: ImageMetadata[], ttlSeconds?: number): Promise<boolean> {
     return this.set('image:filelist', fileList, ttlSeconds);
+  }
+
+  // Image file buffer caching
+  async getImageFileBuffer(imageId: string): Promise<Buffer | null> {
+    try {
+      if (!await this.isRedisAvailable()) {
+        this.logger.warn(`Redis not available for image buffer ${imageId}`);
+        return null;
+      }
+      
+      const key = `image:buffer:${imageId}`;
+      const value = await this.client.get(key);
+      if (value) {
+        try {
+          const stringValue = String(value);
+          const buffer = Buffer.from(stringValue, 'base64');
+          this.logger.debug(`Retrieved image buffer from Redis: ${imageId} (${(buffer.length / 1024).toFixed(1)}KB)`);
+          return buffer;
+        } catch (bufferError) {
+          this.logger.warn(`Failed to create buffer from value for ${imageId}:`, bufferError);
+          return null;
+        }
+      } else {
+        this.logger.debug(`No cached buffer found for image: ${imageId}`);
+      }
+      return null;
+    } catch (error) {
+      this.logger.warn(`Failed to get image buffer ${imageId}:`, error.message);
+      return null;
+    }
+  }
+
+  async setImageFileBuffer(imageId: string, buffer: Buffer, ttlSeconds?: number): Promise<boolean> {
+    try {
+      if (!await this.isRedisAvailable()) {
+        this.logger.warn(`Redis not available for setting image buffer ${imageId}`);
+        return false;
+      }
+
+      const key = `image:buffer:${imageId}`;
+      const base64Buffer = buffer.toString('base64');
+      
+      if (ttlSeconds) {
+        await this.client.setEx(key, ttlSeconds, base64Buffer);
+      } else {
+        // Default TTL of 24 hours for image buffers
+        await this.client.setEx(key, 24 * 60 * 60, base64Buffer);
+      }
+      
+      this.logger.debug(`Cached image buffer in Redis: ${imageId} (${(buffer.length / 1024).toFixed(1)}KB)`);
+      return true;
+    } catch (error) {
+      this.logger.warn(`Failed to set image buffer ${imageId}:`, error.message);
+      return false;
+    }
   }
 
   async clearImageCache(): Promise<boolean> {
