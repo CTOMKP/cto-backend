@@ -366,22 +366,32 @@ export class ImageService {
    */
   async listImages(): Promise<ImageMetadata[]> {
     try {
-      // Try to get from Redis first
+      // Always use memory cache first (most up-to-date)
+      if (ImageService.metadataCache.size > 0) {
+        const allImages = Array.from(ImageService.metadataCache.values());
+        this.logger.log(`Returning ${allImages.length} images from memory cache`);
+        return allImages;
+      }
+
+      // If memory cache is empty, try Redis
       const redisImages: ImageMetadata[] = await this.redisService.getFileList();
       if (redisImages && redisImages.length > 0) {
         this.logger.log(`Returning ${redisImages.length} images from Redis`);
         
+        // Populate memory cache with Redis data
+        redisImages.forEach(image => {
+          ImageService.metadataCache.set(image.id, image);
+        });
         
         return redisImages;
       }
 
-      // If Redis is empty, populate from VPS
-      this.logger.log('Redis cache empty, populating from VPS...');
+      // If both caches are empty, populate from VPS
+      this.logger.log('Both caches empty, populating from VPS...');
       await this.populateCacheFromVPS();
       
       const allImages = Array.from(ImageService.metadataCache.values());
-      this.logger.log(`Returning ${allImages.length} images from cache`);
-      
+      this.logger.log(`Returning ${allImages.length} images from VPS population`);
       
       return allImages;
     } catch (error) {
@@ -430,6 +440,8 @@ export class ImageService {
       await this.redisService.setImageMetadata(metadata.id, metadata);
       await this.redisService.setImageFileBuffer(metadata.id, file.buffer);
       
+      // Update file list in Redis to include the new image
+      await this.updateFileListInRedis();
 
       this.logger.log(`Uploaded and cached: ${metadata.originalName} (${(file.buffer.length / 1024).toFixed(1)}KB)`);
       return metadata;
@@ -462,6 +474,9 @@ export class ImageService {
       // Remove specific image from Redis (not entire cache)
       await this.redisService.del(`image:metadata:${imageId}`);
       await this.redisService.del(`image:buffer:${imageId}`);
+      
+      // Update file list in Redis to remove the deleted image
+      await this.updateFileListInRedis();
 
       this.logger.log(`Deleted: ${metadata.originalName}`);
       return true;
@@ -508,6 +523,9 @@ export class ImageService {
       // Update caches
       ImageService.metadataCache.set(imageId, updatedMetadata);
       await this.redisService.setImageMetadata(imageId, updatedMetadata);
+      
+      // Update the file list in Redis to include the edited image
+      await this.updateFileListInRedis();
 
       this.logger.log(`Updated metadata for: ${imageId}`);
       return updatedMetadata;
@@ -584,7 +602,8 @@ export class ImageService {
           
           if (existingMetadata) {
             // Preserve existing edited metadata, only update file system properties
-            const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${file.name}`);
+            // Use the edited filename (originalName) instead of VPS file.name
+            const stats = await ImageService.sftpInstance.stat(`${this.remoteBasePath}/${existingMetadata.originalName}`);
             metadata = {
               ...existingMetadata, // Keep edited fields (filename, description, category)
               originalName: existingMetadata.originalName, // Keep the edited filename
@@ -629,6 +648,19 @@ export class ImageService {
 
 
 
+
+  /**
+   * Update file list in Redis with current memory cache
+   */
+  private async updateFileListInRedis(): Promise<void> {
+    try {
+      const allImages = Array.from(ImageService.metadataCache.values());
+      await this.redisService.setFileList(allImages);
+      this.logger.debug(`Updated file list in Redis with ${allImages.length} images`);
+    } catch (error) {
+      this.logger.warn('Failed to update file list in Redis:', error);
+    }
+  }
 
   /**
    * Sanitize filename for VPS storage
