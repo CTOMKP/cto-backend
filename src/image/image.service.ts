@@ -458,7 +458,10 @@ export class ImageService {
       // Remove from caches
       ImageService.metadataCache.delete(imageId);
       ImageService.fileCache.delete(imageId);
-      await this.redisService.clearImageCache();
+      
+      // Remove specific image from Redis (not entire cache)
+      await this.redisService.del(`image:metadata:${imageId}`);
+      await this.redisService.del(`image:buffer:${imageId}`);
 
       this.logger.log(`Deleted: ${metadata.originalName}`);
       return true;
