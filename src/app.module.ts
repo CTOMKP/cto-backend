@@ -4,6 +4,7 @@ import { ScanModule } from './scan/scan.module';
 import { ImageModule } from './image/image.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health/health.controller';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { HealthController } from './health/health.controller';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    PrismaModule,
     ScanModule,
     ImageModule,
     AuthModule,
