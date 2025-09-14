@@ -162,7 +162,8 @@ function checkProjectAge(projectAge, criteria) {
  */
 function checkLPAmount(lpAmount, criteria) {
   if (criteria.min && lpAmount < criteria.min) return false;
-  if (criteria.max && lpAmount > criteria.max) return false;
+  // Ignore max cap to avoid penalizing large-cap tokens (e.g., USDC)
+  // if (criteria.max && lpAmount > criteria.max) return false;
   return true;
 }
 

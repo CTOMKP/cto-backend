@@ -7,6 +7,7 @@ import {
   Logger, 
   UseGuards,
   Req,
+  HttpCode,
 } from '@nestjs/common';
 import { 
   ApiTags, 
@@ -35,6 +36,7 @@ export class ScanController {
   @ApiResponse({ status: 500, description: 'Internal server error during scan' })
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
   async scanSingleToken(@Body() scanRequest: ScanRequestDto, @Req() req: any): Promise<ScanResultDto> {
     try {
       this.logger.log(`Single token scan requested for: ${scanRequest.contractAddress}`);
@@ -50,6 +52,7 @@ export class ScanController {
   }
 
   @Post('scan-batch')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Scan multiple tokens', description: 'Performs comprehensive analysis of multiple Solana tokens in batch' })
   @ApiBody({ type: BatchScanRequestDto })
   @ApiResponse({ status: 200, description: 'Batch scan completed successfully', type: BatchScanResponseDto })

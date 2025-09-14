@@ -152,7 +152,20 @@ export class ScanService {
           }
           const tier = classifyTier(tokenData);
           if (!tier) {
-            return { contractAddress, success: false, error: 'Token does not meet minimum criteria for any tier', eligible: false };
+            return {
+              contractAddress,
+              success: false,
+              error: 'Token does not meet minimum criteria for any tier',
+              eligible: false,
+              metadata: {
+                token_symbol: tokenData.symbol,
+                token_name: tokenData.name,
+                lp_amount_usd: tokenData.lp_amount_usd,
+                project_age_days: tokenData.project_age_days,
+                active_wallets: tokenData.active_wallets,
+                holder_count: tokenData.holder_count
+              }
+            };
           }
           const riskScore = calculateRiskScore(tokenData, tier);
           const riskLevel = getRiskLevel(riskScore);

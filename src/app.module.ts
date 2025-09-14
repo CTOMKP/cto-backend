@@ -10,7 +10,13 @@ import { PrismaModule } from './prisma/prisma.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      // Load env in this order: .env.NODE_ENV.local → .env.NODE_ENV → .env.local → .env
+      envFilePath: [
+        `.env.${process.env.NODE_ENV}.local`,
+        `.env.${process.env.NODE_ENV}`,
+        '.env.local',
+        '.env',
+      ],
     }),
     PrismaModule,
     ScanModule,
