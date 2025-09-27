@@ -32,7 +32,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
       // Skip Redis if URL is invalid or contains placeholder text
       if (url && (url.includes('(Active IP)') || url.includes('placeholder'))) {
-        this.logger.warn('Invalid Redis URL detected, skipping Redis connection:', url);
+        this.logger.warn('🚫 Invalid Redis URL detected, skipping Redis connection:', url);
         this.isConnected = false;
         return;
       }
