@@ -28,15 +28,25 @@ export async function createApp() {
   // Add root-level endpoints for Railway health checks and API info
   const expressApp = app.getHttpAdapter().getInstance();
   
-  // Root health check for Railway
+  // Root health check for Railway - Simple check that doesn't depend on DB
   expressApp.get('/health', (req: Request, res: Response) => {
-    res.json({
-      status: 'OK',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
-      version: '1.0.0'
-    });
+    try {
+      res.status(200).json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development',
+        version: '1.0.0',
+        message: 'CTO Vetting API is running'
+      });
+    } catch (error) {
+      console.error('Health check error:', error);
+      res.status(500).json({
+        status: 'ERROR',
+        timestamp: new Date().toISOString(),
+        error: 'Health check failed'
+      });
+    }
   });
 
   // API info endpoint
@@ -93,7 +103,12 @@ if (require.main === module) {
     
     console.log(`🚀 CTO Vetting API running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 Database URL: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
+    console.log(`🏥 Health check: http://localhost:${PORT}/health`);
     console.log(`📚 API Documentation available at: http://localhost:${PORT}/api/docs`);
+  }).catch(error => {
+    console.error('❌ Failed to start CTO Vetting API:', error);
+    process.exit(1);
   });
 }
 
