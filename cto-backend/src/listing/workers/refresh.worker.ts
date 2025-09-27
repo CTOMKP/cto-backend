@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import axios from 'axios';
+import * as crypto from 'crypto';
 import { ScanService } from '../../scan/services/scan.service';
 import { ListingRepository } from '../repository/listing.repository';
 import { CacheService } from '../services/cache.service';

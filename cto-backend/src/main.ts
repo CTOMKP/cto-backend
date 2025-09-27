@@ -1,4 +1,11 @@
 import 'reflect-metadata';
+import * as crypto from 'crypto';
+
+// Ensure crypto is available globally for NestJS Schedule
+if (typeof globalThis.crypto === 'undefined') {
+  globalThis.crypto = crypto.webcrypto as any;
+}
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, INestApplication } from '@nestjs/common';
