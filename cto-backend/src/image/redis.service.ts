@@ -30,6 +30,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       const dev = process.env.NODE_ENV !== 'production';
       const connectTimeout = dev ? 2000 : 5000;
 
+      // Skip Redis if URL is invalid or contains placeholder text
+      if (url && (url.includes('(Active IP)') || url.includes('placeholder'))) {
+        this.logger.warn('Invalid Redis URL detected, skipping Redis connection:', url);
+        this.isConnected = false;
+        return;
+      }
+
       if (url) {
         this.client = createClient({ url, socket: { connectTimeout, keepAlive: true, noDelay: true } });
       } else {
@@ -65,7 +72,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       if (process.env.NODE_ENV !== 'production') {
         this.logger.warn('Skipping Redis connection during dev startup:', (error as Error).message);
       } else {
-        this.logger.error('Failed to connect to Redis:', error);
+        // In production, log the error but don't crash the app
+        this.logger.warn('Redis connection failed, continuing without cache:', (error as Error).message);
       }
       this.isConnected = false;
     }
