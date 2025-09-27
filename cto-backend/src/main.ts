@@ -29,10 +29,7 @@ export async function createApp() {
     transform: true,
   }));
 
-  // Global prefix - MUST be set BEFORE Swagger configuration
-  app.setGlobalPrefix('api');
-
-  // Add root-level endpoints for Railway health checks and API info
+  // Add root-level endpoints BEFORE setting global prefix
   const expressApp = app.getHttpAdapter().getInstance();
   
   // Root health check for Railway - Simple check that doesn't depend on DB
@@ -56,7 +53,7 @@ export async function createApp() {
     }
   });
 
-  // API info endpoint
+  // API info endpoint - BEFORE global prefix
   expressApp.get('/api', (req: Request, res: Response) => {
     res.json({
       message: 'CTO Vetting API',
@@ -73,6 +70,9 @@ export async function createApp() {
         : 'Disabled in production'
     });
   });
+
+  // Global prefix - MUST be set AFTER custom routes but BEFORE Swagger
+  app.setGlobalPrefix('api');
 
   // Swagger documentation
   // Allow enabling in production by setting ENABLE_SWAGGER=true
