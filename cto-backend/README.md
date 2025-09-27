@@ -244,4 +244,5 @@ Planned changes:
 Rollout checklist
 - Add env vars, run locally.
 - Deploy with migration already in place; no DB schema changes expected for Phase 2.
-- Monitor logs for provider errors and adjust rate limits accordingly.
+- Monitor logs for provider errors and adjust rate limits accordingly.#   F o r c e   r e d e p l o y   0 9 / 2 8 / 2 0 2 5   0 8 : 3 2 : 4 1  
+ 
