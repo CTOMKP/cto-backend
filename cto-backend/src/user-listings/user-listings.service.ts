@@ -1,0 +1,144 @@
+import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateUserListingDto } from './dto/create-user-listing.dto';
+import { UpdateUserListingDto } from './dto/update-user-listing.dto';
+import { CreateAdBoostDto } from './dto/ad-boost.dto';
+import { ScanDto } from './dto/scan.dto';
+import { ScanService } from '../scan/services/scan.service';
+
+@Injectable()
+export class UserListingsService {
+  private readonly MAX_RISK = 40; // pass if risk_score <= MAX_RISK
+
+  constructor(private prisma: PrismaService, private scanService: ScanService) {}
+
+  async scan(userId: number | undefined, dto: ScanDto) {
+    const chain = dto.chain || 'SOLANA';
+    // Delegate to existing ScanService; use userId to persist scan result linkage
+    const result = await this.scanService.scanToken(dto.contractAddr, userId, chain as any);
+
+    const score = result?.risk_score ?? 100; // lower is better
+    const tier = result?.tier ?? 'Seed';
+
+    const passed = typeof score === 'number' && score <= this.MAX_RISK && result?.eligible !== false;
+    return {
+      success: passed,
+      vettingScore: score,
+      vettingTier: tier,
+      eligible: passed,
+      details: result,
+    };
+  }
+
+  async create(userId: number, dto: CreateUserListingDto) {
+    if (!userId) throw new ForbiddenException('Authentication required');
+    if ((dto.vettingScore ?? 100) > this.MAX_RISK) throw new BadRequestException('Vetting score above allowed risk');
+
+    const created = await this.prisma.userListing.create({
+      data: {
+        userId,
+        contractAddr: dto.contractAddr,
+        chain: dto.chain,
+        title: dto.title,
+        description: dto.description,
+        bio: dto.bio,
+        logoUrl: dto.logoUrl,
+        bannerUrl: dto.bannerUrl,
+        links: dto.links as any,
+        status: 'DRAFT',
+        vettingTier: dto.vettingTier,
+        vettingScore: dto.vettingScore,
+      },
+    });
+    return { success: true, data: created };
+  }
+
+  async update(userId: number, id: string, dto: UpdateUserListingDto) {
+    const found = await this.prisma.userListing.findUnique({ where: { id } });
+    if (!found) throw new NotFoundException('Listing not found');
+    if (found.userId !== userId) throw new ForbiddenException('Not your listing');
+    if (found.status === 'PUBLISHED') throw new BadRequestException('Cannot modify a published listing');
+
+    const updated = await this.prisma.userListing.update({
+      where: { id },
+      data: {
+        title: dto.title ?? found.title,
+        description: dto.description ?? found.description,
+        bio: dto.bio ?? found.bio ?? null,
+        logoUrl: dto.logoUrl ?? found.logoUrl ?? null,
+        bannerUrl: dto.bannerUrl ?? found.bannerUrl ?? null,
+        links: (dto.links as any) ?? (found.links as any) ?? null,
+        vettingTier: dto.vettingTier ?? found.vettingTier,
+        vettingScore: dto.vettingScore ?? found.vettingScore,
+      },
+    });
+    return { success: true, data: updated };
+  }
+
+  async publish(userId: number, id: string) {
+    const found = await this.prisma.userListing.findUnique({ where: { id } });
+    if (!found) throw new NotFoundException('Listing not found');
+    if (found.userId !== userId) throw new ForbiddenException('Not your listing');
+
+    // minimal validation before publish
+    if (!found.title || !found.description) throw new BadRequestException('Missing required fields');
+    if ((found.vettingScore ?? 100) > this.MAX_RISK) throw new BadRequestException('Vetting score above allowed risk');
+
+    const updated = await this.prisma.userListing.update({
+      where: { id },
+      data: { status: 'PUBLISHED' },
+    });
+    return { success: true, data: updated };
+  }
+
+  async findMine(userId: number) {
+    if (!userId) throw new ForbiddenException('Authentication required');
+    const items = await this.prisma.userListing.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return { success: true, items };
+  }
+
+  async findPublic(page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.userListing.count({ where: { status: 'PUBLISHED' } }),
+      this.prisma.userListing.findMany({
+        where: { status: 'PUBLISHED' },
+        orderBy: { updatedAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    return { page, limit, total, items };
+  }
+
+  async findOnePublic(id: string) {
+    const found = await this.prisma.userListing.findUnique({ where: { id } });
+    if (!found || found.status !== 'PUBLISHED') throw new NotFoundException('Listing not found');
+    return { success: true, data: found };
+  }
+
+  async addAdBoost(userId: number, id: string, dto: CreateAdBoostDto) {
+    const found = await this.prisma.userListing.findUnique({ where: { id } });
+    if (!found) throw new NotFoundException('Listing not found');
+    if (found.userId !== userId) throw new ForbiddenException('Not your listing');
+
+    const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + dto.durationDays);
+
+    const created = await this.prisma.adBoost.create({
+      data: {
+        listingId: id,
+        type: dto.type,
+        durationDays: dto.durationDays,
+        startDate,
+        endDate,
+      },
+    });
+
+    return { success: true, data: created };
+  }
+}
