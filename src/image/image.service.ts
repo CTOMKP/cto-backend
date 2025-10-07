@@ -72,7 +72,12 @@ export class ImageService {
   {
     const key = this.buildKey(kind, { userId: args.userId, filename: args.filename });
     const uploadUrl = await this.storage.getPresignedPutUrl(key, args.mimeType, args.putTtlSeconds ?? 900);
-    const viewUrl = await this.storage.getPresignedGetUrl(key, args.getTtlSeconds ?? this.defaultGetTtl);
+    
+    // For memes, use direct public S3 URL (faster, no backend redirect needed)
+    // For user uploads, use backend view endpoint (presigned, more secure)
+    const viewUrl = kind === 'meme' 
+      ? this.storage.getPublicAssetUrl(key)
+      : await this.storage.getPresignedGetUrl(key, args.getTtlSeconds ?? this.defaultGetTtl);
 
     const metadata: ImageMetadata = {
       id: key, // using S3 key as id for simplicity

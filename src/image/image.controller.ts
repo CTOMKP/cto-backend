@@ -153,7 +153,9 @@ export class ImageController {
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
   async deleteImage(@Param('id') id: string): Promise<{ message: string; success: boolean }> {
-    const success = await this.imageService.deleteImage(id);
+    // Decode URL-encoded ID (handles slashes like memes/filename.jpg)
+    const decodedId = decodeURIComponent(id);
+    const success = await this.imageService.deleteImage(decodedId);
     return {
       message: success ? 'Image deleted successfully' : 'Failed to delete image',
       success,
@@ -170,7 +172,9 @@ export class ImageController {
     @Param('id') id: string,
     @Body() editImageDto: EditImageDto
   ): Promise<ImageMetadata> {
-    return this.imageService.editImageMetadata(id, editImageDto);
+    // Decode URL-encoded ID
+    const decodedId = decodeURIComponent(id);
+    return this.imageService.editImageMetadata(decodedId, editImageDto);
   }
 
   /**

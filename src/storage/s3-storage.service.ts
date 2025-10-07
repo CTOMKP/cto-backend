@@ -54,10 +54,12 @@ export class S3StorageService implements StorageProvider {
   }
 
   getPublicAssetUrl(assetKey: string): string {
-    // For meme uploads, keep the original key structure
-    const fullKey = assetKey.startsWith('memes/') 
+    // Keep key as-is if it already has a path prefix (memes/, user-uploads/, assets/)
+    const fullKey = assetKey.startsWith('memes/') || 
+                    assetKey.startsWith('user-uploads/') || 
+                    assetKey.startsWith('assets/') 
       ? assetKey 
-      : (assetKey.startsWith('assets/') ? assetKey : `assets/${assetKey}`);
+      : `assets/${assetKey}`;
       
     if (this.assetsCdnBase) {
       return `${this.assetsCdnBase.replace(/\/+$/, '')}/${encodeURI(fullKey)}`;
