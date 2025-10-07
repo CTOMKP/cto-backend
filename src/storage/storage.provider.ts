@@ -18,6 +18,11 @@ export interface StorageProvider {
   getPublicAssetUrl(assetKey: string): string;
 
   /**
+   * Get a presigned download URL with Content-Disposition header
+   */
+  getPresignedDownloadUrl?(key: string, filename: string, ttlSeconds?: number): Promise<string>;
+
+  /**
    * Delete a file from storage
    */
   deleteFile(key: string): Promise<void>;

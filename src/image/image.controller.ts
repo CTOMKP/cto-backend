@@ -116,6 +116,7 @@ export class ImageController {
   /**
    * Download image with proper headers
    * GET /images/:id/download
+   * Public endpoint - no auth required for memes
    */
   @Get(':id/download')
   async downloadImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
@@ -126,21 +127,11 @@ export class ImageController {
       // Get metadata
       const metadata = await this.imageService.getImage(decodedId);
       
-      // For memes (public), redirect directly to S3
-      // For user uploads, use presigned URL
-      let downloadUrl: string;
-      if (decodedId.startsWith('memes/')) {
-        // Direct S3 public URL
-        downloadUrl = metadata.url;
-      } else {
-        // Presigned URL for private files
-        downloadUrl = await this.imageService.getPresignedViewUrl(decodedId, 300);
-      }
+      // Get presigned download URL with proper Content-Disposition
+      const filename = metadata.filename || metadata.originalName || 'download';
+      const downloadUrl = await this.imageService.getPresignedDownloadUrl(decodedId, filename, 300);
       
-      // Set download headers and redirect
-      res.set({
-        'Content-Disposition': `attachment; filename="${metadata.filename}"`,
-      });
+      // Redirect to S3 presigned URL (includes Content-Disposition in query params)
       res.redirect(downloadUrl);
     } catch (error) {
       res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });

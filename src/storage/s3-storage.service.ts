@@ -53,6 +53,17 @@ export class S3StorageService implements StorageProvider {
     return url;
   }
 
+  async getPresignedDownloadUrl(key: string, filename: string, ttlSeconds = 900): Promise<string> {
+    const cmd = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    });
+    const url = await getSignedUrl(this.s3, cmd, { expiresIn: ttlSeconds });
+    this.logger.debug(`Presigned DOWNLOAD: ${key} (ttl=${ttlSeconds}s)`);
+    return url;
+  }
+
   getPublicAssetUrl(assetKey: string): string {
     // Keep key as-is if it already has a path prefix (memes/, user-uploads/, assets/)
     const fullKey = assetKey.startsWith('memes/') || 

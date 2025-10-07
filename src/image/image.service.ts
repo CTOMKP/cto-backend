@@ -111,6 +111,14 @@ export class ImageService {
     return this.storage.getPresignedGetUrl(key, ttlSeconds);
   }
 
+  async getPresignedDownloadUrl(key: string, filename: string, ttlSeconds = this.defaultGetTtl): Promise<string> {
+    if (this.storage.getPresignedDownloadUrl) {
+      return this.storage.getPresignedDownloadUrl(key, filename, ttlSeconds);
+    }
+    // Fallback to regular presigned URL
+    return this.storage.getPresignedGetUrl(key, ttlSeconds);
+  }
+
   async getImage(imageId: string): Promise<ImageMetadata> {
     // Check in-memory cache first
     if (ImageService.metadataCache.has(imageId)) {

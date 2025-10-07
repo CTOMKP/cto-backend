@@ -1,0 +1,19 @@
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+    "AllowedOrigins": [
+      "https://ctomemes.xyz",
+      "https://cto-vineyard-frontend.vercel.app",
+      "http://localhost:3000"
+    ],
+    "ExposeHeaders": [
+      "ETag",
+      "Content-Type",
+      "Content-Length",
+      "Content-Disposition"
+    ],
+    "MaxAgeSeconds": 3000
+  }
+]
+
