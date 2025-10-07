@@ -68,6 +68,11 @@ class EditImageDto {
   category?: string;
 }
 
+class BulkImportDto {
+  @IsNotEmpty()
+  images: any[];
+}
+
 @Controller('images')
 export class ImageController {
   constructor(private readonly imageService: ImageService) {}
@@ -167,5 +172,25 @@ export class ImageController {
   ): Promise<ImageMetadata> {
     return this.imageService.editImageMetadata(id, editImageDto);
   }
+
+  /**
+   * Bulk import metadata for migrated images
+   * POST /images/bulk-import
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('bulk-import')
+  async bulkImport(@Body() bulkImportDto: BulkImportDto): Promise<{ message: string; imported: number; skipped: number }> {
+    if (!bulkImportDto.images || !Array.isArray(bulkImportDto.images)) {
+      throw new HttpException('Invalid request: images array required', HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await this.imageService.bulkImportMetadata(bulkImportDto.images);
+    
+    return {
+      message: `Successfully imported ${result.imported} images (${result.skipped} skipped)`,
+      imported: result.imported,
+      skipped: result.skipped,
+    };
   }
+}
 

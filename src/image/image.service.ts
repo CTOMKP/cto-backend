@@ -220,6 +220,50 @@ export class ImageService {
       this.logger.warn('Failed to update file list in Redis:', error);
     }
   }
+
+  /**
+   * Bulk import metadata for migrated images
+   * This registers existing S3 images with the backend cache
+   */
+  async bulkImportMetadata(images: ImageMetadata[]): Promise<{ imported: number; skipped: number }> {
+    let imported = 0;
+    let skipped = 0;
+
+    for (const imageData of images) {
+      try {
+        // Check if already exists
+        if (ImageService.metadataCache.has(imageData.id)) {
+          this.logger.debug(`Skipping existing image: ${imageData.id}`);
+          skipped++;
+          continue;
+        }
+
+        // Normalize the metadata
+        const metadata: ImageMetadata = {
+          ...imageData,
+          uploadDate: new Date(imageData.uploadDate),
+        };
+
+        // Add to cache
+        ImageService.metadataCache.set(metadata.id, metadata);
+        
+        // Add to Redis
+        await this.redis.setImageMetadata(metadata.id, metadata).catch(() => {});
+        
+        imported++;
+        this.logger.log(`Imported metadata for: ${metadata.id}`);
+      } catch (error) {
+        this.logger.error(`Failed to import ${imageData.id}:`, error);
+        skipped++;
+      }
+    }
+
+    // Update file list in Redis
+    await this.updateFileListInRedis();
+
+    this.logger.log(`Bulk import complete: ${imported} imported, ${skipped} skipped`);
+    return { imported, skipped };
+  }
 }
 
 
