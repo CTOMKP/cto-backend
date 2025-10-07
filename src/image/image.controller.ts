@@ -114,6 +114,40 @@ export class ImageController {
   }
 
   /**
+   * Download image with proper headers
+   * GET /images/:id/download
+   */
+  @Get(':id/download')
+  async downloadImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    try {
+      // Decode URL-encoded ID
+      const decodedId = decodeURIComponent(id);
+      
+      // Get metadata
+      const metadata = await this.imageService.getImage(decodedId);
+      
+      // For memes (public), redirect directly to S3
+      // For user uploads, use presigned URL
+      let downloadUrl: string;
+      if (decodedId.startsWith('memes/')) {
+        // Direct S3 public URL
+        downloadUrl = metadata.url;
+      } else {
+        // Presigned URL for private files
+        downloadUrl = await this.imageService.getPresignedViewUrl(decodedId, 300);
+      }
+      
+      // Set download headers and redirect
+      res.set({
+        'Content-Disposition': `attachment; filename="${metadata.filename}"`,
+      });
+      res.redirect(downloadUrl);
+    } catch (error) {
+      res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
+    }
+  }
+
+  /**
    * Get image metadata by ID
    * GET /images/:id
    */
