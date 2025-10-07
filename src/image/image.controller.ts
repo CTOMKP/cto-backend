@@ -6,74 +6,106 @@ import {
   Put,
   Param,
   Body,
-  UseInterceptors,
-  UploadedFile,
   Res,
   HttpStatus,
   HttpException,
   UseGuards,
+  Req,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ImageService } from './image.service';
-import { ImageMetadata, UploadedImageFile } from './types';
+import { ImageMetadata } from './types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { EditImageDto } from './dto/upload-image.dto';
+import { IsIn, IsNotEmpty, IsOptional, IsString, IsNumber } from 'class-validator';
+import { ApiBearerAuth } from '@nestjs/swagger';
+
+class PresignUploadDto {
+  @IsNotEmpty()
+  @IsIn(['generic', 'profile', 'banner', 'meme'])
+  type: 'generic' | 'profile' | 'banner' | 'meme';
+
+  @IsNotEmpty()
+  @IsString()
+  filename: string;
+
+  @IsNotEmpty()
+  @IsString()
+  mimeType: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  putTtlSeconds?: number; // optional
+
+  @IsOptional()
+  @IsNumber()
+  getTtlSeconds?: number; // optional
+
+  // Note: frontend may send 'size'; whitelist it to avoid forbidNonWhitelisted errors
+  @IsOptional()
+  @IsNumber()
+  size?: number;
+}
+
+class EditImageDto {
+  @IsOptional()
+  @IsString()
+  filename?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+}
 
 @Controller('images')
 export class ImageController {
   constructor(private readonly imageService: ImageService) {}
 
-  /**
-   * Set common headers for image responses
-   */
-  private setImageHeaders(res: Response, metadata: ImageMetadata, isDownload = false): void {
-    const headers = {
-      'Content-Type': metadata.mimeType,
-      'Content-Length': metadata.size.toString(),
-      'Cache-Control': 'public, max-age=31536000, immutable',
-      'ETag': `"${metadata.id}-${metadata.uploadDate.getTime()}"`,
-      'Last-Modified': metadata.uploadDate.toUTCString(),
-      'Expires': new Date(Date.now() + 31536000 * 1000).toUTCString(),
-      'Accept-Ranges': 'bytes',
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'SAMEORIGIN',
-      'Referrer-Policy': 'strict-origin-when-cross-origin',
-    };
-
-    if (isDownload) {
-      headers['Content-Disposition'] = `attachment; filename="${metadata.filename}"`;
+  // Generate presigned PUT for direct-to-S3 uploads
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(JwtAuthGuard)
+  @Post('presign')
+  async presign(@Body() dto: PresignUploadDto, @Req() req: any) {
+    // userId is taken from JWT, not from client, to comply with bucket policy
+    const userId = req?.user?.userId?.toString();
+    if (!dto?.type || !dto?.filename || !dto?.mimeType) {
+      throw new HttpException('type, filename, and mimeType are required', HttpStatus.BAD_REQUEST);
     }
-
-    res.set(headers);
+    return this.imageService.createPresignedUpload(dto.type, {
+      userId,
+      filename: dto.filename,
+      mimeType: dto.mimeType,
+      putTtlSeconds: dto.putTtlSeconds,
+      getTtlSeconds: dto.getTtlSeconds,
+    });
   }
 
-  /**
-   * Upload a new image to Contabo VPS
-   * POST /images/upload
-   */
-  @UseGuards(JwtAuthGuard)
-  @Post('upload')
-  @UseInterceptors(
-    FileInterceptor('image', {
-      limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB limit
-      },
-      fileFilter: (req, file, cb) => {
-        // Validate file type
-        if (!file.mimetype.startsWith('image/')) {
-          return cb(new HttpException('Only image files are allowed', HttpStatus.BAD_REQUEST), false);
-        }
-        cb(null, true);
-      },
-    }),
-  )
-  async uploadImage(@UploadedFile() file: UploadedImageFile): Promise<ImageMetadata> {
-    if (!file) {
-      throw new HttpException('No image file provided', HttpStatus.BAD_REQUEST);
+  // Short-lived read redirect — supports keys with slashes via wildcard
+  @Get('view/*')
+  async viewImage(@Param('0') key: string, @Res() res: Response): Promise<void> {
+    try {
+      // Normalize key (replace commas with slashes for legacy support)
+      const normalizedKey = key.replace(/,/g, '/');
+      
+      // Get a fresh short-lived presigned GET URL
+      const presignedUrl = await this.imageService.getPresignedViewUrl(normalizedKey);
+      
+      // Redirect to S3
+      res.redirect(presignedUrl);
+    } catch (error) {
+      res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
     }
-
-    return this.imageService.uploadImage(file);
   }
 
   /**
@@ -83,40 +115,6 @@ export class ImageController {
   @Get(':id')
   async getImage(@Param('id') id: string): Promise<ImageMetadata> {
     return this.imageService.getImage(id);
-  }
-
-  /**
-   * Serve image for display (inline viewing)
-   * GET /images/:id/view
-   */
-  @Get(':id/view')
-  async viewImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
-    try {
-      const metadata = await this.imageService.getImage(id);
-      const imageBuffer = await this.imageService.getImageFile(id);
-      
-      this.setImageHeaders(res, metadata, false);
-      res.end(imageBuffer);
-    } catch (error) {
-      res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
-    }
-  }
-
-  /**
-   * Download image file
-   * GET /images/:id/download
-   */
-  @Get(':id/download')
-  async downloadImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
-    try {
-      const metadata = await this.imageService.getImage(id);
-      const imageBuffer = await this.imageService.getImageFile(id);
-      
-      this.setImageHeaders(res, metadata, true);
-      res.end(imageBuffer);
-    } catch (error) {
-      res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
-    }
   }
 
   /**
@@ -143,10 +141,8 @@ export class ImageController {
     }
   }
 
-
-
   /**
-   * Delete image from VPS
+   * Delete image from S3
    * DELETE /images/:id
    */
   @UseGuards(JwtAuthGuard)
@@ -171,6 +167,5 @@ export class ImageController {
   ): Promise<ImageMetadata> {
     return this.imageService.editImageMetadata(id, editImageDto);
   }
+  }
 
-
-}

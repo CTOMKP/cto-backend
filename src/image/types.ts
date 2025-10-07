@@ -21,6 +21,11 @@ export interface ImageMetadata {
   url: string;
   description?: string;
   category?: string;
+  // S3/Storage specific (optional)
+  storageProvider?: string; // e.g., 's3'
+  storageKey?: string;      // S3 object key
+  userId?: string;          // owner user id (when applicable)
+  projectId?: string;       // owner project id (when applicable)
 }
 
 export interface EditImageData {
