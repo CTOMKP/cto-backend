@@ -41,9 +41,9 @@ DATABASE_URL=postgresql://...  # Should already exist
 
 # AWS S3 (for memes + user uploads)
 AWS_REGION=eu-north-1
-AWS_S3_BUCKET_NAME=baze-bucket
-AWS_ACCESS_KEY_ID=AKIAST6S7MYDXOXRGGP2
-AWS_SECRET_ACCESS_KEY=JYZ/nUGBrv3eDzsk064O+Z1rGygLBxFR6BNgH5Bu
+AWS_S3_BUCKET_NAME=your-bucket-name
+AWS_ACCESS_KEY_ID=your-aws-access-key-id
+AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
 
 # JWT Secret
 JWT_SECRET=your-jwt-secret
