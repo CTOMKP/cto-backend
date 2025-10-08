@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node dist/main.js",
+    "start:prod": "npx prisma migrate deploy && npx prisma db seed && node dist/main.js",
     "vercel-build": "npm run build",
     "dev": "nest start --watch --builder swc --tsc false",
     "build": "nest build",
