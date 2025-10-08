@@ -62,6 +62,8 @@ JWT_SECRET=change_this_in_production
 PORT=3001
 NODE_ENV=development
 HELIUS_API_KEY=
+MORALIS_API_KEY=
+BIRDEYE_API_KEY=
 ```
 
 ## Install & Run (Dev)

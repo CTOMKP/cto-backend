@@ -54,10 +54,23 @@ cp env.example .env
 
 Required environment variables:
 ```env
-HELIUS_API_KEY=your_helius_api_key_here
+# Core
 NODE_ENV=development
 PORT=3001
+
+# Solana/External APIs
+HELIUS_API_KEY=your_helius_api_key_here
+SOLSCAN_API_KEY=your_solscan_pro_key_optional
+MORALIS_API_KEY=your_moralis_key_optional
 ```
+
+#### Data Sources Used by Scan
+- **Helius RPC**: on-chain mint metadata and authorities.
+- **Jupiter/DexScreener**: token symbol/name and live market/liquidity data.
+- **Solscan (Pro optional)**: holders and holder count for `top_holders` and `total_holders`.
+- **Moralis (optional)**: Solana market data via `market-data/solana/tokens` (price_usd, market_cap, volume_24h, liquidity_usd, holders).
+
+If optional keys are not set, the system falls back gracefully to available providers.
 
 ### 3. Development
 ```bash
@@ -76,6 +89,36 @@ npm start
 ### Health Check
 - `GET /api/health` - Application health status
 - `GET /health` - Root health check
+
+### Marketplace
+- `GET /api/marketplace/listings` - Paginated list of stored listings
+  - Query params: `q`, `tier`, `minRisk`, `maxRisk`, `sort` (e.g., `updatedAt:desc`), `page`, `limit`
+  - Response shape:
+    ```json
+    {
+      "page": 1,
+      "limit": 20,
+      "total": 123,
+      "items": [
+        {
+          "id": "cuid",
+          "contractAddress": "...",
+          "symbol": "...",
+          "name": "...",
+          "summary": "Tier Seed · Risk 22",
+          "riskScore": 22,
+          "tier": "Seed",
+          "metadata": { /* normalized scan output */ },
+          "lastScannedAt": "2025-09-13T14:16:37.000Z",
+          "createdAt": "...",
+          "updatedAt": "..."
+        }
+      ]
+    }
+    ```
+- `GET /api/marketplace/:contractAddress` - Get a single listing
+- `POST /api/marketplace/scan` - Scan a token and upsert listing
+- `POST /api/marketplace/refresh` - Enqueue background refresh
 
 ### Token Scanning
 - `POST /api/scan/single` - Scan a single token
