@@ -1,11 +1,14 @@
+/**
+ * Import migrated memes from S3 into database
+ * Run: npx ts-node scripts/import-memes-to-db.ts
+ */
+
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
-import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 
 const prisma = new PrismaClient();
 
-// OLD: Hardcoded list - keeping as fallback
-const MIGRATED_MEMES_FALLBACK = [
+// The 27 migrated memes from S3
+const MIGRATED_MEMES = [
   { filename: "make_it_rain.jpg", s3Key: "memes/make_it_rain_1759861994189.jpg", size: 1948877, mimeType: "image/jpeg" },
   { filename: "in_for_launch.jpg", s3Key: "memes/in_for_launch_1759862013981.jpg", size: 1717367, mimeType: "image/jpeg" },
   { filename: "Bullish.jpg", s3Key: "memes/Bullish_1759862027472.jpg", size: 59836, mimeType: "image/jpeg" },
@@ -35,112 +38,73 @@ const MIGRATED_MEMES_FALLBACK = [
   { filename: "roll_the_dice_1757212826405.PNG", s3Key: "memes/roll_the_dice_1757212826405_1759862485472.PNG", size: 1983207, mimeType: "image/png" },
 ];
 
-async function main() {
-  console.log('🌱 Seeding database...\n');
+async function importMemes() {
+  console.log('📥 Importing 27 migrated memes into database...\n');
 
-  // Step 1: Create admin user
-  const adminPassword = 'PJio7cmV0IDYasFc$$';
-  const hashedPassword = await bcrypt.hash(adminPassword, 10);
-
-  const admin = await prisma.user.upsert({
+  // Get admin user ID
+  const admin = await prisma.user.findUnique({
     where: { email: 'admin@ctomemes.xyz' },
-    update: {},
-    create: {
-      email: 'admin@ctomemes.xyz',
-      name: 'Admin',
-      passwordHash: hashedPassword,
-      role: 'ADMIN',
-    },
   });
 
-  console.log('✅ Admin user created:');
-  console.log(`   Email: ${admin.email}`);
-  console.log(`   Password: ${adminPassword}`);
-  console.log(`   Role: ${admin.role}\n`);
+  if (!admin) {
+    console.error('❌ Admin user not found! Run seed first: npx prisma db seed');
+    process.exit(1);
+  }
 
-  // Step 2: Import ALL memes from S3
-  console.log('📥 Importing memes from S3...\n');
-
-  const region = process.env.AWS_REGION || 'eu-north-1';
-  const bucket = process.env.AWS_S3_BUCKET_NAME || 'baze-bucket';
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  console.log(`✅ Admin user found: ${admin.email} (ID: ${admin.id})\n`);
 
   let imported = 0;
   let skipped = 0;
 
-  try {
-    // Try to fetch from S3
-    if (accessKeyId && secretAccessKey) {
-      const s3 = new S3Client({
-        region,
-        credentials: { accessKeyId, secretAccessKey },
+  for (const meme of MIGRATED_MEMES) {
+    try {
+      // Check if already exists
+      const existing = await prisma.meme.findUnique({
+        where: { s3Key: meme.s3Key },
       });
 
-      const listCommand = new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: 'memes/',
-      });
-
-      const response = await s3.send(listCommand);
-      const objects = response.Contents || [];
-
-      console.log(`🔍 Found ${objects.length} objects in S3\n`);
-
-      for (const obj of objects) {
-        if (!obj.Key || obj.Key === 'memes/' || obj.Size === 0) continue;
-
-        try {
-          const existing = await prisma.meme.findUnique({ where: { s3Key: obj.Key } });
-          if (existing) {
-            skipped++;
-            continue;
-          }
-
-          // Extract filename
-          const keyParts = obj.Key.split('/');
-          const fullFilename = keyParts[keyParts.length - 1];
-          let filename = fullFilename;
-          const match = fullFilename.match(/(.+)_\d+(\.\w+)$/);
-          if (match) filename = match[1] + match[2];
-
-          // Determine mime type
-          const ext = fullFilename.split('.').pop()?.toLowerCase() || '';
-          let mimeType = 'image/jpeg';
-          if (ext === 'png') mimeType = 'image/png';
-          if (ext === 'gif') mimeType = 'image/gif';
-          if (ext === 'webp') mimeType = 'image/webp';
-
-          const s3Url = `https://${bucket}.s3.${region}.amazonaws.com/${obj.Key}`;
-
-          await prisma.meme.create({
-            data: {
-              filename,
-              s3Key: obj.Key,
-              s3Url,
-              size: obj.Size || 0,
-              mimeType,
-              uploadedById: admin.id,
-            },
-          });
-
-          imported++;
-        } catch {}
+      if (existing) {
+        console.log(`⏭️  Skipped: ${meme.filename} (already exists)`);
+        skipped++;
+        continue;
       }
-    } else {
-      console.log('⚠️  AWS credentials not available, skipping S3 import\n');
+
+      // Create meme record
+      const region = process.env.AWS_REGION || 'eu-north-1';
+      const bucket = process.env.AWS_S3_BUCKET_NAME || 'baze-bucket';
+      const s3Url = `https://${bucket}.s3.${region}.amazonaws.com/${meme.s3Key}`;
+
+      await prisma.meme.create({
+        data: {
+          filename: meme.filename,
+          s3Key: meme.s3Key,
+          s3Url: s3Url,
+          size: meme.size,
+          mimeType: meme.mimeType,
+          uploadedById: admin.id,
+        },
+      });
+
+      console.log(`✅ Imported: ${meme.filename}`);
+      imported++;
+    } catch (error) {
+      console.error(`❌ Failed to import ${meme.filename}:`, error instanceof Error ? error.message : 'Unknown error');
+      skipped++;
     }
-  } catch (error) {
-    console.log('⚠️  S3 import failed, continuing without memes\n');
   }
 
-  console.log(`✅ Imported ${imported} memes (${skipped} already existed)\n`);
-  console.log('🎉 Seeding complete!\n');
+  console.log('\n' + '='.repeat(60));
+  console.log('📊 Import Summary:');
+  console.log('='.repeat(60));
+  console.log(`✅ Imported: ${imported}`);
+  console.log(`⏭️  Skipped: ${skipped}`);
+  console.log(`📝 Total: ${MIGRATED_MEMES.length}`);
+  console.log('\n🎉 Import complete!\n');
 }
 
-main()
+importMemes()
   .catch((e) => {
-    console.error('❌ Seeding failed:', e);
+    console.error('❌ Import failed:', e);
     process.exit(1);
   })
   .finally(async () => {
