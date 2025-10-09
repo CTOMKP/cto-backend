@@ -10,6 +10,7 @@ import { ListingModule } from './listing/listing.module';
 import { CircleModule } from './circle/circle.module';
 import { UserListingsModule } from './user-listings/user-listings.module';
 import { MemeModule } from './meme/meme.module';
+import { WaitlistModule } from './waitlist/waitlist.module';
 import { AssetsModule } from './assets/assets.module';
 
 @Module({
@@ -32,6 +33,7 @@ import { AssetsModule } from './assets/assets.module';
     CircleModule,
     UserListingsModule,
     MemeModule,
+    WaitlistModule,
     AssetsModule,
   ],
   controllers: [HealthController],
