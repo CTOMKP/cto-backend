@@ -8,10 +8,12 @@ import {
   Body,
   UseGuards,
   Req,
+  Res,
   HttpCode,
   HttpStatus,
   HttpException,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { MemeService, CreateMemeDto, UpdateMemeDto } from './meme.service';
 import { ImageService } from '../image/image.service';
@@ -105,12 +107,29 @@ export class MemeController {
   @Get()
   async getAllMemes() {
     const memes = await this.memeService.getAllMemes();
-    // Map to frontend format: s3Url → url
+    // Map to frontend format: s3Url → url, fix date format
     return memes.map(meme => ({
       ...meme,
-      url: meme.s3Url, // Frontend expects 'url' field
+      url: meme.s3Url,
       originalName: meme.filename,
+      uploadDate: meme.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * Download meme (Public)
+   */
+  @ApiOperation({ summary: 'Download meme' })
+  @Get(':id/download')
+  async downloadMeme(@Param('id') id: string, @Res() res: Response) {
+    try {
+      const meme = await this.memeService.getMemeById(id);
+      const filename = meme.filename || 'download';
+      const downloadUrl = await this.imageService.getPresignedDownloadUrl(meme.s3Key, filename, 300);
+      res.redirect(downloadUrl);
+    } catch (error) {
+      res.status(HttpStatus.NOT_FOUND).json({ message: 'Meme not found' });
+    }
   }
 
   /**
@@ -125,6 +144,7 @@ export class MemeController {
       ...meme,
       url: meme.s3Url,
       originalName: meme.filename,
+      uploadDate: meme.createdAt.toISOString(),
     };
   }
 
