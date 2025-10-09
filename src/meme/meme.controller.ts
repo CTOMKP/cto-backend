@@ -95,8 +95,20 @@ export class MemeController {
     });
 
     return {
-      ...result,
+      uploadUrl: result.uploadUrl,
+      key: meme.id, // Return database ID (not S3 key) so frontend can delete by ID
+      viewUrl: result.viewUrl,
+      url: meme.s3Url, // Frontend expects 'url' field
       memeId: meme.id,
+      metadata: {
+        id: meme.id, // Database ID
+        filename: meme.filename,
+        size: meme.size,
+        mimeType: meme.mimeType,
+        url: meme.s3Url,
+        originalName: meme.filename,
+        uploadDate: new Date().toISOString(),
+      },
     };
   }
 
