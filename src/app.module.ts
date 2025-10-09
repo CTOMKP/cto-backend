@@ -12,6 +12,7 @@ import { UserListingsModule } from './user-listings/user-listings.module';
 import { MemeModule } from './meme/meme.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
 import { AssetsModule } from './assets/assets.module';
+import { DuneModule } from './dune/dune.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { AssetsModule } from './assets/assets.module';
     MemeModule,
     WaitlistModule,
     AssetsModule,
+    DuneModule,
   ],
   controllers: [HealthController],
   providers: [],
