@@ -104,7 +104,13 @@ export class MemeController {
   @ApiOperation({ summary: 'Get all memes' })
   @Get()
   async getAllMemes() {
-    return this.memeService.getAllMemes();
+    const memes = await this.memeService.getAllMemes();
+    // Map to frontend format: s3Url → url
+    return memes.map(meme => ({
+      ...meme,
+      url: meme.s3Url, // Frontend expects 'url' field
+      originalName: meme.filename,
+    }));
   }
 
   /**
@@ -113,7 +119,13 @@ export class MemeController {
   @ApiOperation({ summary: 'Get meme by ID' })
   @Get(':id')
   async getMemeById(@Param('id') id: string) {
-    return this.memeService.getMemeById(id);
+    const meme = await this.memeService.getMemeById(id);
+    // Map to frontend format
+    return {
+      ...meme,
+      url: meme.s3Url,
+      originalName: meme.filename,
+    };
   }
 
   /**

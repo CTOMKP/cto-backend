@@ -15,11 +15,12 @@ import { Request, Response } from 'express';
 export async function createApp() {
   const app = await NestFactory.create(AppModule);
   
-  // Enable CORS
+  // Enable CORS - Allow all origins for memes (public content)
   app.enableCors({
-    origin: process.env.NODE_ENV === 'production'
-      ? (process.env.CORS_ORIGINS?.split(',') || ['https://ctomemes.xyz', 'https://cto-frontend.vercel.app'])
-      : (process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080', 'https://cto-frontend.vercel.app']),
+    origin: true, // Allow all origins since memes are public
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   // Global validation pipe
