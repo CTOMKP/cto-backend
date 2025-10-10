@@ -78,12 +78,14 @@ export class DuneService {
    * Fetch data from Dune Analytics API
    * Dashboard: https://dune.com/adam_tehc/memecoin-wars
    * 
-   * Available Query IDs:
-   * - 4010816: Daily Tokens Deployed (Solana Memecoin Launchpads) ✅ USING
-   * - 5131612: Daily Graduates (Solana Memecoin Launch Pads) ✅ USING
-   * - 5129526: Graduation Rates (Solana Memecoin Launchpads) ✅ USING FOR RUNNERS
-   * - 5468582: Weekly Launchpad (Solana Memecoin Launch Pads) - TOO HIGH
-   * - 5660681: Token Creators (Solana Meme Coin Launch Pad)
+   * Query Analysis:
+   * - 4010816: Daily Tokens Deployed (Solana Memecoin Launchpads) ✅ Launched
+   * - 5131612: Daily Graduates (Solana Memecoin Launch Pads) ✅ Graduated  
+   * - 5129526: Graduation Rates (Solana Memecoin Launchpads) ❌ Percentage, not count
+   * - 5468582: Weekly Launchpad (Solana Memecoin Launch Pads) ❌ Weekly total, not active
+   * - 5660681: Token Creators (Solana Meme Coin Launch Pad) ❌ Not relevant
+   * 
+   * For "Runners": Calculate as Launched - Graduated = Active Runners
    */
   private async fetchFromDune(timeframe: string = '7 days'): Promise<MemecoinStats> {
     try {
@@ -95,13 +97,15 @@ export class DuneService {
       // Daily Graduates - Solana Memecoin Launch Pads
       const dailyGraduates = await this.executeQuery(5131612);
       
-      // Graduation Rates (used for "Runners" - should be ~25, not 484)
-      const runners = await this.executeQuery(5129526);
+      // Calculate Active Runners: Launched - Graduated
+      const launched = this.extractCount(dailyDeployed);
+      const graduated = this.extractCount(dailyGraduates);
+      const activeRunners = Math.max(0, launched - graduated); // Ensure non-negative
       
       return {
-        dailyTokensDeployed: this.extractCount(dailyDeployed),
-        dailyGraduates: this.extractCount(dailyGraduates),
-        topTokensLast7Days: this.extractCount(runners),
+        dailyTokensDeployed: launched,
+        dailyGraduates: graduated,
+        topTokensLast7Days: activeRunners, // Active runners = Launched - Graduated
         lastUpdated: new Date().toISOString(),
         timeframe: timeframe,
       };
@@ -188,12 +192,16 @@ export class DuneService {
     // Generate realistic random variations around base values
     const baseTokens = 15000;
     const baseGraduates = 120;
-    const baseRunners = 25; // Much lower - should be ~25, not 450+
+    
+    // Calculate active runners: Launched - Graduated
+    const launched = baseTokens + Math.floor(Math.random() * 2000); // 15k-17k range
+    const graduated = baseGraduates + Math.floor(Math.random() * 30); // 120-150 range
+    const activeRunners = Math.max(0, launched - graduated); // Realistic calculation
     
     return {
-      dailyTokensDeployed: baseTokens + Math.floor(Math.random() * 2000), // 15k-17k range
-      dailyGraduates: baseGraduates + Math.floor(Math.random() * 30), // 120-150 range
-      topTokensLast7Days: baseRunners + Math.floor(Math.random() * 10), // 25-35 range (much more realistic)
+      dailyTokensDeployed: launched,
+      dailyGraduates: graduated,
+      topTokensLast7Days: activeRunners, // Calculated: Launched - Graduated
       lastUpdated: new Date().toISOString(),
       timeframe: '7 days',
     };
