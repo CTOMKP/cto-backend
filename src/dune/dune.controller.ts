@@ -1,5 +1,5 @@
-import { Controller, Get, Post, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, UseGuards, HttpCode, HttpStatus, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { DuneService } from './dune.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -13,9 +13,15 @@ export class DuneController {
    * Get memecoin stats (Public)
    */
   @ApiOperation({ summary: 'Get memecoin launch statistics from Dune Analytics' })
+  @ApiQuery({ 
+    name: 'timeframe', 
+    required: false, 
+    description: 'Time period for stats (e.g., "7 days", "24 hours", "30 days")',
+    example: '7 days'
+  })
   @Get('memecoin')
-  async getMemecoinStats() {
-    return this.duneService.getMemecoinStats();
+  async getMemecoinStats(@Query('timeframe') timeframe?: string) {
+    return this.duneService.getMemecoinStats(timeframe || '7 days');
   }
 
   /**

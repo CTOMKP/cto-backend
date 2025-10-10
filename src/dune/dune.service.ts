@@ -14,6 +14,7 @@ interface MemecoinStats {
   dailyGraduates: number;
   topTokensLast7Days: number;
   lastUpdated: string;
+  timeframe?: string; // e.g., "7 days", "24 hours", "30 days"
 }
 
 @Injectable()
@@ -38,7 +39,7 @@ export class DuneService {
    * Get memecoin stats from Dune Analytics
    * Returns cached data if available and fresh
    */
-  async getMemecoinStats(): Promise<MemecoinStats> {
+  async getMemecoinStats(timeframe: string = '7 days'): Promise<MemecoinStats> {
     // Return cached data if still fresh
     const now = Date.now();
     if (this.statsCache && (now - this.lastFetchTime < this.CACHE_DURATION)) {
@@ -53,7 +54,7 @@ export class DuneService {
 
     try {
       // Fetch fresh data from Dune
-      const stats = await this.fetchFromDune();
+      const stats = await this.fetchFromDune(timeframe);
       
       // Update cache
       this.statsCache = stats;
@@ -80,11 +81,11 @@ export class DuneService {
    * Available Query IDs:
    * - 4010816: Daily Tokens Deployed (Solana Memecoin Launchpads) ✅ USING
    * - 5131612: Daily Graduates (Solana Memecoin Launch Pads) ✅ USING
-   * - 5468582: Weekly Launchpad (Solana Memecoin Launch Pads) ✅ USING
-   * - 5129526: Graduation Rates (Solana Memecoin Launchpads)
+   * - 5129526: Graduation Rates (Solana Memecoin Launchpads) ✅ USING FOR RUNNERS
+   * - 5468582: Weekly Launchpad (Solana Memecoin Launch Pads) - TOO HIGH
    * - 5660681: Token Creators (Solana Meme Coin Launch Pad)
    */
-  private async fetchFromDune(): Promise<MemecoinStats> {
+  private async fetchFromDune(timeframe: string = '7 days'): Promise<MemecoinStats> {
     try {
       // Execute queries from https://dune.com/adam_tehc/memecoin-wars
       
@@ -94,14 +95,15 @@ export class DuneService {
       // Daily Graduates - Solana Memecoin Launch Pads
       const dailyGraduates = await this.executeQuery(5131612);
       
-      // Weekly Launchpad stats (used for "Runners" - top tokens)
-      const topTokens = await this.executeQuery(5468582);
+      // Graduation Rates (used for "Runners" - should be ~25, not 484)
+      const runners = await this.executeQuery(5129526);
       
       return {
         dailyTokensDeployed: this.extractCount(dailyDeployed),
         dailyGraduates: this.extractCount(dailyGraduates),
-        topTokensLast7Days: this.extractCount(topTokens),
+        topTokensLast7Days: this.extractCount(runners),
         lastUpdated: new Date().toISOString(),
+        timeframe: timeframe,
       };
     } catch (error) {
       this.logger.error(`Dune API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -186,13 +188,14 @@ export class DuneService {
     // Generate realistic random variations around base values
     const baseTokens = 15000;
     const baseGraduates = 120;
-    const baseRunners = 450;
+    const baseRunners = 25; // Much lower - should be ~25, not 450+
     
     return {
       dailyTokensDeployed: baseTokens + Math.floor(Math.random() * 2000), // 15k-17k range
       dailyGraduates: baseGraduates + Math.floor(Math.random() * 30), // 120-150 range
-      topTokensLast7Days: baseRunners + Math.floor(Math.random() * 100), // 450-550 range
+      topTokensLast7Days: baseRunners + Math.floor(Math.random() * 10), // 25-35 range (much more realistic)
       lastUpdated: new Date().toISOString(),
+      timeframe: '7 days',
     };
   }
 
