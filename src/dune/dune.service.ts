@@ -78,37 +78,47 @@ export class DuneService {
    * Fetch data from Dune Analytics API
    * Dashboard: https://dune.com/adam_tehc/memecoin-wars
    * 
-   * Query Analysis (Based on Pump.fun Model):
-   * - 4010816: Daily Tokens Deployed (Solana Memecoin Launchpads) ✅ Launched
-   * - 5131612: Daily Graduates (Solana Memecoin Launch Pads) ✅ Graduated  
-   * - 5129526: Graduation Rates (Solana Memecoin Launchpads) ❌ Percentage, not count
-   * - 5468582: Weekly Launchpad Volume (Solana Memecoin Launch Pads) ❌ Volume, not tokens
-   * - 5660681: Token Creators (Solana Meme Coin Launch Pad) ❌ Not relevant
+   * Query Analysis (Client Requirements):
+   * - 4010816: Daily Tokens Deployed (Solana Memecoin Launchpads) ✅ Launched (WEEKLY preferred)
+   * - 5131612: Daily Graduates (Solana Memecoin Launch Pads) ✅ Graduated (WEEKLY preferred)
+   * - 5468582: Weekly Launchpad Volume (Solana Memecoin Launch Pads) - Volume data
    * 
-   * For "Runners": Need to find query for active non-graduated tokens
-   * Based on Pump.fun model: Runners should be ~0.1% of launched
+   * Runners Definition (Client):
+   * - Runners = Tokens with market cap ≥ $500K (still active, not graduated)
+   * - Based on Pump.fun model: ~0.05%-0.1% of launched tokens
+   * - From client's data: ~11 out of 16,090 = ~0.068%
+   * 
+   * TODO: When Dune query for market cap data becomes available:
+   *   runners = count(tokens where market_cap_usd >= 500000)
    */
   private async fetchFromDune(timeframe: string = '7 days'): Promise<MemecoinStats> {
     try {
       // Execute queries from https://dune.com/adam_tehc/memecoin-wars
       
-      // Daily Tokens Deployed - Solana Memecoin Launchpads
+      // Weekly Tokens Deployed - Solana Memecoin Launchpads
+      // TODO: Find weekly version of query or aggregate daily data
       const dailyDeployed = await this.executeQuery(4010816);
       
-      // Daily Graduates - Solana Memecoin Launch Pads
+      // Weekly Graduates - Solana Memecoin Launch Pads
+      // TODO: Find weekly version of query or aggregate daily data
       const dailyGraduates = await this.executeQuery(5131612);
       
-      // For now, calculate runners as ~0.1% of launched (Pump.fun model)
       const launched = this.extractCount(dailyDeployed);
       const graduated = this.extractCount(dailyGraduates);
       
-      // Pump.fun model: Runners = ~0.1% of launched tokens
-      const runners = Math.max(1, Math.floor(launched * 0.001)); // 0.1% of launched
+      // Client's Runners Logic:
+      // - Runners = tokens with market cap ≥ $500K
+      // - Approximate using 0.05%-0.1% range (avg ~0.08%)
+      // - Conservative estimate: 0.0008 (0.08% of launched)
+      const runnerRatio = 0.0008; // 0.08% - midpoint between 0.05% and 0.1%
+      const runners = Math.max(1, Math.round(launched * runnerRatio));
+      
+      this.logger.debug(`Stats: Launched=${launched}, Graduated=${graduated}, Runners=${runners} (${(runnerRatio * 100).toFixed(2)}%)`);
       
       return {
         dailyTokensDeployed: launched,
         dailyGraduates: graduated,
-        topTokensLast7Days: runners, // ~0.1% of launched (Pump.fun model)
+        topTokensLast7Days: runners, // 0.05%-0.1% of launched (market cap ≥ $500K)
         lastUpdated: new Date().toISOString(),
         timeframe: timeframe,
       };
@@ -189,24 +199,27 @@ export class DuneService {
 
   /**
    * Fallback stats when Dune is unavailable
-   * Using realistic pump.fun-style numbers for MVP demo
+   * Using realistic pump.fun-style numbers based on client requirements
    */
   private getFallbackStats(): MemecoinStats {
     // Generate realistic random variations around base values
     const baseTokens = 15000;
     const baseGraduates = 120;
     
-    // Pump.fun model: Most tokens graduate or die quickly
+    // Weekly stats (as preferred by client)
     const launched = baseTokens + Math.floor(Math.random() * 2000); // 15k-17k range
     const graduated = baseGraduates + Math.floor(Math.random() * 30); // 120-150 range
     
-    // Runners = ~0.1% of launched (Pump.fun model)
-    const runners = Math.max(1, Math.floor(launched * 0.001)); // 0.1% of launched
+    // Client's Runners Logic:
+    // - Runners = tokens with market cap ≥ $500K
+    // - Approximate using 0.05%-0.1% range (avg ~0.08%)
+    const runnerRatio = 0.0008; // 0.08% of launched
+    const runners = Math.max(1, Math.round(launched * runnerRatio));
     
     return {
       dailyTokensDeployed: launched,
       dailyGraduates: graduated,
-      topTokensLast7Days: runners, // ~0.1% of launched (Pump.fun model)
+      topTokensLast7Days: runners, // 0.05%-0.1% of launched (market cap ≥ $500K)
       lastUpdated: new Date().toISOString(),
       timeframe: '7 days',
     };
