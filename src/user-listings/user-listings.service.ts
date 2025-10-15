@@ -84,11 +84,31 @@ export class UserListingsService {
     if (!found.title || !found.description) throw new BadRequestException('Missing required fields');
     if ((found.vettingScore ?? 100) > this.MAX_RISK) throw new BadRequestException('Vetting score above allowed risk');
 
+    // ⚠️ CRITICAL: Check if payment has been made before publishing
+    const payment = await this.prisma.payment.findFirst({
+      where: {
+        userId: found.userId,
+        listingId: id,
+        paymentType: 'LISTING',
+        status: 'COMPLETED'
+      }
+    });
+
+    if (!payment) {
+      throw new BadRequestException('Payment required. Please pay 50 USDC to publish this listing.');
+    }
+
+    // After payment, listing goes to PENDING_APPROVAL (not PUBLISHED)
+    // Admin must approve before it goes live
     const updated = await this.prisma.userListing.update({
       where: { id },
-      data: { status: 'PUBLISHED' },
+      data: { status: 'PENDING_APPROVAL' },
     });
-    return { success: true, data: updated };
+    return { 
+      success: true, 
+      data: updated,
+      message: 'Payment confirmed! Listing submitted for admin approval.'
+    };
   }
 
   async findMine(userId: number) {
@@ -140,5 +160,29 @@ export class UserListingsService {
     });
 
     return { success: true, data: created };
+  }
+
+  async deleteListing(userId: number, id: string) {
+    const found = await this.prisma.userListing.findUnique({ where: { id } });
+    if (!found) throw new NotFoundException('Listing not found');
+    if (found.userId !== userId) throw new ForbiddenException('Not your listing');
+
+    // Only allow deleting DRAFT listings (not paid or approved ones)
+    if (found.status === 'PUBLISHED') {
+      throw new BadRequestException('Cannot delete published listings. Contact admin for removal.');
+    }
+    
+    if (found.status === 'PENDING_APPROVAL') {
+      throw new BadRequestException('Cannot delete listings pending approval. Please wait for admin review or contact support.');
+    }
+
+    // Delete the listing
+    await this.prisma.userListing.delete({ where: { id } });
+    
+    return { 
+      success: true, 
+      message: 'Listing deleted successfully',
+      deletedId: id 
+    };
   }
 }

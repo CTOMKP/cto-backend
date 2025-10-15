@@ -111,4 +111,11 @@ export class ListingController {
     return this.listingService.getChartData(contractAddress, chain || 'SOLANA', timeframe || '1h');
   }
 
+  @Post('refresh-holders')
+  @ApiOperation({ summary: 'Refresh holder data for all tokens' })
+  @ApiResponse({ status: 200, description: 'Holder data refresh initiated' })
+  async refreshHolders() {
+    return this.listingService.refreshHolders();
+  }
+
 }

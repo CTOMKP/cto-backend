@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import axios, { AxiosRequestHeaders } from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
-import { CreateDepositDto } from './dto/funding.dto';
+import { CreateDepositDto, WithdrawDto } from './dto/funding.dto';
 
 @Injectable()
 export class FundingService {
@@ -231,6 +231,134 @@ export class FundingService {
         totalBalance: 0,
         message: 'No balance found (wallet might be empty)'
       };
+    }
+  }
+
+  // Withdraw USDC to external wallet
+  async withdraw(dto: WithdrawDto) {
+    try {
+      const userToken = await this.getUserToken(dto.userId);
+      
+      // Get user's wallet
+      const user = await this.prisma.user.findUnique({ where: { email: dto.userId } });
+      if (!user) throw new BadRequestException('User not found');
+
+      let walletId = dto.walletId;
+      if (!walletId) {
+        const wallet = await this.prisma.wallet.findFirst({
+          where: { userId: user.id }
+        });
+        if (!wallet) throw new BadRequestException('No wallet found');
+        walletId = wallet.circleWalletId;
+      }
+
+      // Check balance before withdrawal
+      const balanceResp = await axios.get(
+        `${this.base}/wallets/${walletId}/balances`,
+        { headers: this.headers(userToken) }
+      );
+
+      const tokenBalances = balanceResp.data?.data?.tokenBalances || [];
+      const usdcBalance = tokenBalances.find((b: { token?: { symbol?: string } }) => 
+        b.token?.symbol === 'USDC'
+      );
+      
+      const currentBalance = parseFloat(usdcBalance?.amount || '0');
+      if (currentBalance < dto.amount) {
+        throw new BadRequestException(
+          `Insufficient balance. Available: ${currentBalance} USDC, Requested: ${dto.amount} USDC`
+        );
+      }
+
+      // Create blockchain transfer (withdrawal)
+      const withdrawalData = {
+        idempotencyKey: `withdraw_${uuidv4()}`,
+        source: {
+          type: 'wallet',
+          id: walletId
+        },
+        destination: {
+          type: 'blockchain',
+          address: dto.destinationAddress,
+          chain: dto.blockchain
+        },
+        amount: {
+          amount: dto.amount.toString(),
+          currency: dto.currency || 'USDC'
+        },
+        fee: {
+          type: 'blockchain'
+        }
+      };
+
+      const withdrawResp = await axios.post(
+        `${this.base}/transfers`,
+        withdrawalData,
+        { headers: this.headers(userToken) }
+      );
+
+      const transfer = withdrawResp.data?.data;
+      this.logger.log(`Withdrawal initiated: ${transfer.id} for user ${dto.userId}`);
+
+      return {
+        success: true,
+        withdrawalId: transfer.id,
+        status: transfer.status || 'pending',
+        amount: dto.amount,
+        currency: dto.currency || 'USDC',
+        destinationAddress: dto.destinationAddress,
+        blockchain: dto.blockchain,
+        message: 'Withdrawal initiated successfully',
+        estimatedTime: '5-15 minutes',
+        txHash: transfer.txHash || null
+      };
+
+    } catch (error: unknown) {
+      this.logger.error('Withdrawal failed:', error instanceof Error ? error.message : 'Unknown error');
+      
+      if (axios.isAxiosError(error) && error.response?.data) {
+        throw new BadRequestException(`Withdrawal failed: ${error.response.data.message || 'Unknown error'}`);
+      }
+      
+      throw new BadRequestException(`Withdrawal failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // Get withdrawal status
+  async getWithdrawalStatus(withdrawalId: string, userId: string) {
+    try {
+      const userToken = await this.getUserToken(userId);
+      
+      const statusResp = await axios.get(
+        `${this.base}/transfers/${withdrawalId}`,
+        { headers: this.headers(userToken) }
+      );
+
+      const transfer = statusResp.data?.data;
+
+      return {
+        success: true,
+        withdrawal: {
+          id: transfer.id,
+          status: transfer.status,
+          amount: transfer.amount,
+          currency: transfer.currency,
+          destinationAddress: transfer.destination?.address,
+          blockchain: transfer.destination?.chain,
+          txHash: transfer.txHash,
+          createdAt: transfer.createDate,
+          updatedAt: transfer.updateDate
+        },
+        message: 'Withdrawal status retrieved successfully'
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to get withdrawal status:', error instanceof Error ? error.message : 'Unknown error');
+      
+      if (axios.isAxiosError(error) && error.response?.data) {
+        throw new BadRequestException(`Failed to get withdrawal status: ${error.response.data.message || 'Unknown error'}`);
+      }
+      
+      throw new BadRequestException(`Failed to get withdrawal status: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

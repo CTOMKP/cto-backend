@@ -32,6 +32,7 @@ model User {
   scanResults     ScanResult[]
   userListings    UserListing[]
   uploadedMemes   Meme[]
+  payments        Payment[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -153,7 +154,7 @@ model UserListing {
   logoUrl      String?
   bannerUrl    String?
   links        Json?
-  status       String   // DRAFT | PUBLISHED | REJECTED
+  status       String   // DRAFT | PENDING_APPROVAL | PUBLISHED | REJECTED
   vettingTier  String
   vettingScore Int
   createdAt    DateTime @default(now())
@@ -211,4 +212,60 @@ model Waitlist {
   createdAt DateTime @default(now())
   
   @@index([createdAt])
+}
+
+// Payment tracking for listings and ad boosts
+model Payment {
+  id                String        @id @default(cuid())
+  userId            Int
+  user              User          @relation(fields: [userId], references: [id])
+  
+  // Payment type and related entity
+  paymentType       PaymentType   // LISTING | AD_BOOST
+  listingId         String?       // Reference to UserListing
+  adBoostId         String?       // Reference to AdBoost
+  
+  // Payment details
+  amount            Float
+  currency          String        @default("USDC")
+  status            PaymentStatus @default(PENDING)
+  
+  // Circle transaction details
+  transferId        String?       @unique  // Circle transfer ID
+  txHash            String?                // Blockchain transaction hash
+  fromWalletId      String?                // Source wallet (user's wallet)
+  toAddress         String?                // Destination address (platform wallet)
+  
+  // Metadata
+  description       String?
+  metadata          Json?
+  
+  // Timestamps
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  completedAt       DateTime?
+  
+  @@index([userId])
+  @@index([paymentType])
+  @@index([status])
+  @@index([transferId])
+  @@index([listingId])
+  @@index([adBoostId])
+}
+
+enum PaymentType {
+  LISTING
+  AD_BOOST
+  ESCROW
+  WITHDRAWAL
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
 }

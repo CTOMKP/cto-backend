@@ -35,3 +35,31 @@ export class GetBalanceDto {
   @IsString()
   userId: string;
 }
+
+export class WithdrawDto {
+  @IsString()
+  userId: string;
+
+  @IsString()
+  @IsOptional()
+  walletId?: string;
+
+  @IsString()
+  destinationAddress: string;
+
+  @IsString()
+  blockchain: string;
+
+  @IsNumber()
+  @Min(1)
+  @Max(10000)
+  amount: number;
+
+  @IsString()
+  @IsOptional()
+  currency?: string; // defaults to USDC
+
+  @IsString()
+  @IsOptional()
+  memo?: string;
+}

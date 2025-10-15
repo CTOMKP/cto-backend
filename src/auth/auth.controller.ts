@@ -72,22 +72,20 @@ export class AuthController {
     return { message: 'Logged out successfully' };
   }
 
-  @ApiOperation({ summary: 'Refresh access token', description: 'Get a new access token using a valid refresh token' })
-  @ApiBody({ type: RefreshTokenDto })
+  @ApiOperation({ summary: 'Refresh access token', description: 'Get a new access token using current JWT' })
+  @ApiBearerAuth('JWT-auth')
   @ApiResponse({ status: 200, description: 'Token refreshed successfully', type: RefreshTokenResponseDto })
-  @ApiResponse({ status: 401, description: 'Invalid or expired refresh token', type: ErrorResponseDto })
-  @ApiResponse({ status: 400, description: 'Bad request - missing refresh token', type: ErrorResponseDto })
+  @ApiResponse({ status: 401, description: 'Invalid or expired token', type: ErrorResponseDto })
+  @UseGuards(JwtAuthGuard)
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refreshToken(@Body() body: { refresh_token: string }) {
+  async refreshToken(@Request() req) {
     try {
-      const payload = await this.authService.verifyToken(body.refresh_token);
-      if (!payload) throw new UnauthorizedException('Invalid refresh token');
-      const user = await this.authService.getUserById(payload.sub);
+      const user = await this.authService.getUserById(req.user.sub);
       if (!user) throw new UnauthorizedException('User not found');
       return this.authService.refreshToken(user);
     } catch (error) {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException('Invalid token');
     }
   }
 }

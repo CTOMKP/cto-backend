@@ -159,4 +159,67 @@ export class ListingService {
     await this.cache.set(key, result, 60);
     return result;
   }
+
+  /**
+   * Refresh holder data for all tokens
+   */
+  async refreshHolders() {
+    this.logger.log('Starting holder data refresh for all tokens...');
+    
+    try {
+      // Get all listings from database
+      const client = (this.repo as any)['prisma'] as any;
+      const listings = await client.listing.findMany({
+        select: { contractAddress: true, chain: true, symbol: true }
+      });
+
+      let updated = 0;
+      let failed = 0;
+
+      // Process each listing
+      for (const listing of listings) {
+        try {
+          // Fetch holder count
+          const holderCount = await this.analyticsService.getHolderCount(
+            listing.contractAddress, 
+            listing.chain
+          );
+
+          if (holderCount !== null && holderCount > 0) {
+            // Update the listing with new holder count
+            await client.listing.update({
+              where: { contractAddress: listing.contractAddress },
+              data: { holders: holderCount }
+            });
+            
+            this.logger.log(`✅ Updated holders for ${listing.symbol}: ${holderCount}`);
+            updated++;
+          } else {
+            this.logger.warn(`❌ No holder data for ${listing.symbol}`);
+            failed++;
+          }
+        } catch (error) {
+          this.logger.error(`Failed to update holders for ${listing.symbol}: ${error.message}`);
+          failed++;
+        }
+      }
+
+      // Clear cache to force refresh
+      await this.cache.invalidateMatching(['listing:list:*', 'listing:one:*']);
+
+      return {
+        success: true,
+        total: listings.length,
+        updated,
+        failed,
+        message: `Holder data refresh completed: ${updated} updated, ${failed} failed`
+      };
+    } catch (error) {
+      this.logger.error('Holder refresh failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }

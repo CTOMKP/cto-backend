@@ -7,6 +7,7 @@ import { ListingRepository } from '../repository/listing.repository';
 import { CacheService } from '../services/cache.service';
 import { MetricsService } from '../services/metrics.service';
 import { ListingGateway } from '../services/listing.gateway';
+import { AnalyticsService } from '../services/analytics.service';
 
 /*
   RefreshWorker
@@ -29,6 +30,7 @@ export class RefreshWorker {
     private readonly cache: CacheService,
     private readonly metrics: MetricsService,
     private readonly gateway: ListingGateway,
+    private readonly analyticsService: AnalyticsService,
   ) {}
 
   enqueue(contract: string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' }) {
@@ -824,13 +826,45 @@ export class RefreshWorker {
         const before = await this.repo.findOne(address);
         // Enrich missing logo with TrustWallet assets or identicon (cached)
         const resolvedLogo = x.logoUrl || await this.resolveLogoCached(chain, address, x.symbol, x.name);
+        
+        // Fetch holder data if not available
+        let holderCount = x.market?.holders ?? 0;
+        if (holderCount === 0 || holderCount === null) {
+          try {
+            const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
+            if (fetchedHolders !== null && fetchedHolders > 0) {
+              holderCount = fetchedHolders;
+              console.log(`👥 Fetched holders for ${x.symbol || address}: ${holderCount}`);
+            } else {
+              // Fallback: Estimate holders based on market cap and volume
+              const marketCap = x.market?.fdv ?? x.market?.marketCap ?? 0;
+              const volume24h = x.market?.volume?.h24 ?? 0;
+              
+              if (marketCap > 0) {
+                // Simple estimation: 1 holder per $1000 market cap, minimum 10
+                holderCount = Math.max(10, Math.floor(marketCap / 1000));
+                
+                // Adjust based on volume (higher volume = more holders)
+                if (volume24h > 0) {
+                  const volumeRatio = Math.min(volume24h / marketCap, 1); // Cap at 1
+                  holderCount = Math.floor(holderCount * (1 + volumeRatio));
+                }
+                
+                console.log(`📊 Estimated holders for ${x.symbol || address}: ${holderCount} (MC: $${marketCap.toLocaleString()})`);
+              }
+            }
+          } catch (error) {
+            console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error.message}`);
+          }
+        }
+        
         // Ensure all required fields from reference images are included
         const marketData = {
           ...(x.market ?? {}),
           category,
           logoUrl: resolvedLogo ?? null,
           // Ensure these fields are always present
-          holders: x.market?.holders ?? 0,
+          holders: holderCount,
           priceUsd: x.market?.priceUsd ?? 0,
           liquidityUsd: x.market?.liquidityUsd ?? 0,
           fdv: x.market?.fdv ?? 0,

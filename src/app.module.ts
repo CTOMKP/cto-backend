@@ -13,6 +13,8 @@ import { MemeModule } from './meme/meme.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
 import { AssetsModule } from './assets/assets.module';
 import { DuneModule } from './dune/dune.module';
+import { PaymentModule } from './payment/payment.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -37,6 +39,8 @@ import { DuneModule } from './dune/dune.module';
     WaitlistModule,
     AssetsModule,
     DuneModule,
+    PaymentModule,
+    AdminModule,
   ],
   controllers: [HealthController],
   providers: [],

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserListingsService } from './user-listings.service';
 import { ScanDto } from './dto/scan.dto';
@@ -78,5 +78,14 @@ export class UserListingsController {
   async addAd(@Param('id') id: string, @Body() dto: CreateAdBoostDto, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
     return this.svc.addAdBoost(Number(userId), id, dto);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Delete a user listing (only DRAFT listings can be deleted)' })
+  async delete(@Param('id') id: string, @Req() req: any) {
+    const userId = req?.user?.userId || req?.user?.sub;
+    return this.svc.deleteListing(Number(userId), id);
   }
 }

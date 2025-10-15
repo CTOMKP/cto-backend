@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { FundingService } from './funding.service';
-import { CreateDepositDto, DepositStatusDto, GetBalanceDto } from './dto/funding.dto';
+import { CreateDepositDto, DepositStatusDto, GetBalanceDto, WithdrawDto } from './dto/funding.dto';
 
 @ApiTags('funding')
 @Controller('funding')
@@ -40,5 +40,23 @@ export class FundingController {
     @Query('walletId') walletId?: string
   ) {
     return this.fundingService.getWalletBalance(userId, walletId);
+  }
+
+  @Post('withdraw')
+  @ApiOperation({ summary: 'Withdraw USDC to external wallet' })
+  @ApiResponse({ status: 200, description: 'Withdrawal initiated successfully' })
+  @ApiResponse({ status: 400, description: 'Insufficient balance or invalid request' })
+  async withdraw(@Body() dto: WithdrawDto) {
+    return this.fundingService.withdraw(dto);
+  }
+
+  @Get('withdraw/:withdrawalId/status')
+  @ApiOperation({ summary: 'Get withdrawal status' })
+  @ApiResponse({ status: 200, description: 'Withdrawal status retrieved successfully' })
+  async getWithdrawalStatus(
+    @Param('withdrawalId') withdrawalId: string,
+    @Query('userId') userId: string
+  ) {
+    return this.fundingService.getWithdrawalStatus(withdrawalId, userId);
   }
 }
