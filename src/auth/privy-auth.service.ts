@@ -11,13 +11,16 @@ export class PrivyAuthService {
     const appId = this.configService.get<string>('PRIVY_APP_ID');
     const appSecret = this.configService.get<string>('PRIVY_APP_SECRET');
 
+    this.logger.log(`🔑 Privy App ID: ${appId}`);
+    this.logger.log(`🔑 Privy App Secret: ${appSecret?.substring(0, 20)}...`);
+
     if (!appId || !appSecret) {
       this.logger.error('PRIVY_APP_ID and PRIVY_APP_SECRET must be set in environment variables');
       throw new Error('Privy credentials not configured');
     }
 
     this.privyClient = new PrivyClient(appId, appSecret);
-    this.logger.log('Privy authentication service initialized');
+    this.logger.log('✅ Privy authentication service initialized');
   }
 
   /**
