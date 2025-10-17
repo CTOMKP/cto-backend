@@ -233,8 +233,7 @@ export class PrivyAuthController {
       // Create new Aptos wallet
       const aptosWallet = await this.privyAuthService.createAptosWallet(privyUserId);
       
-      // Find user in our DB and sync the wallet
-      const user = await this.authService.findByPrivyUserId(privyUserId);
+      // Sync the wallet to our DB (user already fetched above)
       if (user) {
         await this.authService.syncPrivyWallet(user.id, {
           privyWalletId: aptosWallet.id,
