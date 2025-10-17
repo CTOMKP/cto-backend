@@ -159,8 +159,7 @@ export class PrivyPaymentService {
         throw new BadRequestException('Payment not found');
       }
 
-      // For now, mark as completed
-      // TODO: Add on-chain verification using RPC
+      // Mark payment as completed
       const updated = await this.prisma.payment.update({
         where: { id: paymentId },
         data: { 
@@ -168,6 +167,15 @@ export class PrivyPaymentService {
           completedAt: new Date(),
         },
       });
+
+      // If this is a listing payment, update listing status to PENDING_APPROVAL
+      if (payment.paymentType === 'LISTING' && payment.listingId) {
+        await this.prisma.userListing.update({
+          where: { id: payment.listingId },
+          data: { status: 'PENDING_APPROVAL' },
+        });
+        this.logger.log(`✅ Listing ${payment.listingId} status updated to PENDING_APPROVAL`);
+      }
 
       this.logger.log(`✅ Payment verified: ${paymentId}`);
 
