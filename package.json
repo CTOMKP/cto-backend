@@ -43,6 +43,7 @@
     "@nestjs/swagger": "^11.2.0",
     "@nestjs/websockets": "^11.1.6",
     "@prisma/client": "^5.18.0",
+    "@privy-io/node-auth": "^1.0.0",
     "@types/compression": "^1.8.1",
     "@types/multer": "^2.0.0",
     "@types/redis": "^4.0.10",
