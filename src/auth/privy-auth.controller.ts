@@ -19,17 +19,34 @@ export class PrivyAuthController {
   @Post('sync')
   async syncUser(@Body('privyToken') privyToken: string) {
     try {
-      // Verify Privy token
-      const privyUser = await this.privyAuthService.verifyToken(privyToken);
+      this.logger.log('=== PRIVY SYNC START ===');
+      this.logger.log(`Received token: ${privyToken?.substring(0, 50)}...`);
       
-      this.logger.log(`Syncing user from Privy: ${privyUser.userId}`);
+      // Verify Privy token
+      this.logger.log('Step 1: Verifying token...');
+      const privyUser = await Promise.race([
+        this.privyAuthService.verifyToken(privyToken),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Token verification timeout')), 10000))
+      ]);
+      
+      this.logger.log(`✅ Token verified. User ID: ${privyUser.userId}`);
 
       // Get full user details and wallets from Privy
-      const userDetails = await this.privyAuthService.getUserById(privyUser.userId);
-      const userWallets = await this.privyAuthService.getUserWallets(privyUser.userId);
+      this.logger.log('Step 2: Getting user details...');
+      const userDetails = await Promise.race([
+        this.privyAuthService.getUserById(privyUser.userId),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('getUserById timeout')), 10000))
+      ]);
       
-      this.logger.log(`User details: ${JSON.stringify(userDetails)}`);
-      this.logger.log(`User wallets: ${JSON.stringify(userWallets)}`);
+      this.logger.log(`✅ User details received`);
+      
+      this.logger.log('Step 3: Getting user wallets...');
+      const userWallets = await Promise.race([
+        this.privyAuthService.getUserWallets(privyUser.userId),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('getUserWallets timeout')), 10000))
+      ]);
+      
+      this.logger.log(`✅ Wallets received: ${userWallets?.length || 0} wallets`);
       
       // Extract email from Privy user - handle multiple auth methods
       let email: string;
@@ -116,8 +133,18 @@ export class PrivyAuthController {
         })),
       };
     } catch (error) {
-      this.logger.error('Privy sync failed', error);
-      throw error;
+      this.logger.error('=== PRIVY SYNC FAILED ===');
+      this.logger.error(`Error type: ${error.constructor.name}`);
+      this.logger.error(`Error message: ${error.message}`);
+      this.logger.error(`Error stack: ${error.stack}`);
+      
+      // Return a more helpful error message
+      throw {
+        statusCode: 500,
+        message: `Privy sync failed: ${error.message}`,
+        error: error.constructor.name,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      };
     }
   }
 
