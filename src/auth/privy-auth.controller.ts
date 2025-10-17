@@ -28,11 +28,26 @@ export class PrivyAuthController {
       const userDetails = await this.privyAuthService.getUserById(privyUser.userId);
       const userWallets = await this.privyAuthService.getUserWallets(privyUser.userId);
       
-      // Extract email from Privy user
-      const email = userDetails.email?.address || 
-                    userDetails.google?.email ||
-                    userDetails.twitter?.username ? `${userDetails.twitter.username}@twitter.privy` : 
-                    `privy-${privyUser.userId}@ctomemes.xyz`;
+      this.logger.log(`User details: ${JSON.stringify(userDetails)}`);
+      this.logger.log(`User wallets: ${JSON.stringify(userWallets)}`);
+      
+      // Extract email from Privy user - handle multiple auth methods
+      let email: string;
+      if (userDetails.email?.address) {
+        email = userDetails.email.address;
+      } else if (userDetails.google?.email) {
+        email = userDetails.google.email;
+      } else if (userDetails.twitter?.username) {
+        email = `${userDetails.twitter.username}@twitter.privy`;
+      } else if (userWallets && userWallets.length > 0) {
+        // User logged in with wallet only - use wallet address as email
+        email = `${userWallets[0].address}@wallet.privy`;
+      } else {
+        // Fallback
+        email = `privy-${privyUser.userId}@ctomemes.xyz`;
+      }
+      
+      this.logger.log(`Resolved email: ${email}`);
 
       // Check if user exists in our DB
       let user = await this.authService.findByEmail(email);
