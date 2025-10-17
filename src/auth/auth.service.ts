@@ -90,6 +90,11 @@ export class AuthService {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
+  // Get user by email
+  async findByEmail(email: string) {
+    return this.prisma.user.findUnique({ where: { email } });
+  }
+
   // Issue access and refresh tokens
   async login(user: any) {
     const payload = { email: user.email, sub: user.id, role: user.role };
