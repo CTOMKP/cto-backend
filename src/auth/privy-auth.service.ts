@@ -82,14 +82,23 @@ export class PrivyAuthService {
   async createAptosWallet(userId: string) {
     try {
       this.logger.log(`Creating Aptos wallet for user: ${userId}`);
+      this.logger.log(`Calling privyClient.createWallet with chainType: aptos`);
+      
       const wallet = await this.privyClient.createWallet({
         userId,
         chainType: 'aptos',
       });
-      this.logger.log(`✅ Aptos wallet created: ${wallet.address}`);
+      
+      this.logger.log(`✅ Aptos wallet created successfully!`);
+      this.logger.log(`Address: ${wallet.address}`);
+      this.logger.log(`Wallet ID: ${wallet.id}`);
       return wallet;
-    } catch (error) {
-      this.logger.error(`Failed to create Aptos wallet for user ${userId}`, error);
+    } catch (error: any) {
+      this.logger.error(`❌ Failed to create Aptos wallet for user ${userId}`);
+      this.logger.error(`Error name: ${error.name}`);
+      this.logger.error(`Error message: ${error.message}`);
+      this.logger.error(`Error stack: ${error.stack}`);
+      this.logger.error(`Full error: ${JSON.stringify(error, null, 2)}`);
       throw error;
     }
   }
