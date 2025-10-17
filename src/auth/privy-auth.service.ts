@@ -75,31 +75,48 @@ export class PrivyAuthService {
   }
 
   /**
-   * Create an Aptos wallet for a user (Tier 2 chain)
-   * @param userId - Privy user ID
+   * Create an Aptos wallet for a user (Tier 2 chain) via Privy REST API
+   * @param userId - Privy user ID (DID format)
    * @returns Created wallet details
    */
   async createAptosWallet(userId: string) {
     try {
       this.logger.log(`Creating Aptos wallet for user: ${userId}`);
-      this.logger.log(`Calling privyClient.createWallet with chainType: aptos`);
       
-      const wallet = await this.privyClient.createWallet({
-        userId,
-        chainType: 'aptos',
-      });
+      const appId = this.configService.get<string>('PRIVY_APP_ID');
+      const appSecret = this.configService.get<string>('PRIVY_APP_SECRET');
+      
+      // Call Privy REST API to create wallet
+      const axios = require('axios');
+      const response = await axios.post(
+        `https://auth.privy.io/api/v1/apps/${appId}/users/${userId}/wallets`,
+        {
+          chain_type: 'aptos',
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Basic ${Buffer.from(`${appId}:${appSecret}`).toString('base64')}`,
+            'privy-app-id': appId,
+          },
+        }
+      );
       
       this.logger.log(`✅ Aptos wallet created successfully!`);
-      this.logger.log(`Address: ${wallet.address}`);
-      this.logger.log(`Wallet ID: ${wallet.id}`);
-      return wallet;
+      this.logger.log(`Address: ${response.data.address}`);
+      this.logger.log(`Wallet ID: ${response.data.id}`);
+      
+      return {
+        id: response.data.id,
+        address: response.data.address,
+        chainType: response.data.chain_type,
+      };
     } catch (error: any) {
       this.logger.error(`❌ Failed to create Aptos wallet for user ${userId}`);
-      this.logger.error(`Error name: ${error.name}`);
+      this.logger.error(`Error status: ${error.response?.status}`);
+      this.logger.error(`Error data: ${JSON.stringify(error.response?.data)}`);
       this.logger.error(`Error message: ${error.message}`);
-      this.logger.error(`Error stack: ${error.stack}`);
-      this.logger.error(`Full error: ${JSON.stringify(error, null, 2)}`);
-      throw error;
+      throw new Error(`Failed to create Aptos wallet: ${error.response?.data?.message || error.message}`);
     }
   }
 
