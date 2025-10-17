@@ -27,3 +27,4 @@ export class PrivyAuthGuard implements CanActivate {
     return type === 'Bearer' ? token : undefined;
   }
 }
+

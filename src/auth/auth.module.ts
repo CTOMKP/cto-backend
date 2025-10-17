@@ -4,12 +4,14 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { PrivyAuthController } from './privy-auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { PrivyAuthService } from './privy-auth.service';
 
 @Module({
   imports: [
+    ConfigModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -21,8 +23,8 @@ import { PrivyAuthService } from './privy-auth.service';
     }),
   ],
   providers: [AuthService, LocalStrategy, JwtStrategy, PrivyAuthService],
-  controllers: [AuthController],
-  exports: [AuthService, JwtModule],
+  controllers: [AuthController, PrivyAuthController],
+  exports: [AuthService, JwtModule, PrivyAuthService],
 })
 export class AuthModule {}
 
