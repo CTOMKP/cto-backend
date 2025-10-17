@@ -22,11 +22,15 @@ export class AuthService {
   }
 
   // Register a new user with hashed password
-  async register(name: string | undefined, email: string, password: string) {
-    const passwordHash = await bcrypt.hash(password, 10);
+  async register(data: { email: string; password: string; name?: string; walletAddress?: string }) {
+    const passwordHash = await bcrypt.hash(data.password, 10);
     try {
       const created = await this.prisma.user.create({
-        data: { name: name ?? null, email, passwordHash },
+        data: { 
+          name: data.name ?? null, 
+          email: data.email, 
+          passwordHash 
+        },
       });
       const { passwordHash: _, ...safe } = created as any;
       return safe;
@@ -105,6 +109,51 @@ export class AuthService {
     const payload = { email: user.email, sub: user.id, role: user.role };
     const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
     return { access_token: accessToken, expires_in: 900 };
+  }
+
+  // Update user fields
+  async updateUser(userId: number, data: any) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+    });
+  }
+
+  // Sync Privy wallet to database
+  async syncPrivyWallet(userId: number, walletData: any) {
+    // Check if wallet already exists
+    const existingWallet = await this.prisma.wallet.findFirst({
+      where: {
+        userId,
+        address: walletData.address,
+      },
+    });
+
+    if (existingWallet) {
+      // Update existing wallet
+      return this.prisma.wallet.update({
+        where: { id: existingWallet.id },
+        data: {
+          privyWalletId: walletData.privyWalletId,
+          type: walletData.type,
+          walletClient: walletData.walletClient,
+          isPrimary: walletData.isPrimary,
+        },
+      });
+    } else {
+      // Create new wallet
+      return this.prisma.wallet.create({
+        data: {
+          userId,
+          privyWalletId: walletData.privyWalletId,
+          address: walletData.address,
+          blockchain: walletData.blockchain,
+          type: walletData.type,
+          walletClient: walletData.walletClient,
+          isPrimary: walletData.isPrimary,
+        },
+      });
+    }
   }
 
   // Verify jwt

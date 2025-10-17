@@ -24,12 +24,15 @@ export class PrivyAuthController {
       
       this.logger.log(`Syncing user from Privy: ${privyUser.userId}`);
 
-      // Get full user details from Privy
+      // Get full user details and wallets from Privy
       const userDetails = await this.privyAuthService.getUserById(privyUser.userId);
+      const userWallets = await this.privyAuthService.getUserWallets(privyUser.userId);
       
-      // Extract email and wallet from Privy user
-      const email = userDetails.email?.address || `privy-${privyUser.userId}@ctomemes.xyz`;
-      const walletAddress = userDetails.wallet?.address;
+      // Extract email from Privy user
+      const email = userDetails.email?.address || 
+                    userDetails.google?.email ||
+                    userDetails.twitter?.username ? `${userDetails.twitter.username}@twitter.privy` : 
+                    `privy-${privyUser.userId}@ctomemes.xyz`;
 
       // Check if user exists in our DB
       let user = await this.authService.findByEmail(email);
@@ -39,35 +42,83 @@ export class PrivyAuthController {
         user = await this.authService.register({
           email,
           password: `privy-${privyUser.userId}`, // Placeholder password for Privy users
-          walletAddress,
         });
+        
+        // Store Privy user ID
+        await this.authService.updateUser(user.id, {
+          privyUserId: privyUser.userId,
+          privyDid: userDetails.id,
+          provider: 'privy',
+          lastLoginAt: new Date(),
+        });
+        
         this.logger.log(`Created new user from Privy: ${email}`);
       } else {
-        // Update wallet address if needed
-        if (walletAddress && user.walletAddress !== walletAddress) {
-          // You can add update logic here if needed
-          this.logger.log(`Updated user wallet: ${email}`);
+        // Update Privy fields and last login
+        await this.authService.updateUser(user.id, {
+          privyUserId: privyUser.userId,
+          privyDid: userDetails.id,
+          lastLoginAt: new Date(),
+        });
+      }
+
+      // Sync ALL wallets from Privy
+      if (userWallets && userWallets.length > 0) {
+        for (const wallet of userWallets) {
+          await this.authService.syncPrivyWallet(user.id, {
+            privyWalletId: wallet.id,
+            address: wallet.address,
+            blockchain: this.mapChainType(wallet.chainType),
+            type: wallet.walletClient ? 'PRIVY_EXTERNAL' : 'PRIVY_EMBEDDED',
+            walletClient: wallet.walletClient || 'privy',
+            isPrimary: userWallets[0].id === wallet.id, // First wallet is primary
+          });
         }
+        this.logger.log(`Synced ${userWallets.length} wallets for user: ${email}`);
       }
 
       // Generate our own JWT token for the user
       const jwtToken = await this.authService.login(user);
+
+      // Get primary wallet address
+      const primaryWallet = userWallets?.[0];
 
       return {
         success: true,
         user: {
           id: user.id,
           email: user.email,
-          walletAddress: user.walletAddress,
+          walletAddress: primaryWallet?.address,
           role: user.role,
+          privyUserId: privyUser.userId,
+          walletsCount: userWallets?.length || 0,
         },
         token: jwtToken.access_token,
-        privyUserId: privyUser.userId,
+        wallets: userWallets?.map(w => ({
+          address: w.address,
+          chainType: w.chainType,
+          walletClient: w.walletClient,
+        })),
       };
     } catch (error) {
       this.logger.error('Privy sync failed', error);
       throw error;
     }
+  }
+
+  // Helper to map Privy chain types to our Chain enum
+  private mapChainType(chainType: string): string {
+    const mapping = {
+      'ethereum': 'ETHEREUM',
+      'solana': 'SOLANA',
+      'base': 'BASE',
+      'polygon': 'ETHEREUM',
+      'arbitrum': 'ETHEREUM',
+      'optimism': 'ETHEREUM',
+      'bsc': 'BSC',
+      'aptos': 'APTOS',
+    };
+    return mapping[chainType?.toLowerCase()] || 'UNKNOWN';
   }
 
   /**
@@ -105,4 +156,5 @@ export class PrivyAuthController {
     }
   }
 }
+
 

@@ -21,10 +21,13 @@ model User {
   // OAuth provider fields
   provider        String?
   providerId      String?       @unique
-  // Circle identity fields
+  // Circle identity fields (legacy)
   circleUserId    String?       @unique
   circleAppId     String?
   circlePinStatus String?
+  // Privy identity fields
+  privyUserId     String?       @unique
+  privyDid        String?       @unique
   lastLoginAt     DateTime?
 
   // Relations
@@ -126,11 +129,14 @@ model Listing {
 // Circle Wallets persisted for users
 model Wallet {
   id             String   @id @default(cuid())        // internal id
-  circleWalletId String   @unique                     // Circle wallet id
+  circleWalletId String?  @unique                     // Circle wallet id (legacy)
+  privyWalletId  String?                              // Privy wallet id
   address        String?
   blockchain     Chain
-  type           String?                              // e.g., USER_CONTROLLED
+  type           String?                              // e.g., USER_CONTROLLED, PRIVY_EMBEDDED, PRIVY_EXTERNAL
+  walletClient   String?                              // e.g., metamask, phantom, coinbase_wallet
   description    String?
+  isPrimary      Boolean  @default(false)             // Primary wallet for the user
 
   userId         Int
   user           User     @relation(fields: [userId], references: [id])
@@ -140,6 +146,7 @@ model Wallet {
 
   @@index([userId])
   @@index([blockchain])
+  @@index([address])
 }
 
 // User-created listings
