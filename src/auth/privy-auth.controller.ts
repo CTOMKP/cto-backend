@@ -202,10 +202,15 @@ export class PrivyAuthController {
    * Create Aptos wallet for user (Tier 2 chain)
    */
   @Post('create-aptos-wallet')
-  @UseGuards(PrivyAuthGuard)
-  async createAptosWallet(@Request() req) {
+  async createAptosWallet(@Body('userId') userId: number) {
     try {
-      const privyUserId = req.user.userId;
+      // Get user from our database
+      const user = await this.authService.getUserById(userId);
+      if (!user || !user.privyUserId) {
+        throw new Error('User not found or not linked to Privy');
+      }
+      
+      const privyUserId = user.privyUserId;
       
       this.logger.log(`Creating Aptos wallet for Privy user: ${privyUserId}`);
       
