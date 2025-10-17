@@ -73,4 +73,45 @@ export class PrivyAuthService {
       return [];
     }
   }
+
+  /**
+   * Create an Aptos wallet for a user (Tier 2 chain)
+   * @param userId - Privy user ID
+   * @returns Created wallet details
+   */
+  async createAptosWallet(userId: string) {
+    try {
+      this.logger.log(`Creating Aptos wallet for user: ${userId}`);
+      const wallet = await this.privyClient.createWallet({
+        userId,
+        chainType: 'aptos',
+      });
+      this.logger.log(`✅ Aptos wallet created: ${wallet.address}`);
+      return wallet;
+    } catch (error) {
+      this.logger.error(`Failed to create Aptos wallet for user ${userId}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all wallets including Tier 2 chains (Aptos, etc.)
+   * @param userId - Privy user ID
+   * @returns All wallets for the user
+   */
+  async getAllUserWallets(userId: string) {
+    try {
+      const user = await this.getUserById(userId);
+      // linkedAccounts includes all wallets (Tier 1 and Tier 2)
+      const wallets = user.linkedAccounts?.filter(
+        (account) => account.type === 'wallet'
+      ) || [];
+      
+      this.logger.log(`Found ${wallets.length} wallets for user ${userId}`);
+      return wallets;
+    } catch (error) {
+      this.logger.error(`Failed to get all wallets for user ${userId}`, error);
+      return [];
+    }
+  }
 }

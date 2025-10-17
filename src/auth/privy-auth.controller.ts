@@ -197,6 +197,63 @@ export class PrivyAuthController {
       };
     }
   }
+
+  /**
+   * Create Aptos wallet for user (Tier 2 chain)
+   */
+  @Post('create-aptos-wallet')
+  @UseGuards(PrivyAuthGuard)
+  async createAptosWallet(@Request() req) {
+    try {
+      const privyUserId = req.user.userId;
+      
+      this.logger.log(`Creating Aptos wallet for Privy user: ${privyUserId}`);
+      
+      // Check if user already has Aptos wallet
+      const allWallets = await this.privyAuthService.getAllUserWallets(privyUserId);
+      const existingAptos = allWallets.find(w => w.chainType === 'aptos');
+      
+      if (existingAptos) {
+        this.logger.log(`User already has Aptos wallet: ${existingAptos.address}`);
+        return {
+          success: true,
+          wallet: {
+            address: existingAptos.address,
+            chainType: 'aptos',
+            existed: true,
+          },
+        };
+      }
+
+      // Create new Aptos wallet
+      const aptosWallet = await this.privyAuthService.createAptosWallet(privyUserId);
+      
+      // Find user in our DB and sync the wallet
+      const user = await this.authService.findByPrivyUserId(privyUserId);
+      if (user) {
+        await this.authService.syncPrivyWallet(user.id, {
+          privyWalletId: aptosWallet.id,
+          address: aptosWallet.address,
+          blockchain: 'APTOS',
+          type: 'PRIVY_EMBEDDED',
+          walletClient: 'privy',
+          isPrimary: false,
+        });
+      }
+
+      return {
+        success: true,
+        wallet: {
+          address: aptosWallet.address,
+          chainType: 'aptos',
+          existed: false,
+        },
+      };
+    } catch (error) {
+      this.logger.error('Failed to create Aptos wallet', error);
+      throw error;
+    }
+  }
 }
 
 
