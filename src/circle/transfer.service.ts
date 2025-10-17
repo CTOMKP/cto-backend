@@ -174,27 +174,37 @@ export class TransferService {
   // Panora Token Swap
   async executePanoraSwap(dto: PanoraSwapDto) {
     try {
-      // Get user token
-      const tokenResp = await axios.post(
-        `${this.base}/users/token`,
-        { userId: dto.userId },
-        { headers: this.headers() }
-      );
-      const userToken = tokenResp.data?.data?.userToken;
-      if (!userToken) throw new BadRequestException('Failed to obtain user token');
-
       // Get user's wallet
       const user = await this.prisma.user.findUnique({ where: { email: dto.userId } });
       if (!user) throw new BadRequestException('User not found');
 
+      // Check if user has Privy wallet or Circle wallet
+      const isPivyUser = !!user.privyUserId;
+      let userToken: string | null = null;
+      
+      if (!isPivyUser) {
+        // Circle user - get user token
+        const tokenResp = await axios.post(
+          `${this.base}/users/token`,
+          { userId: dto.userId },
+          { headers: this.headers() }
+        );
+        userToken = tokenResp.data?.data?.userToken;
+        if (!userToken) throw new BadRequestException('Failed to obtain user token');
+      } else {
+        this.logger.log('Privy user detected - skipping Circle user token');
+      }
+
       let walletId = dto.walletId;
+      let walletAddress: string;
+      
       if (!walletId) {
         // First try to find wallet on the requested chain
         let wallet = await this.prisma.wallet.findFirst({
           where: { userId: user.id, blockchain: dto.chain }
         });
         
-        // If not found, try to find any wallet for the user (fallback to APTOS)
+        // If not found, try to find any wallet for the user
         if (!wallet) {
           wallet = await this.prisma.wallet.findFirst({
             where: { userId: user.id }
@@ -202,7 +212,10 @@ export class TransferService {
         }
         
         if (!wallet) throw new BadRequestException(`No wallet found. Please create a wallet first.`);
-        walletId = wallet.circleWalletId;
+        
+        // Support both Circle and Privy wallets
+        walletId = wallet.circleWalletId || wallet.id;
+        walletAddress = wallet.address;
         
         // Log the actual blockchain being used
         this.logger.log(`Using wallet on ${wallet.blockchain} for ${dto.chain} swap`);
@@ -225,14 +238,23 @@ export class TransferService {
       const fromTokenAddress = tokenAddresses[dto.fromToken] || dto.fromToken;
       const toTokenAddress = tokenAddresses[dto.toToken] || dto.toToken;
       
-      // Get user's wallet address for toWalletAddress
-      const walletAddress = await this.getWalletAddress(walletId, userToken);
+      // Get user's wallet address - support both Circle and Privy wallets
+      let finalWalletAddress: string;
+      if (walletAddress) {
+        // Privy wallet - use address directly
+        finalWalletAddress = walletAddress;
+        this.logger.log(`Using Privy wallet address: ${finalWalletAddress}`);
+      } else {
+        // Circle wallet - fetch via Circle API
+        finalWalletAddress = await this.getWalletAddress(walletId, userToken);
+        this.logger.log(`Using Circle wallet address: ${finalWalletAddress}`);
+      }
       
       const queryParams = new URLSearchParams({
         fromTokenAddress: fromTokenAddress,
         toTokenAddress: toTokenAddress,
         fromTokenAmount: dto.amount.toString(),
-        toWalletAddress: walletAddress,
+        toWalletAddress: finalWalletAddress,
         slippagePercentage: (dto.slippage || 0.5).toString()
       });
       
