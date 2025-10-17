@@ -103,13 +103,13 @@ export class AuthService {
   // Issue access and refresh tokens
   async login(user: any) {
     const payload = { email: user.email, sub: user.id, role: user.role };
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '24h' }); // Extended for testing
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
-      expires_in: 900,
+      expires_in: 86400, // 24 hours
       user: { id: user.id, email: user.email },
     };
   }
