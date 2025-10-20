@@ -11,14 +11,14 @@ export interface UploadedImageFile {
 }
 
 export interface ImageMetadata {
-  id: string;
-  filename: string;
-  originalName: string;
-  size: number;
-  mimeType: string;
-  uploadDate: Date;
-  path: string;
-  url: string;
+  id: string;               // typically S3 key or derived id
+  filename: string;         // client-provided filename
+  originalName: string;     // original stored name (may equal key)
+  size: number;             // bytes (0 when unknown pre-upload)
+  mimeType: string;         // e.g., image/png
+  uploadDate: Date;         // when record created
+  path: string;             // storage path or key
+  url: string;              // last known view URL (presigned or public)
   description?: string;
   category?: string;
   // S3/Storage specific (optional)

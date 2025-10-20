@@ -1,406 +1,248 @@
-# CTO Marketplace - Backend API
+# CTO Marketplace Backend (NestJS + Prisma + PostgreSQL)
 
-A comprehensive Solana token vetting API built with Node.js and Express. This backend provides automated smart contract audits, wallet behavior analysis, and tier-based risk scoring for Solana tokens.
-
-## 🚀 Features
-
-### Core Functionality
-- **Token Scanning API**: Single and batch token analysis
-- **4-Pillar Vetting System**: 
-  - Smart Contract Audit
-  - Wallet Reputation & Behavior Analysis
-  - Governance & Transparency Scoring
-  - AI-Powered Risk & Summary Reports
-- **Tier Classification**: Seed, Sprout, Bloom, Stellar badges
-- **Risk Scoring**: 0-100 scale with tier-specific weighting
-- **AI-Generated Summaries**: Intelligent analysis and recommendations
-
-### API Endpoints
-- `POST /api/scan` - Single token analysis
-- `POST /api/scan-batch` - Batch token analysis (up to 20 tokens)
-- `GET /health` - Health check endpoint
-
-## 🛠️ Tech Stack
-
-- **Runtime**: Node.js 18+
-- **Framework**: Express.js
-- **APIs**: Helius RPC, Solscan Public API
-- **Security**: Helmet, CORS, Rate Limiting
-- **Deployment**: Vercel (recommended)
-
-## 📁 Project Structure
-
-```
-server/
-├── config/                 # Configuration files
-│   └── tiers.json         # Tier classification rules
-├── routes/                # API route handlers
-│   └── scan.js           # Scan endpoints
-├── services/              # Business logic
-│   ├── solanaApi.js      # Solana blockchain integration
-│   ├── tierClassifier.js # Tier classification logic
-│   ├── riskScoring.js    # Risk calculation algorithms
-│   └── aiSummary.js      # AI summary generation
-├── utils/                 # Utility functions
-│   ├── validation.js     # Input validation
-│   └── ageFormatter.js   # Date formatting utilities
-├── test/                  # Test files
-│   ├── batch-scan-example.js
-│   └── test-holder-count.js
-├── index.js              # Server entry point
-├── package.json          # Dependencies
-└── README.md            # This file
-```
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Node.js 18+ 
-- npm or yarn
-- Helius API key (free tier available)
-- Solscan API access
-
-### Local Development
-
-1. **Clone and install dependencies**:
-```bash
-git clone <repository-url>
-cd server
-npm install
-```
-
-2. **Set up environment variables**:
-```bash
-cp .env.example .env
-# Edit .env with your API keys
-```
-
-3. **Start development server**:
-```bash
-npm run dev
-```
-
-The API will be available at `http://localhost:3001`
-
-## 🔧 Environment Variables
-
-### Required Variables
-```bash
-# API Configuration
-NODE_ENV=production
-PORT=3001
-
-# Helius RPC Configuration
-HELIUS_API_KEY=your_helius_api_key_here
-
-# Solscan API Configuration
-SOLSCAN_API_KEY=your_solscan_api_key_here
-
-# CORS Configuration
-CORS_ORIGIN=https://your-frontend-domain.vercel.app
-CORS_ORIGINS=https://your-frontend-domain.vercel.app,https://localhost:5173
-
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=100
-
-# Security
-HELMET_ENABLED=true
-TRUST_PROXY=true
-
-# Logging
-LOG_LEVEL=info
-ENABLE_DEBUG_LOGS=false
-
-# API Timeouts
-API_TIMEOUT_MS=10000
-HELIUS_TIMEOUT_MS=10000
-SOLSCAN_TIMEOUT_MS=10000
-
-# Cache Configuration
-CACHE_TTL_SECONDS=300
-REDIS_URL=your_redis_url_here
-
-# Monitoring
-ENABLE_METRICS=true
-SENTRY_DSN=your_sentry_dsn_here
-
-# Development Overrides
-MOCK_DATA_ENABLED=false
-SKIP_API_VALIDATION=false
-```
-
-### Getting API Keys
-
-#### Helius API Key
-1. Visit [Helius](https://www.helius.dev/)
-2. Sign up for a free account
-3. Create a new API key
-4. Add to your environment variables
-
-#### Solscan API Key
-1. Visit [Solscan](https://public-api.solscan.io/)
-2. Register for API access
-3. Get your API key
-4. Add to your environment variables
-
-## 📚 API Documentation
-
-### Single Token Scan
-
-**Endpoint**: `POST /api/scan`
-
-**Request Body**:
-```json
-{
-  "contractAddress": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
-}
-```
-
-**Response**:
-```json
-{
-  "tier": "Sprout",
-  "risk_score": 65,
-  "risk_level": "Medium",
-  "eligible": true,
-  "summary": "This is a relatively new project...",
-  "metadata": {
-    "token_symbol": "BONK",
-    "token_name": "Bonk",
-    "project_age_days": 25,
-    "age_display": "25 days",
-    "age_display_short": "25d",
-    "lp_amount_usd": 45000,
-    "token_price": 0.00001234,
-    "volume_24h": 2500000,
-    "market_cap": 123456789,
-    "holder_count": 15000,
-    "scan_timestamp": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-### Batch Token Scan
-
-**Endpoint**: `POST /api/scan-batch`
-
-**Request Body**:
-```json
-{
-  "contractAddresses": [
-    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    "So11111111111111111111111111111111111111112"
-  ]
-}
-```
-
-**Response**:
-```json
-{
-  "batch_summary": {
-    "total_requested": 3,
-    "total_scanned": 3,
-    "successful_scans": 3,
-    "failed_scans": 0,
-    "eligible_tokens": 2,
-    "ineligible_tokens": 1,
-    "scan_timestamp": "2024-01-01T00:00:00.000Z"
-  },
-  "tokens_by_tier": {
-    "Stellar": [...],
-    "Bloom": [...]
-  },
-  "all_results": [...],
-  "statistics": {
-    "tier_distribution": {...},
-    "average_risk_score": 52,
-    "total_liquidity": 75000000
-  }
-}
-```
-
-### Health Check
-
-**Endpoint**: `GET /health`
-
-**Response**:
-```json
-{
-  "status": "OK",
-  "timestamp": "2024-01-01T00:00:00.000Z"
-}
-```
-
-## 🏗️ Tier System
-Projects move through 4 listing tiers based on age, liquidity, locks, audits, and risk score.
-
-### Seed Tier 
-- **Age**: 14-21 days
-- **Liquidity**: $10k–20k
-- **LP Lock**: 6–12 months (burn preferred)
-- **Target Risk Score**: ≤ 70 (Medium or better)
-
-### Sprout Tier 
-- **Age**: 21–30 days  
-- **Liquidity**: $20k–50k (min. $20k)
-- **LP Lock**: 12–18 months
-- **Target Risk Score**: < 50 (Low)
-
-### Bloom Tier 
-- **Age**: 30–60 days
-- **Liquidity**: $50k–100k (min. $50k) 
-- **LP Lock**: 24–36 months (36m rec. / 15% burn = 24m)
-- **Target Risk Score**: < 50 (Low)
-
-### Stellar Tier ⭐
-- **Age**: 60+ days
-- **Liquidity**: $100k–200k (min. $100k)
-- **LP Lock**: 24–36 months (20% burn = 24m)
-- **Target Risk Score**: < 30 (Very Low)
-
-## 🚀 Deployment
-
-### Vercel Deployment (Recommended)
-
-1. **Connect Repository**:
-   - Push code to GitHub
-   - Connect repository to Vercel
-   - Set root directory to `server`
-
-2. **Configure Build Settings**:
-   - Build Command: `npm install`
-   - Output Directory: `server`
-   - Install Command: `npm install`
-
-3. **Set Environment Variables**:
-   - Add all required environment variables in Vercel dashboard
-   - Ensure `NODE_ENV=production`
-
-4. **Deploy**:
-   - Vercel will automatically deploy on push
-   - API will be available at `https://your-app.vercel.app`
-
-### Other Platforms
-
-#### Railway
-```bash
-# Set root directory to server/
-# Add environment variables in dashboard
-# Deploy automatically on push
-```
-
-#### Heroku
-```bash
-# Add Procfile with: web: node index.js
-# Set environment variables
-# Deploy with: git push heroku main
-```
-
-## 🧪 Testing
-
-### Run Tests
-```bash
-# Test holder count functionality
-node test/test-holder-count.js
-
-# Test batch scan functionality
-node test/batch-scan-example.js
-```
-
-### Example Test Addresses
-```javascript
-const testAddresses = [
-  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-  'So11111111111111111111111111111111111111112',   // SOL
-];
-```
-
-## 🔒 Security Features
-
-- **Rate Limiting**: 100 requests per 15 minutes per IP
-- **CORS Protection**: Configurable origins
-- **Helmet Security**: HTTP headers protection
-- **Input Validation**: Solana address format validation
-- **Error Handling**: Graceful error responses
-- **Request Size Limits**: 10MB max request size
-
-## 📊 Monitoring & Logging
-
-### Log Levels
-- `error`: Critical errors and failures
-- `warn`: Warning messages
-- `info`: General information
-- `debug`: Detailed debugging (development only)
-
-### Health Monitoring
-- Health check endpoint for uptime monitoring
-- API response time tracking
-- Error rate monitoring
-- Rate limit tracking
-
-## 🔧 Development
-
-### Available Scripts
-```bash
-npm run dev          # Start development server
-npm start           # Start production server
-npm test            # Run tests
-npm run lint        # Lint code
-npm run format      # Format code
-```
-
-### Code Structure
-- **Routes**: Handle HTTP requests and responses
-- **Services**: Business logic and external API calls
-- **Utils**: Helper functions and utilities
-- **Config**: Configuration files and constants
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
-## 🆘 Support
-
-### Common Issues
-
-#### API Rate Limiting
-- Check your API key limits
-- Implement proper caching
-- Use batch endpoints for multiple requests
-
-#### CORS Errors
-- Verify CORS_ORIGIN configuration
-- Check frontend domain in environment variables
-- Ensure proper CORS headers
-
-#### Holder Count Issues
-- Check Solscan API availability
-- Verify API key configuration
-- Review fallback mechanisms
-
-### Getting Help
-- Check the [API Documentation](./BATCH_SCAN_API.md)
-- Review [Holder Count Fix](./HOLDER_COUNT_FIX.md)
-- Open an issue on GitHub
-
-## 🔗 Related Links
-
-- [Frontend Repository](../frontend-repo)
-- [API Documentation](./BATCH_SCAN_API.md)
-- [Holder Count Fix](./HOLDER_COUNT_FIX.md)
-- [Vercel Deployment Guide](https://vercel.com/docs)
+A production-ready Solana token vetting API focused on accuracy, speed, and scalability. Built with NestJS, documented with Swagger, persists with Prisma/PostgreSQL, and supports Redis caching and optional image storage on a VPS.
 
 ---
 
-**Built for the Aptos Hackathon** - Professional Solana token vetting and risk assessment platform.
+## Highlights
+
+- **NestJS + Swagger**: Modular, typed API with interactive docs at `/api/docs`
+- **Speed-focused scanning**: Clear validation, graceful fallbacks, and structured errors
+- **JWT auth**: Access/refresh tokens with guards and DTO validation
+- **Risk & Tiers**: Tier classifier + risk scoring + AI summary
+- **Prisma + PostgreSQL**: Strong schema with migrations
+- **Redis-ready**: Caching hook points in scan services
+- **VPS integration**: Optional SFTP image handling via Contabo
+
+---
+
+## Clean project structure
+
+```
+cto-backend/
+├─ src/                    # NestJS source
+│  ├─ auth/                # Auth module (JWT, guards)
+│  ├─ scan/                # Scan controller + services
+│  ├─ image/               # Image controller, Redis service, types
+│  ├─ prisma/              # Prisma module/service
+│  ├─ utils/               # Helpers (formatters, validation)
+│  ├─ main.ts              # Nest bootstrap
+│  └─ app.module.ts        # Root module
+├─ prisma/
+│  ├─ schema.prisma        # DB schema (User, ScanResult)
+│  └─ migrations/          # Prisma migrations
+├─ dist/                   # Build output
+├─ .env                    # Local/server env (ignored in Git)
+├─ .env.example            # Safe template for required variables
+├─ package.json
+├─ tsconfig.json
+└─ README.md               # This file
+```
+
+Removed legacy/duplicates to keep the repo professional and minimal:
+- Removed `lagacy/` (old Express implementation)
+- Removed duplicate `src/utils/ageFormatter.ts` (kept `age-formatter.ts`)
+- Removed empty `config/` and stray `.txt`
+
+---
+
+## Environment variables
+
+Copy `.env.example` to `.env` and fill in values.
+
+Security: `.env` is Git-ignored. Set production values on the server or your hosting provider (Vercel/Railway/VPS) and never commit secrets to Git.
+
+---
+
+## Local development
+
+1) Install dependencies
+```bash
+npm install
+```
+
+2) Prepare environment
+```bash
+# copy and edit .env
+type .env.example > .env  # Windows PowerShell shortcut or copy manually
+```
+
+3) Prisma client and migrations
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+4) Start API
+```bash
+npm run dev
+# Swagger: http://localhost:3001/api/docs
+```
+
+5) Auth in Swagger
+- Click Authorize and paste `Bearer <access_token>` from login.
+
+---
+
+## Deployment (VPS/Containers/Platforms)
+
+- Ensure environment variables are set in the platform:
+  - DATABASE_URL, JWT_SECRET, CORS_ORIGINS, HELIUS_API_KEY, MORALIS_API_KEY (optional), BIRDEYE_API_KEY (optional), REDIS_*, CONTABO_*
+- Build and run:
+```bash
+npm run build
+npm start
+```
+- Prisma in production:
+```bash
+npm run db:generate
+npm run db:deploy
+```
+
+### VPS notes (PostgreSQL/Redis/Image storage)
+- PostgreSQL: create `cto_db` and user; set `DATABASE_URL`
+- Redis (optional): enable and set password if desired; configure `REDIS_*`
+- Image storage (optional): ensure `CONTABO_IMAGE_PATH` and `CONTABO_BASE_URL`
+
+---
+
+## API usage
+
+- Swagger: `/api/docs`
+- Endpoints:
+  - POST `/api/auth/register` — register user
+  - POST `/api/auth/login` — login and receive tokens
+  - GET `/api/auth/profile` — current user (Bearer)
+  - POST `/api/auth/refresh` — refresh access token
+  - POST `/api/scan/scan` — scan a single token (200 OK)
+  - POST `/api/scan/scan-batch` — scan multiple tokens
+
+Example single scan body:
+```json
+{
+  "contractAddress": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+}
+```
+
+---
+
+## Design choices for performance & reliability
+
+- Strict input validation and early exits (bad addresses/too-young tokens)
+- Clear error mapping with consistent HTTP codes
+- External API fallbacks and timeouts recommended
+- Redis integration points for hot-result caching (TTL 5–15m)
+- DB writes minimized (single scans persist only when authenticated)
+
+---
+
+## Development checklist
+
+- Keep `.env` off Git; use `.env.example` for onboarding
+- Run Prisma migrations after schema changes
+- Keep Swagger docs aligned with controller status codes
+- Prefer Helius for RPC-heavy calls to avoid rate limits
+- Add tests for new modules/services/DTOs
+
+---
+
+## Scripts
+
+```bash
+npm run dev         # Start Nest in watch mode
+npm run build       # Compile to dist/
+npm start           # Run compiled build
+npm run db:generate # Prisma client
+npm run db:migrate  # Dev migrations
+npm run db:deploy   # Deploy migrations in prod
+```
+
+---
+
+## Contributing standards
+
+- TypeScript only; DTOs for all inputs
+- Controllers thin; logic in services
+- Explicit status codes; add Swagger decorators
+- Add/adjust tests when modifying behavior
+
+---
+
+## Contact / Maintenance
+
+- Keep environment variables synchronized between environments via platform settings
+- Review logs and metrics regularly; consider adding APM/monitoring
+- Use semantic commits and PR reviews for changes
+
+---
+
+## Changelog (2025-09-19)
+- Preserve metadata on upserts
+  - upsertMarketMetadata merges `metadata.market` instead of overwriting.
+  - persistScanAndUpsertListing merges `metadata.token` instead of overwriting.
+- Listing response enrichment
+  - Falls back to `metadata.market` for price/liquidity/volume/tx counts and returns `null` when missing (no 0 placeholders).
+  - Surfaces `logoUrl` from `metadata.market`.
+- Optional DB backfill
+  - SQL provided (in chat/ops docs) to hydrate top-level numeric columns from `metadata.market` where NULL.
+- Moralis Solana integration
+  - RefreshWorker fetches tokens from Moralis Solana endpoint and merges into feed (priceUsd, liquidityUsd, fdv, volume24h, holders).
+  - Holders from feed are considered in communityScore and surfaced via metadata.market.holders.
+- Windows EPERM (frontend)
+  - Switched Next.js dev/build to Webpack; excluded .next from VS Code watchers; clean .next when issues occur.
+
+## Multi-chain Roadmap
+- Client priority: Sol, Eth, Bsc, Sui, Base, Aptos.
+- Phase 0 (done): Partial market data for non-Solana via DexScreener; enrichment message for unsupported chains.
+- Phase 1: EVM family (Ethereum, BSC, Base) — per-chain fetchers, keep merge semantics, enable refresh endpoints; scanners remain Solana-only initially.
+- Phase 2: Sui & Aptos — add enums and market fetchers; enrichment to follow.
+- Phase 3: Chain-specific scanners — implement risk/tier per chain and unify outputs.
+
+## Multi-chain Phase 1 (completed 2025-09-19)
+- Backend schema and validation updated:
+  - Prisma enum Chain: SOLANA, ETHEREUM, BSC, SUI, BASE, APTOS, NEAR, OSMOSIS, OTHER, UNKNOWN.
+  - ListingQueryDto ChainDto updated to accept the same.
+- Worker ingestion expanded:
+  - DexScreener queries broadened for ETH/BSC/BASE/SUI/APTOS; dedupe and merge preserved.
+  - mapChainIdToEnum returns distinct enums for ETHEREUM, BSC, SUI, BASE, APTOS (no EVM lumping).
+  - Non-Solana listings get market snapshot + "<CHAIN> enrichment not supported yet" summary.
+- Repository unions updated to include the six chains for upserts and updates.
+- Migration applied: 20250919074304_add_chains (use: `npx prisma migrate dev -n add_chains`; `npx prisma generate`).
+- Ops: restart API/worker after migration.
+
+## Phase 2 (next)
+Goal: Add per-chain enrichment beyond Solana, starting with EVM (Ethereum, BSC, Base), then Sui and Aptos. Keep existing merge semantics and caching/backoff.
+
+Planned changes:
+1) Configuration
+- Add env keys: ALCHEMY_API_KEY or QUICKNODE_URL (EVM), MORALIS_API_KEY (optional), SUI_RPC_URL, APTOS_RPC_URL.
+- Document in .env.example.
+
+2) Enrichment services
+- Create chain-specific enrichment services with a common interface, e.g. `IEnrichmentService`.
+  - EVMEnrichmentService (Uniswap/Pancake pairs via provider; token metadata; holders/txns snapshot).
+  - SuiEnrichmentService; AptosEnrichmentService (RPCs for token metadata and basic stats).
+- Wire into refresh.worker to enrich on new/update events when chain !== SOLANA.
+
+3) Data model and persistence
+- Reuse Listing.metadata; store per-chain enrichment under metadata.enrichment[chain].
+- Continue mapping top-level fields (priceUsd/liquidityUsd/volume24h/txCounts) from the enriched market snapshot.
+
+4) API surface
+- Optional: POST /api/listing/refresh to trigger re-enrichment by { chain, contractAddress }.
+- Swagger updates for new response fields where applicable.
+
+5) Reliability and performance
+- Add retry with jitter/backoff for provider calls; respect rate limits.
+- Cache recent enrichments (TTL 5–15m) to reduce provider load.
+- Basic metrics/logging per chain for success/error rates.
+
+6) Tests
+- Unit: mapChainIdToEnum; each enrichment service’s core parsing logic.
+- Integration: ingest->enrich->persist flow for one example per chain.
+
+Rollout checklist
+- Add env vars, run locally.
+- Deploy with migration already in place; no DB schema changes expected for Phase 2.
+- Monitor logs for provider errors and adjust rate limits accordingly.#   F o r c e   r e d e p l o y   0 9 / 2 8 / 2 0 2 5   0 8 : 3 2 : 4 1  
+ 

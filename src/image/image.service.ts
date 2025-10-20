@@ -11,53 +11,51 @@ export type UploadKind = 'generic' | 'profile' | 'banner' | 'meme';
 @Injectable()
 export class ImageService {
   private readonly logger = new Logger(ImageService.name);
-  private readonly defaultGetTtl = 3600; // 1 hour for GET URLs
-  private readonly baseUrl: string;
+  private readonly defaultGetTtl = 86400; // 24 hours instead of 15 minutes
 
-  // In-memory cache for metadata
+  // Metadata cache only (no file buffers)
   private static readonly metadataCache = new Map<string, ImageMetadata>();
 
   constructor(
-    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     private readonly config: ConfigService,
     private readonly redis: RedisService,
-  ) {
-    this.baseUrl = this.config.get('BACKEND_BASE_URL') || 'http://localhost:3001';
+    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+  ) {}
+
+  // ---------- Key building helpers ----------
+  private sanitize(name: string): string {
+    return name.replace(/[^a-zA-Z0-9._-]/g, '_');
   }
 
-  private buildKey(kind: UploadKind, opts: { userId?: string; filename: string }): string {
-    const timestamp = Date.now();
-    const ext = path.extname(opts.filename) || '.jpg';
-    const basename = path.basename(opts.filename, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const safeFilename = `${basename}_${timestamp}${ext}`;
-    
-    // Build key based on upload kind
-    if (kind === 'meme') {
-      // Memes go to memes folder
-      return `memes/${safeFilename}`;
-    } else if (kind === 'profile' || kind === 'banner') {
-      // User profile/banner images
-      const userId = opts.userId || 'anonymous';
-      return `user-uploads/${userId}/${kind}/${safeFilename}`;
-    } else {
-      // Generic uploads
-      const userId = opts.userId || 'anonymous';
-      return `user-uploads/${userId}/generic/${safeFilename}`;
-    }
+  private extOr(defaultExt: string, from: string): string {
+    const ext = path.extname(from || '').toLowerCase();
+    return ext || defaultExt;
+  }
+
+  private buildKey(kind: UploadKind, params: { userId?: string; filename: string }) {
+    const file = this.sanitize(params.filename);
+    const userId = params.userId;
+    if (!userId) throw new HttpException('userId required', HttpStatus.BAD_REQUEST);
+
+    // Determine default extension by type if missing on original filename
+    const defaultExt = kind === 'profile' ? '.png' : '.jpg';
+    const ensuredExt = this.extOr(defaultExt, file); // returns existing ext or default
+    const baseName = path.basename(file, path.extname(file));
+    const timestamped = `${Date.now()}_${baseName}${ensuredExt}`;
+
+    const typeSegment = kind; // 'generic' | 'profile' | 'banner' | 'meme'
+    return `user-uploads/${userId}/${typeSegment}/${timestamped}`;
   }
 
   private guessMime(ext: string): string {
-    const mimeMap: Record<string, string> = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.webp': 'image/webp',
-      '.bmp': 'image/bmp',
-      '.svg': 'image/svg+xml',
-    };
-
-    return mimeMap[ext.toLowerCase()] || 'application/octet-stream';
+    const e = (ext || '').toLowerCase();
+    if (e === '.png') return 'image/png';
+    if (e === '.jpg' || e === '.jpeg') return 'image/jpeg';
+    if (e === '.webp') return 'image/webp';
+    if (e === '.gif') return 'image/gif';
+    if (e === '.bmp') return 'image/bmp';
+    if (e === '.svg') return 'image/svg+xml';
+    return 'application/octet-stream';
   }
 
   // ---------- Core operations (presigned flow) ----------
@@ -72,12 +70,7 @@ export class ImageService {
   {
     const key = this.buildKey(kind, { userId: args.userId, filename: args.filename });
     const uploadUrl = await this.storage.getPresignedPutUrl(key, args.mimeType, args.putTtlSeconds ?? 900);
-    
-    // For memes, use direct public S3 URL (faster, no backend redirect needed)
-    // For user uploads, use backend view endpoint (presigned, more secure)
-    const viewUrl = kind === 'meme' 
-      ? this.storage.getPublicAssetUrl(key)
-      : await this.storage.getPresignedGetUrl(key, args.getTtlSeconds ?? this.defaultGetTtl);
+    const viewUrl = await this.storage.getPresignedGetUrl(key, args.getTtlSeconds ?? this.defaultGetTtl);
 
     const metadata: ImageMetadata = {
       id: key, // using S3 key as id for simplicity
@@ -110,173 +103,97 @@ export class ImageService {
   async getPresignedViewUrl(key: string, ttlSeconds = this.defaultGetTtl): Promise<string> {
     return this.storage.getPresignedGetUrl(key, ttlSeconds);
   }
+  
+  // Get a public URL for user uploads (uses ASSETS_CDN_BASE if available)
+  getPublicAssetUrl(key: string): string {
+    return this.storage.getPublicAssetUrl(key);
+  }
+
+  async getImage(key: string): Promise<ImageMetadata> {
+    // memory cache
+    const m = ImageService.metadataCache.get(key);
+    if (m) return m;
+
+    // redis cache
+    const r = await this.redis.getImageMetadata(key);
+    if (r) {
+      ImageService.metadataCache.set(key, r);
+      return r;
+    }
+
+    // fallback minimal metadata (unknown size)
+    const url = await this.storage.getPresignedGetUrl(key, this.defaultGetTtl);
+    const ext = path.extname(key);
+    const mime = this.guessMime(ext);
+    const meta: ImageMetadata = {
+      id: key,
+      filename: path.basename(key),
+      originalName: key,
+      size: 0,
+      mimeType: mime,
+      uploadDate: new Date(),
+      path: key,
+      url,
+      storageProvider: 's3',
+      storageKey: key,
+    };
+    ImageService.metadataCache.set(key, meta);
+    await this.redis.setImageMetadata(key, meta).catch(() => {});
+    return meta;
+  }
 
   async getPresignedDownloadUrl(key: string, filename: string, ttlSeconds = this.defaultGetTtl): Promise<string> {
     if (this.storage.getPresignedDownloadUrl) {
       return this.storage.getPresignedDownloadUrl(key, filename, ttlSeconds);
     }
-    // Fallback to regular presigned URL
+    // Fallback to regular GET URL
     return this.storage.getPresignedGetUrl(key, ttlSeconds);
   }
 
-  async getImage(imageId: string): Promise<ImageMetadata> {
-    // Check in-memory cache first
-    if (ImageService.metadataCache.has(imageId)) {
-      this.logger.debug(`Metadata found in cache for: ${imageId}`);
-      return ImageService.metadataCache.get(imageId)!;
-    }
-
-    // Check Redis cache
-    const cachedMetadata = await this.redis.getImageMetadata(imageId);
-    if (cachedMetadata) {
-      this.logger.debug(`Metadata found in Redis for: ${imageId}`);
-      ImageService.metadataCache.set(imageId, cachedMetadata);
-      return cachedMetadata;
-    }
-
-    throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
-  }
-
-  async listImages(): Promise<ImageMetadata[]> {
+  async deleteImage(key: string): Promise<boolean> {
     try {
-      // Always use memory cache first (most up-to-date)
-      if (ImageService.metadataCache.size > 0) {
-        const allImages = Array.from(ImageService.metadataCache.values());
-        this.logger.log(`Returning ${allImages.length} images from memory cache`);
-        return allImages;
-      }
+      await this.storage.deleteFile?.(key);
+      ImageService.metadataCache.delete(key);
+      await this.redis.del(`image:metadata:${key}`).catch(() => {});
+      await this.redis.del(`image:buffer:${key}`).catch(() => {});
 
-      // If memory cache is empty, try Redis
-      const redisImages: ImageMetadata[] = await this.redis.getFileList();
-      if (redisImages && redisImages.length > 0) {
-        this.logger.log(`Returning ${redisImages.length} images from Redis`);
-        
-        // Populate memory cache with Redis data
-        redisImages.forEach(image => {
-          ImageService.metadataCache.set(image.id, image);
-        });
-        
-        return redisImages;
-      }
+      // update list
+      try {
+        const list = (await this.redis.getFileList()) || [];
+        const filtered = list.filter(i => i.id !== key);
+        await this.redis.setFileList(filtered);
+      } catch {}
 
-      // Return empty array if no images
-      return [];
-    } catch (error) {
-      this.logger.error('Failed to list images:', error);
-      throw new HttpException('Failed to list images', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  async deleteImage(imageId: string): Promise<boolean> {
-    try {
-      const metadata = ImageService.metadataCache.get(imageId) || await this.redis.getImageMetadata(imageId);
-      if (!metadata) {
-        throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
-      }
-
-      // Delete file from S3
-      await this.storage.deleteFile(metadata.storageKey || imageId);
-
-      // Remove from caches
-      ImageService.metadataCache.delete(imageId);
-      
-      // Remove specific image from Redis
-      await this.redis.del(`image:metadata:${imageId}`);
-      
-      // Update file list in Redis to remove the deleted image
-      await this.updateFileListInRedis();
-
-      this.logger.log(`Deleted: ${metadata.originalName}`);
       return true;
-    } catch (error) {
-      this.logger.error('Failed to delete image:', error);
+    } catch (e) {
+      this.logger.error('Failed to delete image', e as any);
       throw new HttpException('Failed to delete image', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
+  async listImages(): Promise<ImageMetadata[]> {
+    const m = Array.from(ImageService.metadataCache.values());
+    if (m.length) return m;
+    return (await this.redis.getFileList()) || [];
+  }
+
   async editImageMetadata(imageId: string, editData: EditImageData): Promise<ImageMetadata> {
+    const current = ImageService.metadataCache.get(imageId) || await this.redis.getImageMetadata(imageId);
+    if (!current) throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
+
+    const updated: ImageMetadata = { ...current, ...editData } as ImageMetadata;
+
+    // Note: We do NOT rename S3 object here to avoid complexity; future provider can implement rename.
+    ImageService.metadataCache.set(imageId, updated);
+    await this.redis.setImageMetadata(imageId, updated).catch(() => {});
+
+    // refresh list
     try {
-      const currentMetadata = ImageService.metadataCache.get(imageId) || await this.redis.getImageMetadata(imageId);
-      if (!currentMetadata) {
-        throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
-      }
+      const list = (await this.redis.getFileList()) || [];
+      const others = list.filter(i => i.id !== imageId);
+      await this.redis.setFileList([updated, ...others]);
+    } catch {}
 
-      const updatedMetadata: ImageMetadata = {
-        ...currentMetadata,
-        ...editData,
-      };
-
-      // Update caches
-      ImageService.metadataCache.set(imageId, updatedMetadata);
-      await this.redis.setImageMetadata(imageId, updatedMetadata);
-      
-      // Update the file list in Redis to include the edited image
-      await this.updateFileListInRedis();
-
-      this.logger.log(`Updated metadata for: ${imageId}`);
-      return updatedMetadata;
-    } catch (error) {
-      this.logger.error('Failed to edit image metadata:', error);
-      throw new HttpException('Failed to update image metadata', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  /**
-   * Update file list in Redis with current memory cache
-   */
-  private async updateFileListInRedis(): Promise<void> {
-    try {
-      const allImages = Array.from(ImageService.metadataCache.values());
-      await this.redis.setFileList(allImages);
-      this.logger.debug(`Updated file list in Redis with ${allImages.length} images`);
-    } catch (error) {
-      this.logger.warn('Failed to update file list in Redis:', error);
-    }
-  }
-
-  /**
-   * Bulk import metadata for migrated images
-   * This registers existing S3 images with the backend cache
-   */
-  async bulkImportMetadata(images: ImageMetadata[]): Promise<{ imported: number; skipped: number }> {
-    let imported = 0;
-    let skipped = 0;
-
-    for (const imageData of images) {
-      try {
-        // Check if already exists
-        if (ImageService.metadataCache.has(imageData.id)) {
-          this.logger.debug(`Skipping existing image: ${imageData.id}`);
-          skipped++;
-          continue;
-        }
-
-        // Normalize the metadata
-        const metadata: ImageMetadata = {
-          ...imageData,
-          uploadDate: new Date(imageData.uploadDate),
-        };
-
-        // Add to cache
-        ImageService.metadataCache.set(metadata.id, metadata);
-        
-        // Add to Redis
-        await this.redis.setImageMetadata(metadata.id, metadata).catch(() => {});
-        
-        imported++;
-        this.logger.log(`Imported metadata for: ${metadata.id}`);
-      } catch (error) {
-        this.logger.error(`Failed to import ${imageData.id}:`, error);
-        skipped++;
-      }
-    }
-
-    // Update file list in Redis
-    await this.updateFileListInRedis();
-
-    this.logger.log(`Bulk import complete: ${imported} imported, ${skipped} skipped`);
-    return { imported, skipped };
+    return updated;
   }
 }
-
-

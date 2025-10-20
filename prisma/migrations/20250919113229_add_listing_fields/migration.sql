@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "Listing" ADD COLUMN     "age" TEXT,
+ADD COLUMN     "change1h" DOUBLE PRECISION,
+ADD COLUMN     "change24h" DOUBLE PRECISION,
+ADD COLUMN     "change6h" DOUBLE PRECISION,
+ADD COLUMN     "communityScore" DOUBLE PRECISION,
+ADD COLUMN     "holders" INTEGER,
+ADD COLUMN     "marketCap" DOUBLE PRECISION;

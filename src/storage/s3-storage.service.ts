@@ -1,4 +1,4 @@
-// S3 Storage Service for meme images
+// cto-backend/src/storage/s3-storage.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3Client, DeleteObjectCommand, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
@@ -28,6 +28,7 @@ export class S3StorageService implements StorageProvider {
       region: this.region,
       credentials: { accessKeyId, secretAccessKey },
       // Disable auto checksum headers on presigned PUTs so browsers don't need to send x-amz-checksum-*
+      // @ts-expect-error: property exists in newer AWS SDKs; casting below keeps TS happy on older versions.
       requestChecksumCalculation: 'NEVER',
     } as any);
   }
@@ -65,12 +66,10 @@ export class S3StorageService implements StorageProvider {
   }
 
   getPublicAssetUrl(assetKey: string): string {
-    // Keep key as-is if it already has a path prefix (memes/, user-uploads/, assets/)
-    const fullKey = assetKey.startsWith('memes/') || 
-                    assetKey.startsWith('user-uploads/') || 
-                    assetKey.startsWith('assets/') 
+    // For user uploads, keep the original key structure
+    const fullKey = assetKey.startsWith('user-uploads/') 
       ? assetKey 
-      : `assets/${assetKey}`;
+      : (assetKey.startsWith('assets/') ? assetKey : `assets/${assetKey}`);
       
     if (this.assetsCdnBase) {
       return `${this.assetsCdnBase.replace(/\/+$/, '')}/${encodeURI(fullKey)}`;
@@ -83,4 +82,3 @@ export class S3StorageService implements StorageProvider {
     this.logger.log(`Deleted S3 object: ${key}`);
   }
 }
-

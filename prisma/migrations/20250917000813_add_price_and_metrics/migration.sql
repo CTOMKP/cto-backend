@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "Listing" ADD COLUMN     "liquidityUsd" DOUBLE PRECISION,
+ADD COLUMN     "priceUsd" DOUBLE PRECISION,
+ADD COLUMN     "txCount1h" INTEGER,
+ADD COLUMN     "txCount24h" INTEGER,
+ADD COLUMN     "volume24h" DOUBLE PRECISION;

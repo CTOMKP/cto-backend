@@ -1,3 +1,11 @@
+import 'reflect-metadata';
+import * as crypto from 'crypto';
+
+// Ensure crypto is available globally for NestJS Schedule
+if (typeof globalThis.crypto === 'undefined') {
+  globalThis.crypto = crypto.webcrypto as any;
+}
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, INestApplication } from '@nestjs/common';
@@ -7,11 +15,12 @@ import { Request, Response } from 'express';
 export async function createApp() {
   const app = await NestFactory.create(AppModule);
   
-  // Enable CORS
+  // Enable CORS - Allow all origins for memes (public content)
   app.enableCors({
-    origin: process.env.NODE_ENV === 'production' 
-      ? process.env.CORS_ORIGINS?.split(',') || ['https://ctomemes.xyz']
-      : process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173', 'http://localhost:3000']
+    origin: true, // Allow all origins since memes are public
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   // Global validation pipe
@@ -21,44 +30,77 @@ export async function createApp() {
     transform: true,
   }));
 
-  // Global prefix - MUST be set BEFORE Swagger configuration
-  app.setGlobalPrefix('api');
-
-  // Add root-level endpoints for Railway health checks and API info
+  // Add root-level endpoints BEFORE setting global prefix
   const expressApp = app.getHttpAdapter().getInstance();
   
-  // Root health check for Railway
+  // Root health check for Railway - Simple check that doesn't depend on DB
   expressApp.get('/health', (req: Request, res: Response) => {
-    res.json({
-      status: 'OK',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
-      version: '1.0.0'
-    });
+    try {
+      res.status(200).json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development',
+        version: '1.0.0',
+        message: 'CTO Vetting API is running'
+      });
+    } catch (error) {
+      console.error('Health check error:', error);
+      res.status(500).json({
+        status: 'ERROR',
+        timestamp: new Date().toISOString(),
+        error: 'Health check failed'
+      });
+    }
   });
 
-  // API info endpoint
+  // API info endpoint - BEFORE global prefix
   expressApp.get('/api', (req: Request, res: Response) => {
     res.json({
-      message: 'CTO Vetting API',
-      version: '1.0.0',
+      message: 'CTO Marketplace API',
+      version: '2.0.0',
+      features: [
+        'Circle Programmable Wallets',
+        'Cross-Chain USDC Transfers (CCTP/Wormhole)',
+        'Token Swaps (Panora)',
+        'Wallet Funding',
+        'Token Scanning & Vetting',
+        'Project Listings'
+      ],
       endpoints: {
-        health: '/api/health',
+        health: '/health',
         auth: '/api/auth/*',
+        circle: '/api/circle/*',
+        transfers: '/api/transfers/*',
+        funding: '/api/funding/*',
         scan: '/api/scan/*',
-        images: '/api/images/*'
+        images: '/api/images/*',
+        listing: '/api/listing/*'
       },
-      documentation: 'Available in development mode only'
+      documentation: (process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production')
+        ? '/api/docs'
+        : 'Disabled in production'
     });
   });
 
-  // Swagger documentation (only in development)
-  if (process.env.NODE_ENV !== 'production') {
+  // Global prefix - MUST be set AFTER custom routes but BEFORE Swagger
+  app.setGlobalPrefix('api');
+
+  // Swagger documentation
+  // Allow enabling in production by setting ENABLE_SWAGGER=true
+  const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
+  if (enableSwagger) {
     const config = new DocumentBuilder()
-      .setTitle('CTO Vetting API')
-      .setDescription('Backend API for CTO Marketplace Solana Vetting System with Authentication')
-      .setVersion('1.0')
+      .setTitle('CTO Marketplace API')
+      .setDescription(`
+        Complete CTO Marketplace Backend API with:
+        • **Circle Programmable Wallets** - User authentication, wallet management, and custody
+        • **Cross-Chain Transfers** - CCTP/Wormhole integration for USDC transfers
+        • **Token Swaps** - Panora integration for buying/selling memecoins
+        • **Wallet Funding** - Real blockchain funding instructions
+        • **Traditional Features** - Token scanning, listing, and vetting
+      `)
+      .setVersion('2.0')
       .addBearerAuth(
         {
           type: 'http',
@@ -70,6 +112,12 @@ export async function createApp() {
         },
         'JWT-auth',
       )
+      .addTag('auth', 'User Authentication & Registration')
+      .addTag('circle', 'Circle Programmable Wallets - User management, wallet creation, balances')
+      .addTag('transfers', 'Cross-Chain Transfers - CCTP/Wormhole for USDC movement')
+      .addTag('funding', 'Wallet Funding - Deposit instructions and balance management')
+      .addTag('scan', 'Token Scanning & Vetting')
+      .addTag('listing', 'Project Listings & Management')
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);
@@ -87,7 +135,12 @@ if (require.main === module) {
     
     console.log(`🚀 CTO Vetting API running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 Database URL: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
+    console.log(`🏥 Health check: http://localhost:${PORT}/health`);
     console.log(`📚 API Documentation available at: http://localhost:${PORT}/api/docs`);
+  }).catch(error => {
+    console.error('❌ Failed to start CTO Vetting API:', error);
+    process.exit(1);
   });
 }
 

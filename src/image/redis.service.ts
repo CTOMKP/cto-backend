@@ -21,43 +21,60 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   private async connect(): Promise<void> {
     try {
-      const host = this.configService.get<string>('CONTABO_HOST');
+      const url = this.configService.get<string>('REDIS_URL');
+      const host = this.configService.get<string>('REDIS_HOST', 'localhost');
       const port = this.configService.get<number>('REDIS_PORT', 6379);
       const password = this.configService.get<string>('REDIS_PASSWORD');
       const db = this.configService.get<number>('REDIS_DB', 0);
 
-      this.client = createClient({
-        socket: {
-          host,
-          port,
-          connectTimeout: 5000, // Reduced timeout for faster connection
-          keepAlive: true, // Keep connection alive
-          noDelay: true, // Disable Nagle's algorithm for faster data transfer
-        },
-        password: password || undefined,
-        database: db,
-        // Performance optimizations
-        commandsQueueMaxLength: 1000,
-      });
+      const dev = process.env.NODE_ENV !== 'production';
+      const connectTimeout = dev ? 2000 : 5000;
+
+      // Skip Redis if URL is invalid or contains placeholder text
+      if (url && (url.includes('(Active IP)') || url.includes('placeholder'))) {
+        this.logger.warn('🚫 Invalid Redis URL detected, skipping Redis connection:', url);
+        this.isConnected = false;
+        return;
+      }
+
+      if (url) {
+        this.client = createClient({ url, socket: { connectTimeout, keepAlive: true, noDelay: true } });
+      } else {
+        this.client = createClient({
+          socket: { host, port, connectTimeout, keepAlive: true, noDelay: true },
+          password: password || undefined,
+          database: db,
+          commandsQueueMaxLength: 1000,
+        });
+      }
 
       this.client.on('error', (err) => {
         this.logger.error('Redis Client Error:', err);
         this.isConnected = false;
       });
 
-      this.client.on('connect', () => {
+      this.client.on('ready', () => {
         this.logger.log('🔗 Redis connected successfully');
         this.isConnected = true;
       });
 
-      this.client.on('disconnect', () => {
+      this.client.on('end', () => {
         this.logger.warn('🔌 Redis disconnected');
         this.isConnected = false;
       });
 
-      await this.client.connect();
+      // Do not block app startup indefinitely in dev
+      await Promise.race([
+        this.client.connect(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Redis connect timeout')), connectTimeout + 200)),
+      ]);
     } catch (error) {
-      this.logger.error('Failed to connect to Redis:', error);
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.warn('Skipping Redis connection during dev startup:', (error as Error).message);
+      } else {
+        // In production, log the error but don't crash the app
+        this.logger.warn('Redis connection failed, continuing without cache:', (error as Error).message);
+      }
       this.isConnected = false;
     }
   }

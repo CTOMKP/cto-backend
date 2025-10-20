@@ -1,30 +1,17 @@
-// Storage provider interface for abstraction
-export const STORAGE_PROVIDER = 'STORAGE_PROVIDER';
+// cto-backend/src/storage/storage.provider.ts
 
 export interface StorageProvider {
-  /**
-   * Generate a presigned PUT URL for direct-to-S3 uploads
-   */
+  // Generate presigned PUT URL for uploading a private object
   getPresignedPutUrl(key: string, mimeType: string, ttlSeconds?: number): Promise<string>;
 
-  /**
-   * Generate a presigned GET URL for reading objects
-   */
+  // Generate presigned GET URL for reading a private object
   getPresignedGetUrl(key: string, ttlSeconds?: number): Promise<string>;
 
-  /**
-   * Get a public asset URL (for CDN or direct S3 access)
-   */
+  // Public URL for static assets (no signature required)
   getPublicAssetUrl(assetKey: string): string;
 
-  /**
-   * Get a presigned download URL with Content-Disposition header
-   */
-  getPresignedDownloadUrl?(key: string, filename: string, ttlSeconds?: number): Promise<string>;
-
-  /**
-   * Delete a file from storage
-   */
-  deleteFile(key: string): Promise<void>;
+  // Optional: delete object
+  deleteFile?(key: string): Promise<void>;
 }
 
+export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');

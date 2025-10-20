@@ -152,8 +152,8 @@ function meetsCriteria(tokenData, criteria) {
  * Checks project age criteria
  */
 function checkProjectAge(projectAge, criteria) {
-  if (criteria.min && projectAge < criteria.min) return false;
-  if (criteria.max && projectAge > criteria.max) return false;
+  if (typeof criteria.min === 'number' && projectAge < criteria.min) return false;
+  if (typeof criteria.max === 'number' && projectAge > criteria.max) return false;
   return true;
 }
 
@@ -161,8 +161,9 @@ function checkProjectAge(projectAge, criteria) {
  * Checks LP amount criteria
  */
 function checkLPAmount(lpAmount, criteria) {
-  if (criteria.min && lpAmount < criteria.min) return false;
-  if (criteria.max && lpAmount > criteria.max) return false;
+  if (typeof criteria.min === 'number' && lpAmount < criteria.min) return false;
+  // Ignore max cap to avoid penalizing large-cap tokens (e.g., USDC)
+  // if (typeof criteria.max === 'number' && lpAmount > criteria.max) return false;
   return true;
 }
 
@@ -170,8 +171,8 @@ function checkLPAmount(lpAmount, criteria) {
  * Checks LP lock criteria
  */
 function checkLPLock(lpLockMonths, criteria) {
-  if (criteria.min && lpLockMonths < criteria.min) return false;
-  if (criteria.max && lpLockMonths > criteria.max) return false;
+  if (typeof criteria.min === 'number' && lpLockMonths < criteria.min) return false;
+  if (typeof criteria.max === 'number' && lpLockMonths > criteria.max) return false;
   return true;
 }
 
@@ -182,41 +183,44 @@ function checkWalletActivity(tokenData, criteria) {
   const { active_wallets, suspicious_activity } = tokenData;
   
   // Check minimum active wallets
-  if (criteria.min_active_wallets && active_wallets < criteria.min_active_wallets) {
+  if (typeof criteria.min_active_wallets === 'number' && active_wallets < criteria.min_active_wallets) {
     return false;
   }
   
   // Check maximum active wallets (for Seed tier)
-  if (criteria.max_active_wallets && active_wallets > criteria.max_active_wallets) {
+  if (typeof criteria.max_active_wallets === 'number' && active_wallets > criteria.max_active_wallets) {
     return false;
   }
   
   // Check for suspicious activity flags
   if (criteria.flag_if_over) {
-    if (criteria.flag_if_over.active_wallets && active_wallets > criteria.flag_if_over.active_wallets) {
+    if (typeof criteria.flag_if_over.active_wallets === 'number' && active_wallets > criteria.flag_if_over.active_wallets) {
       return false;
     }
-    if (criteria.flag_if_over.sell_off_percent && 
-        suspicious_activity.sell_off_percent > criteria.flag_if_over.sell_off_percent) {
+    if (typeof criteria.flag_if_over.sell_off_percent === 'number' && 
+        Number(suspicious_activity?.sell_off_percent) > criteria.flag_if_over.sell_off_percent) {
       return false;
     }
-    if (criteria.flag_if_over.affected_wallets_percent && 
-        suspicious_activity.affected_wallets_percent > criteria.flag_if_over.affected_wallets_percent) {
+    if (typeof criteria.flag_if_over.affected_wallets_percent === 'number' && 
+        Number(suspicious_activity?.affected_wallets_percent) > criteria.flag_if_over.affected_wallets_percent) {
       return false;
     }
   }
   
   // Check sell-off flags
   if (criteria.flag_if_sell_off) {
-    if (criteria.flag_if_sell_off.sell_off_percent && 
-        suspicious_activity.sell_off_percent > criteria.flag_if_sell_off.sell_off_percent) {
+    if (typeof criteria.flag_if_sell_off.sell_off_percent === 'number' && 
+        Number(suspicious_activity?.sell_off_percent) > criteria.flag_if_sell_off.sell_off_percent) {
       return false;
     }
   }
   
   // Check wallet supply percentage (for Stellar tier)
   if (criteria.max_wallet_supply_percent) {
-    const maxHolderPercentage = Math.max(...tokenData.top_holders.map(h => h.percentage));
+    const percentages = Array.isArray(tokenData.top_holders)
+      ? tokenData.top_holders.map((h: any) => h.percentage ?? h.share ?? h.percent).filter((x: any) => Number.isFinite(Number(x))).map(Number)
+      : [];
+    const maxHolderPercentage = percentages.length ? Math.max(...percentages) : 0;
     if (maxHolderPercentage > criteria.max_wallet_supply_percent) {
       return false;
     }
@@ -231,24 +235,24 @@ function checkWalletActivity(tokenData, criteria) {
 function checkSmartContract(smartContractRisks, criteria) {
   // Check critical vulnerabilities
   if (criteria.critical_vulnerabilities !== undefined && 
-      smartContractRisks.critical_vulnerabilities > criteria.critical_vulnerabilities) {
+      Number(smartContractRisks?.critical_vulnerabilities) > criteria.critical_vulnerabilities) {
     return false;
   }
   
   // Check high vulnerabilities
   if (criteria.high_vulnerabilities !== undefined && 
-      smartContractRisks.high_vulnerabilities > criteria.high_vulnerabilities) {
+      Number(smartContractRisks?.high_vulnerabilities) > criteria.high_vulnerabilities) {
     return false;
   }
   
   // Check medium vulnerabilities
   if (criteria.medium_vulnerabilities !== undefined && 
-      smartContractRisks.medium_vulnerabilities > criteria.medium_vulnerabilities) {
+      Number(smartContractRisks?.medium_vulnerabilities) > criteria.medium_vulnerabilities) {
     return false;
   }
   
   if (criteria.max_medium_vulnerabilities !== undefined && 
-      smartContractRisks.medium_vulnerabilities > criteria.max_medium_vulnerabilities) {
+      Number(smartContractRisks?.medium_vulnerabilities) > criteria.max_medium_vulnerabilities) {
     return false;
   }
   

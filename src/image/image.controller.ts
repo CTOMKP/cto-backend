@@ -68,11 +68,6 @@ class EditImageDto {
   category?: string;
 }
 
-class BulkImportDto {
-  @IsNotEmpty()
-  images: any[];
-}
-
 @Controller('images')
 export class ImageController {
   constructor(private readonly imageService: ImageService) {}
@@ -97,129 +92,68 @@ export class ImageController {
   }
 
   // Short-lived read redirect — supports keys with slashes via wildcard
-  @Get('view/*')
-  async viewImage(@Param('0') key: string, @Res() res: Response): Promise<void> {
+  @Get('view/*key')
+  async viewImage(@Param('key') key: string, @Res() res: Response): Promise<void> {
     try {
-      // Normalize key (replace commas with slashes for legacy support)
-      const normalizedKey = key.replace(/,/g, '/');
+      // Accept legacy comma-separated keys like "user-uploads,4,generic,foo.jpg"
+      const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       
-      // Get a fresh short-lived presigned GET URL
-      const presignedUrl = await this.imageService.getPresignedViewUrl(normalizedKey);
+      // First try to get a direct public URL if the key starts with 'assets/'
+      if (normalizedKey.startsWith('assets/')) {
+        const publicUrl = this.imageService.getPublicAssetUrl(normalizedKey);
+        return res.set({ 'Cache-Control': 'public, max-age=86400' }).redirect(publicUrl);
+      }
       
-      // Redirect to S3
-      res.redirect(presignedUrl);
+      // For user uploads, use a presigned URL with extended expiration
+      await this.imageService.getImage(normalizedKey); // ensure metadata exists or seed fallback
+      const url = await this.imageService.getPresignedViewUrl(normalizedKey, 86400); // 24 hour expiration
+      res.set({ 'Cache-Control': 'no-store' }).redirect(url);
     } catch (error) {
+      console.error('Image view error:', error);
       res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
     }
   }
 
-  /**
-   * Download image with proper headers
-   * GET /images/:id/download
-   * Public endpoint - no auth required for memes
-   */
-  @Get(':id/download')
-  async downloadImage(@Param('id') id: string, @Res() res: Response): Promise<void> {
+  // Download redirect with content-disposition hint
+  @Get('download/*key')
+  async downloadImage(@Param('key') key: string, @Res() res: Response): Promise<void> {
     try {
-      // Decode URL-encoded ID
-      const decodedId = decodeURIComponent(id);
+      // Normalize key format
+      const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       
-      // Get metadata
-      const metadata = await this.imageService.getImage(decodedId);
-      
-      // Get presigned download URL with proper Content-Disposition
-      const filename = metadata.filename || metadata.originalName || 'download';
-      const downloadUrl = await this.imageService.getPresignedDownloadUrl(decodedId, filename, 300);
-      
-      // Redirect to S3 presigned URL (includes Content-Disposition in query params)
-      res.redirect(downloadUrl);
-    } catch (error) {
-      res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
-    }
-  }
-
-  /**
-   * Get image metadata by ID
-   * GET /images/:id
-   */
-  @Get(':id')
-  async getImage(@Param('id') id: string): Promise<ImageMetadata> {
-    return this.imageService.getImage(id);
-  }
-
-  /**
-   * List all images
-   * GET /images
-   */
-  @Get()
-  async listImages(@Res() res: Response): Promise<void> {
-    try {
-      const images = await this.imageService.listImages();
-      
-      // Set compression headers
+      // Use extended expiration for presigned URL
+      const url = await this.imageService.getPresignedViewUrl(normalizedKey, 86400);
       res.set({
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=30', // Cache for 30 seconds
-      });
-      
-      res.json(images);
+        'Cache-Control': 'no-store',
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(normalizedKey.split('/').pop() || 'download')}"`,
+      }).redirect(url);
     } catch (error) {
-      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ 
-        message: 'Failed to list images',
-        error: error.message 
-      });
+      console.error('Image download error:', error);
+      res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
     }
   }
 
-  /**
-   * Delete image from S3
-   * DELETE /images/:id
-   */
-  @UseGuards(JwtAuthGuard)
-  @Delete(':id')
-  async deleteImage(@Param('id') id: string): Promise<{ message: string; success: boolean }> {
-    // Decode URL-encoded ID (handles slashes like memes/filename.jpg)
-    const decodedId = decodeURIComponent(id);
-    const success = await this.imageService.deleteImage(decodedId);
-    return {
-      message: success ? 'Image deleted successfully' : 'Failed to delete image',
-      success,
-    };
+  // List images from cache/redis (metadata only)
+  @Get()
+  async listImages(): Promise<ImageMetadata[]> {
+    return this.imageService.listImages();
   }
 
-  /**
-   * Edit image metadata
-   * PUT /images/:id
-   */
+  // Delete by storage key
+  @UseGuards(JwtAuthGuard)
+  @Delete('/*key')
+  async deleteImage(@Param('key') key: string): Promise<{ success: boolean }> {
+    const success = await this.imageService.deleteImage(key);
+    return { success };
+  }
+
+  // Edit metadata only (does not rename underlying object)
   @UseGuards(JwtAuthGuard)
   @Put(':id')
   async editImage(
     @Param('id') id: string,
     @Body() editImageDto: EditImageDto
   ): Promise<ImageMetadata> {
-    // Decode URL-encoded ID
-    const decodedId = decodeURIComponent(id);
-    return this.imageService.editImageMetadata(decodedId, editImageDto);
-  }
-
-  /**
-   * Bulk import metadata for migrated images
-   * POST /images/bulk-import
-   */
-  @UseGuards(JwtAuthGuard)
-  @Post('bulk-import')
-  async bulkImport(@Body() bulkImportDto: BulkImportDto): Promise<{ message: string; imported: number; skipped: number }> {
-    if (!bulkImportDto.images || !Array.isArray(bulkImportDto.images)) {
-      throw new HttpException('Invalid request: images array required', HttpStatus.BAD_REQUEST);
-    }
-
-    const result = await this.imageService.bulkImportMetadata(bulkImportDto.images);
-    
-    return {
-      message: `Successfully imported ${result.imported} images (${result.skipped} skipped)`,
-      imported: result.imported,
-      skipped: result.skipped,
-    };
+    return this.imageService.editImageMetadata(id, editImageDto);
   }
 }
-
