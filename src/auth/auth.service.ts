@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +6,8 @@ import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
@@ -131,6 +133,8 @@ export class AuthService {
 
   // Sync Privy wallet to database
   async syncPrivyWallet(userId: number, walletData: any) {
+    this.logger.log(`Syncing wallet for user ${userId}: ${walletData.address}`);
+    
     // Check if wallet already exists
     const existingWallet = await this.prisma.wallet.findFirst({
       where: {
@@ -140,6 +144,7 @@ export class AuthService {
     });
 
     if (existingWallet) {
+      this.logger.log(`Updating existing wallet: ${existingWallet.id}`);
       // Update existing wallet
       return this.prisma.wallet.update({
         where: { id: existingWallet.id },
@@ -151,8 +156,9 @@ export class AuthService {
         },
       });
     } else {
+      this.logger.log(`Creating new wallet for user ${userId}`);
       // Create new wallet
-      return this.prisma.wallet.create({
+      const newWallet = await this.prisma.wallet.create({
         data: {
           userId,
           privyWalletId: walletData.privyWalletId,
@@ -163,6 +169,8 @@ export class AuthService {
           isPrimary: walletData.isPrimary,
         },
       });
+      this.logger.log(`✅ Wallet created with ID: ${newWallet.id}`);
+      return newWallet;
     }
   }
 

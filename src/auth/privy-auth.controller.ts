@@ -2,16 +2,25 @@ import { Controller, Post, Body, Get, UseGuards, Request, Logger } from '@nestjs
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { PrivyAuthService } from './privy-auth.service';
 import { AuthService } from './auth.service';
+import { AptosWalletService } from './aptos-wallet.service';
 import { PrivyAuthGuard } from './guards/privy-auth.guard';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @ApiTags('PrivyAuth')
 @Controller('auth/privy')
 export class PrivyAuthController {
   private readonly logger = new Logger(PrivyAuthController.name);
+  private logToFile(message: string): void {
+    const logFile = path.join(process.cwd(), 'privy-sync-logs.txt');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logFile, `[${timestamp}] ${message}\n`);
+  }
 
   constructor(
     private privyAuthService: PrivyAuthService,
     private authService: AuthService,
+    private aptosWalletService: AptosWalletService,
   ) {}
 
   /**
@@ -73,130 +82,199 @@ export class PrivyAuthController {
   async syncUser(@Body('privyToken') privyToken: string) {
     try {
       this.logger.log('=== PRIVY SYNC START ===');
+      this.logToFile('=== PRIVY SYNC START ===');
       this.logger.log(`Received token: ${privyToken?.substring(0, 50)}...`);
+      this.logToFile(`Received token: ${privyToken?.substring(0, 50)}...`);
       
       // Verify Privy token
       this.logger.log('Step 1: Verifying token...');
+      this.logToFile('Step 1: Verifying token...');
       const privyUser = await Promise.race([
         this.privyAuthService.verifyToken(privyToken),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Token verification timeout')), 10000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Token verification timeout')), 30000))
       ]);
       
-      this.logger.log(`✅ Token verified. User ID: ${privyUser.userId}`);
+      this.logger.log(`✅ Token verified. User ID: ${(privyUser as any).userId}`);
+      this.logToFile(`✅ Token verified. User ID: ${(privyUser as any).userId}`);
 
       // Get full user details and wallets from Privy
       this.logger.log('Step 2: Getting user details...');
+      this.logToFile('Step 2: Getting user details...');
       const userDetails = await Promise.race([
-        this.privyAuthService.getUserById(privyUser.userId),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('getUserById timeout')), 10000))
+        this.privyAuthService.getUserById((privyUser as any).userId),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('getUserById timeout')), 30000))
       ]);
       
       this.logger.log(`✅ User details received`);
+      this.logToFile(`✅ User details received`);
       
       this.logger.log('Step 3: Getting user wallets...');
-      const userWallets = await Promise.race([
-        this.privyAuthService.getUserWallets(privyUser.userId),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('getUserWallets timeout')), 10000))
-      ]);
-      
-      this.logger.log(`✅ Wallets received: ${userWallets?.length || 0} wallets`);
+      this.logToFile('Step 3: Getting user wallets...');
+      const userWallets = await this.privyAuthService.getUserWallets((privyUser as any).userId);
+      this.logger.log(`✅ Wallets received: ${(userWallets as any)?.length || 0} wallets`);
+      this.logToFile(`✅ Wallets received: ${(userWallets as any)?.length || 0} wallets`);
       
       // Extract email from Privy user - handle multiple auth methods
       let email: string;
-      if (userDetails.email?.address) {
-        email = userDetails.email.address;
-      } else if (userDetails.google?.email) {
-        email = userDetails.google.email;
-      } else if (userDetails.twitter?.username) {
-        email = `${userDetails.twitter.username}@twitter.privy`;
-      } else if (userWallets && userWallets.length > 0) {
+      if ((userDetails as any).email?.address) {
+        email = (userDetails as any).email.address;
+      } else if ((userDetails as any).google?.email) {
+        email = (userDetails as any).google.email;
+      } else if ((userDetails as any).twitter?.username) {
+        email = `${(userDetails as any).twitter.username}@twitter.privy`;
+      } else if (userWallets && (userWallets as any).length > 0) {
         // User logged in with wallet only - use wallet address as email
-        email = `${userWallets[0].address}@wallet.privy`;
+        email = `${(userWallets as any)[0].address}@wallet.privy`;
       } else {
         // Fallback
-        email = `privy-${privyUser.userId}@ctomemes.xyz`;
+        email = `privy-${(privyUser as any).userId}@ctomemes.xyz`;
       }
       
       this.logger.log(`Resolved email: ${email}`);
+      this.logToFile(`Resolved email: ${email}`);
 
       // Check if user exists in our DB
+      this.logger.log(`Step 4: Checking if user exists in DB: ${email}`);
+      this.logToFile(`Step 4: Checking if user exists in DB: ${email}`);
       let user = await this.authService.findByEmail(email);
+      this.logger.log(`User found in DB: ${!!user}`);
+      this.logToFile(`User found in DB: ${!!user}`);
 
       if (!user) {
+        this.logger.log(`Creating NEW user in database...`);
         // Create new user in our DB
         user = await this.authService.register({
           email,
-          password: `privy-${privyUser.userId}`, // Placeholder password for Privy users
+          password: `privy-${(privyUser as any).userId}`, // Placeholder password for Privy users
         });
         
+        this.logger.log(`✅ User created with ID: ${user.id}`);
+        
         // Store Privy user ID
+        this.logger.log(`Updating user with Privy fields...`);
         await this.authService.updateUser(user.id, {
-          privyUserId: privyUser.userId,
-          privyDid: userDetails.id,
+          privyUserId: (privyUser as any).userId,
+          privyDid: (userDetails as any).id,
           provider: 'privy',
           lastLoginAt: new Date(),
         });
         
-        this.logger.log(`Created new user from Privy: ${email}`);
+        this.logger.log(`✅ Created new user from Privy: ${email} (ID: ${user.id})`);
+        
+        // Verify user was actually created
+        const verifyUser = await this.authService.getUserById(user.id);
+        this.logger.log(`Verification - User in DB: ${!!verifyUser}, Email: ${verifyUser?.email}`);
       } else {
+        this.logger.log(`User already exists (ID: ${user.id}), updating...`);
         // Update Privy fields and last login
         await this.authService.updateUser(user.id, {
-          privyUserId: privyUser.userId,
-          privyDid: userDetails.id,
+          privyUserId: (privyUser as any).userId,
+          privyDid: (userDetails as any).id,
           lastLoginAt: new Date(),
         });
+        this.logger.log(`✅ Updated existing user: ${email} (ID: ${user.id})`);
       }
 
-      // Sync ALL wallets from Privy
-      if (userWallets && userWallets.length > 0) {
-        for (const wallet of userWallets) {
+      // Sync wallets from Privy
+      this.logger.log(`Step 5: Syncing wallets...`);
+      this.logToFile(`Step 5: Syncing wallets...`);
+      if (userWallets && (userWallets as any).length > 0) {
+        this.logToFile(`Found ${(userWallets as any).length} wallets from Privy API`);
+        for (const wallet of (userWallets as any)) {
+          this.logToFile(`Syncing wallet: ${(wallet as any).address} (${(wallet as any).chainType})`);
           await this.authService.syncPrivyWallet(user.id, {
-            privyWalletId: wallet.id,
-            address: wallet.address,
-            blockchain: this.mapChainType(wallet.chainType),
-            type: wallet.walletClient ? 'PRIVY_EXTERNAL' : 'PRIVY_EMBEDDED',
-            walletClient: wallet.walletClient || 'privy',
-            isPrimary: userWallets[0].id === wallet.id, // First wallet is primary
+            privyWalletId: (wallet as any).id,
+            address: (wallet as any).address,
+            blockchain: this.mapChainType((wallet as any).chainType),
+            type: (wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL',
+            walletClient: (wallet as any).walletClient || 'privy',
+            isPrimary: (userWallets as any)[0].id === (wallet as any).id,
           });
         }
-        this.logger.log(`Synced ${userWallets.length} wallets for user: ${email}`);
+        this.logger.log(`Synced ${(userWallets as any).length} wallets for user: ${email}`);
+        this.logToFile(`✅ Synced ${(userWallets as any).length} wallets for user: ${email}`);
+      } else {
+        this.logToFile(`No wallets from Privy API, checking user.wallet...`);
+        // Create embedded wallet from user.wallet if no wallets found
+        if ((userDetails as any).wallet?.address) {
+          this.logToFile(`Creating embedded wallet from user.wallet: ${(userDetails as any).wallet.address}`);
+          await this.authService.syncPrivyWallet(user.id, {
+            privyWalletId: 'embedded',
+            address: (userDetails as any).wallet.address,
+            blockchain: 'ETHEREUM',
+            type: 'PRIVY_EMBEDDED',
+            walletClient: 'privy',
+            isPrimary: true,
+          });
+          this.logger.log(`Created embedded wallet from user data for: ${email}`);
+          this.logToFile(`✅ Created embedded wallet from user data for: ${email}`);
+        } else {
+          this.logToFile(`⚠️ No embedded wallet found in user.wallet either!`);
+        }
+      }
+
+      // Auto-create Aptos wallet (for payments on Aptos chain)
+      this.logger.log('Step 6: Creating Aptos wallet...');
+      this.logToFile('Step 6: Creating Aptos wallet...');
+      try {
+        const aptosWallet = await this.aptosWalletService.createAptosWallet(user.id);
+        this.logger.log(`✅ Aptos wallet created/found: ${aptosWallet.address}`);
+        this.logToFile(`✅ Aptos wallet created/found: ${aptosWallet.address}`);
+      } catch (error) {
+        this.logger.warn(`⚠️  Failed to create Aptos wallet: ${(error as any).message}`);
+        this.logToFile(`⚠️  Failed to create Aptos wallet: ${(error as any).message}`);
+        // Don't fail the entire sync if Aptos wallet creation fails
       }
 
       // Generate our own JWT token for the user
       const jwtToken = await this.authService.login(user);
 
       // Get primary wallet address
-      const primaryWallet = userWallets?.[0];
+      const primaryWallet = (userWallets as any)?.[0];
 
-      return {
+      // Get all wallets including Aptos
+      const allUserWallets = await this.aptosWalletService.getUserWallets(user.id);
+      this.logToFile(`Step 7: Retrieved ${allUserWallets?.length || 0} total wallets from database`);
+
+      const response = {
         success: true,
         user: {
           id: user.id,
           email: user.email,
           walletAddress: primaryWallet?.address,
           role: user.role,
-          privyUserId: privyUser.userId,
-          walletsCount: userWallets?.length || 0,
+          privyUserId: (privyUser as any).userId,
+          walletsCount: allUserWallets?.length || 0,
         },
         token: jwtToken.access_token,
-        wallets: userWallets?.map(w => ({
+        wallets: allUserWallets?.map(w => ({
           address: w.address,
-          chainType: w.chainType,
+          chainType: w.walletClient === 'APTOS_EMBEDDED' ? 'aptos' : (w.blockchain || 'UNKNOWN').toLowerCase(),
           walletClient: w.walletClient,
+          isPrimary: w.isPrimary,
         })),
       };
+      
+      this.logToFile(`✅ SYNC COMPLETE - Returning ${response.wallets?.length || 0} wallets to frontend`);
+      this.logToFile(`=== PRIVY SYNC END ===\n`);
+      
+      return response;
     } catch (error) {
       this.logger.error('=== PRIVY SYNC FAILED ===');
+      this.logToFile('=== PRIVY SYNC FAILED ===');
       this.logger.error(`Error type: ${error.constructor.name}`);
-      this.logger.error(`Error message: ${error.message}`);
-      this.logger.error(`Error stack: ${error.stack}`);
+      this.logToFile(`Error type: ${error.constructor.name}`);
+      this.logger.error(`Error message: ${(error as any).message}`);
+      this.logToFile(`Error message: ${(error as any).message}`);
+      this.logger.error(`Error stack: ${(error as any).stack}`);
+      this.logToFile(`Error stack: ${(error as any).stack}`);
       
       // Return a more helpful error message
       throw {
         statusCode: 500,
-        message: `Privy sync failed: ${error.message}`,
+        message: `Privy sync failed: ${(error as any).message}`,
         error: error.constructor.name,
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        details: process.env.NODE_ENV === 'development' ? (error as any).stack : undefined
       };
     }
   }
@@ -271,17 +349,17 @@ export class PrivyAuthController {
     } catch (error) {
       return {
         valid: false,
-        error: error.message,
+        error: (error as any).message,
       };
     }
   }
 
   /**
-   * Create Aptos wallet for user (Tier 2 chain)
+   * Create Aptos wallet for user (Server-side generated)
    */
   @ApiOperation({ 
     summary: 'Create Aptos wallet', 
-    description: 'Create an Aptos wallet for a user via Privy API (Tier 2 chain support)' 
+    description: 'Create a server-generated Aptos wallet for payments on Aptos chain' 
   })
   @ApiBody({
     schema: {
@@ -307,14 +385,13 @@ export class PrivyAuthController {
           type: 'object',
           properties: {
             address: { type: 'string', example: '0x1234...' },
-            chainType: { type: 'string', example: 'aptos' },
-            existed: { type: 'boolean', example: false }
+            chainType: { type: 'string', example: 'aptos' }
           }
         }
       }
     }
   })
-  @ApiResponse({ status: 400, description: 'User not found or not linked to Privy' })
+  @ApiResponse({ status: 400, description: 'User not found' })
   @Post('create-aptos-wallet')
   async createAptosWallet(@Body('userId') userId: number) {
     try {
@@ -323,63 +400,30 @@ export class PrivyAuthController {
       
       // Get user from our database
       const user = await this.authService.getUserById(userId);
-      this.logger.log(`User found: ${!!user}, Has privyUserId: ${!!user?.privyUserId}`);
       
-      if (!user || !user.privyUserId) {
-        throw new Error('User not found or not linked to Privy');
+      if (!user) {
+        throw new Error('User not found');
       }
       
-      const privyUserId = user.privyUserId;
+      this.logger.log(`Creating Aptos wallet for user: ${user.email}`);
       
-      this.logger.log(`Creating Aptos wallet for Privy user: ${privyUserId}`);
-      
-      // Check if user already has Aptos wallet
-      const allWallets = await this.privyAuthService.getAllUserWallets(privyUserId);
-      const existingAptos = allWallets.find(w => w.chainType === 'aptos');
-      
-      if (existingAptos) {
-        this.logger.log(`User already has Aptos wallet: ${existingAptos.address}`);
-        return {
-          success: true,
-          wallet: {
-            address: existingAptos.address,
-            chainType: 'aptos',
-            existed: true,
-          },
-        };
-      }
-
-      // Create new Aptos wallet
-      const aptosWallet = await this.privyAuthService.createAptosWallet(privyUserId);
-      
-      // Sync the wallet to our DB (user already fetched above)
-      if (user) {
-        await this.authService.syncPrivyWallet(user.id, {
-          privyWalletId: aptosWallet.id,
-          address: aptosWallet.address,
-          blockchain: 'APTOS',
-          type: 'PRIVY_EMBEDDED',
-          walletClient: 'privy',
-          isPrimary: false,
-        });
-      }
+      // Create Aptos wallet using our service
+      const result = await this.aptosWalletService.createAptosWallet(userId);
 
       return {
         success: true,
         wallet: {
-          address: aptosWallet.address,
+          address: result.address,
           chainType: 'aptos',
-          existed: false,
         },
       };
     } catch (error) {
       this.logger.error('=== APTOS WALLET CREATION FAILED ===');
       this.logger.error(`Error type: ${error.constructor.name}`);
-      this.logger.error(`Error message: ${error.message}`);
-      this.logger.error(`Full error: ${JSON.stringify(error, null, 2)}`);
+      this.logger.error(`Error message: ${(error as any).message}`);
       throw {
         statusCode: 500,
-        message: `Failed to create Aptos wallet: ${error.message}`,
+        message: `Failed to create Aptos wallet: ${(error as any).message}`,
         error: error.constructor.name,
       };
     }

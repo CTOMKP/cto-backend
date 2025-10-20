@@ -55,7 +55,7 @@ model ScanResult {
 
   // Relations
   userId Int?
-  user   User? @relation(fields: [userId], references: [id])
+  user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([contractAddress])
   @@index([userId])
@@ -128,18 +128,19 @@ model Listing {
 
 // Circle Wallets persisted for users
 model Wallet {
-  id             String   @id @default(cuid())        // internal id
-  circleWalletId String?  @unique                     // Circle wallet id (legacy)
-  privyWalletId  String?                              // Privy wallet id
-  address        String?
-  blockchain     Chain
-  type           String?                              // e.g., USER_CONTROLLED, PRIVY_EMBEDDED, PRIVY_EXTERNAL
-  walletClient   String?                              // e.g., metamask, phantom, coinbase_wallet
-  description    String?
-  isPrimary      Boolean  @default(false)             // Primary wallet for the user
+  id                   String   @id @default(cuid())        // internal id
+  circleWalletId       String?  @unique                     // Circle wallet id (legacy)
+  privyWalletId        String?                              // Privy wallet id
+  address              String?
+  blockchain           Chain
+  type                 String?                              // e.g., USER_CONTROLLED, PRIVY_EMBEDDED, PRIVY_EXTERNAL
+  walletClient         String?                              // e.g., metamask, phantom, coinbase_wallet, APTOS_EMBEDDED
+  description          String?
+  isPrimary            Boolean  @default(false)             // Primary wallet for the user
+  encryptedPrivateKey  String?                              // Encrypted private key for server-managed wallets (Aptos)
 
   userId         Int
-  user           User     @relation(fields: [userId], references: [id])
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -168,7 +169,7 @@ model UserListing {
   updatedAt    DateTime @updatedAt
 
   // Relations
-  user   User     @relation(fields: [userId], references: [id])
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   boosts AdBoost[]
 
   @@index([status])
@@ -185,7 +186,7 @@ model AdBoost {
   createdAt    DateTime @default(now())
 
   // Relations
-  listing UserListing @relation(fields: [listingId], references: [id])
+  listing UserListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   @@index([listingId])
 }
@@ -203,7 +204,7 @@ model Meme {
   
   // Admin who uploaded
   uploadedById Int
-  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
   
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -225,7 +226,7 @@ model Waitlist {
 model Payment {
   id                String        @id @default(cuid())
   userId            Int
-  user              User          @relation(fields: [userId], references: [id])
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Payment type and related entity
   paymentType       PaymentType   // LISTING | AD_BOOST

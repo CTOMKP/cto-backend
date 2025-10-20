@@ -8,6 +8,7 @@ import { PrivyAuthController } from './privy-auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { PrivyAuthService } from './privy-auth.service';
+import { AptosWalletService } from './aptos-wallet.service';
 
 @Module({
   imports: [
@@ -22,9 +23,9 @@ import { PrivyAuthService } from './privy-auth.service';
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, LocalStrategy, JwtStrategy, PrivyAuthService],
+  providers: [AuthService, LocalStrategy, JwtStrategy, PrivyAuthService, AptosWalletService],
   controllers: [AuthController, PrivyAuthController],
-  exports: [AuthService, JwtModule, PrivyAuthService],
+  exports: [AuthService, JwtModule, PrivyAuthService, AptosWalletService],
 })
 export class AuthModule {}
 

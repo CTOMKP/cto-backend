@@ -48,7 +48,6 @@ export class PrivyAuthService {
   async getUserById(userId: string) {
     try {
       const user = await this.privyClient.getUserById(userId);
-      this.logger.debug(`Retrieved user details for: ${userId}`);
       return user;
     } catch (error) {
       this.logger.error(`Failed to get user ${userId} from Privy`, error);
@@ -63,11 +62,37 @@ export class PrivyAuthService {
    */
   async getUserWallets(userId: string) {
     try {
-      const user = await this.getUserById(userId);
-      const wallets = user.linkedAccounts?.filter(
-        (account) => account.type === 'wallet'
-      );
-      return wallets || [];
+      const user = await this.privyClient.getUserById(userId);
+      const wallets = [];
+
+      // Debug: Log what we got
+      this.logger.log(`Privy returned - Has user.wallet: ${!!user.wallet}, LinkedAccounts: ${user.linkedAccounts?.length || 0}`);
+
+      // Check for embedded wallet in user.wallet
+      if (user.wallet?.address) {
+        this.logger.log(`Adding embedded wallet: ${user.wallet.address}`);
+        wallets.push({
+          id: 'embedded',
+          address: user.wallet.address,
+          chainType: user.wallet.chainType || 'ethereum',
+          walletClient: 'privy',
+          type: 'wallet'
+        });
+      }
+
+      // Check for wallets in linkedAccounts
+      if (user.linkedAccounts) {
+        const linkedWallets = user.linkedAccounts.filter(
+          (account: any) => account.type === 'wallet' && account.address
+        );
+        linkedWallets.forEach((w: any) => {
+          this.logger.log(`Adding linked wallet: ${w.address} (${w.chainType})`);
+        });
+        wallets.push(...linkedWallets);
+      }
+
+      this.logger.log(`✅ Total wallets found: ${wallets.length}`);
+      return wallets;
     } catch (error) {
       this.logger.error(`Failed to get wallets for user ${userId}`, error);
       return [];
@@ -91,33 +116,21 @@ export class PrivyAuthService {
       );
       
       if (existingAptosWallet) {
-        this.logger.log(`User already has Aptos wallet: ${existingAptosWallet.address}`);
+        this.logger.log(`User already has Aptos wallet: ${(existingAptosWallet as any).address}`);
         return {
-          id: existingAptosWallet.id,
-          address: existingAptosWallet.address,
+          id: (existingAptosWallet as any).id,
+          address: (existingAptosWallet as any).address,
           chainType: 'aptos',
           existed: true,
         };
       }
       
-      // Create new Aptos wallet using Privy SDK's createWallet method
-      this.logger.log(`No existing Aptos wallet found. Creating new one...`);
+      // Temporarily disabled: Aptos wallet creation not available in current SDK version
+      this.logger.warn(`No Aptos wallet found. SDK does not support Aptos creation yet.`);
       
-      const wallet = await this.privyClient.createWallet({
-        userId: userId,
-        chainType: 'aptos',
-      });
-      
-      this.logger.log(`✅ Aptos wallet created successfully!`);
-      this.logger.log(`Address: ${wallet.address}`);
-      this.logger.log(`Wallet ID: ${wallet.id}`);
-      
-      return {
-        id: wallet.id,
-        address: wallet.address,
-        chainType: wallet.chainType,
-        existed: false,
-      };
+      throw new Error(
+        'Aptos wallet not found. Please contact support to enable Aptos wallets for your account.'
+      );
     } catch (error: any) {
       this.logger.error(`❌ Failed to create Aptos wallet for user ${userId}`);
       this.logger.error(`Error type: ${error.constructor?.name}`);

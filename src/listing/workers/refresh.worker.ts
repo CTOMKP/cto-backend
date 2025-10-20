@@ -38,6 +38,42 @@ export class RefreshWorker {
     this.run();
   }
 
+  // Cleanup old records to keep database lean (run every hour)
+  @Cron(CronExpression.EVERY_HOUR)
+  async cleanupOldRecords() {
+    try {
+      this.logger.log('🧹 Starting cleanup of old records...');
+      
+      // Keep only the latest 100 listings
+      const listingsToKeep = await this.repo.prisma.listing.findMany({
+        orderBy: { updatedAt: 'desc' },
+        take: 100,
+        select: { id: true }
+      });
+      
+      const listingIds = listingsToKeep.map(l => l.id);
+      const deletedListings = await this.repo.prisma.listing.deleteMany({
+        where: { id: { notIn: listingIds } }
+      });
+      
+      // Keep only the latest 100 scan results
+      const scansToKeep = await this.repo.prisma.scanResult.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: { id: true }
+      });
+      
+      const scanIds = scansToKeep.map(s => s.id);
+      const deletedScans = await this.repo.prisma.scanResult.deleteMany({
+        where: { id: { notIn: scanIds } }
+      });
+      
+      this.logger.log(`✅ Cleanup complete: Deleted ${deletedListings.count} old listings, ${deletedScans.count} old scans`);
+    } catch (error) {
+      this.logger.error('❌ Cleanup failed:', error);
+    }
+  }
+
   // Pull trending/new SOL pairs (approx) from DexScreener using /dex/tokens & /dex/search endpoints
   // Run every 5 seconds for more frequent updates
   @Cron('*/5 * * * * *')
