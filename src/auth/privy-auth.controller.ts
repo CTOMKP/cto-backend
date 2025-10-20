@@ -318,8 +318,13 @@ export class PrivyAuthController {
   @Post('create-aptos-wallet')
   async createAptosWallet(@Body('userId') userId: number) {
     try {
+      this.logger.log(`=== APTOS WALLET CREATION START ===`);
+      this.logger.log(`Received userId: ${userId}`);
+      
       // Get user from our database
       const user = await this.authService.getUserById(userId);
+      this.logger.log(`User found: ${!!user}, Has privyUserId: ${!!user?.privyUserId}`);
+      
       if (!user || !user.privyUserId) {
         throw new Error('User not found or not linked to Privy');
       }
@@ -368,8 +373,15 @@ export class PrivyAuthController {
         },
       };
     } catch (error) {
-      this.logger.error('Failed to create Aptos wallet', error);
-      throw error;
+      this.logger.error('=== APTOS WALLET CREATION FAILED ===');
+      this.logger.error(`Error type: ${error.constructor.name}`);
+      this.logger.error(`Error message: ${error.message}`);
+      this.logger.error(`Full error: ${JSON.stringify(error, null, 2)}`);
+      throw {
+        statusCode: 500,
+        message: `Failed to create Aptos wallet: ${error.message}`,
+        error: error.constructor.name,
+      };
     }
   }
 }

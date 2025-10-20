@@ -75,7 +75,7 @@ export class PrivyAuthService {
   }
 
   /**
-   * Create an Aptos wallet for a user (Tier 2 chain) via Privy REST API
+   * Create an Aptos wallet for a user (Tier 2 chain) via Privy SDK
    * @param userId - Privy user ID (DID format)
    * @returns Created wallet details
    */
@@ -83,40 +83,47 @@ export class PrivyAuthService {
     try {
       this.logger.log(`Creating Aptos wallet for user: ${userId}`);
       
-      const appId = this.configService.get<string>('PRIVY_APP_ID');
-      const appSecret = this.configService.get<string>('PRIVY_APP_SECRET');
-      
-      // Call Privy REST API to create wallet
-      const axios = require('axios');
-      const response = await axios.post(
-        `https://auth.privy.io/api/v1/apps/${appId}/users/${userId}/wallets`,
-        {
-          chain_type: 'aptos',
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Basic ${Buffer.from(`${appId}:${appSecret}`).toString('base64')}`,
-            'privy-app-id': appId,
-          },
-        }
+      // First check if user already has an Aptos wallet
+      const user = await this.privyClient.getUserById(userId);
+      const linkedAccounts = user.linkedAccounts || [];
+      const existingAptosWallet = linkedAccounts.find(
+        (account: any) => account.type === 'wallet' && account.chainType === 'aptos'
       );
       
+      if (existingAptosWallet) {
+        this.logger.log(`User already has Aptos wallet: ${existingAptosWallet.address}`);
+        return {
+          id: existingAptosWallet.id,
+          address: existingAptosWallet.address,
+          chainType: 'aptos',
+          existed: true,
+        };
+      }
+      
+      // Create new Aptos wallet using Privy SDK's createWallet method
+      this.logger.log(`No existing Aptos wallet found. Creating new one...`);
+      
+      const wallet = await this.privyClient.createWallet({
+        userId: userId,
+        chainType: 'aptos',
+      });
+      
       this.logger.log(`✅ Aptos wallet created successfully!`);
-      this.logger.log(`Address: ${response.data.address}`);
-      this.logger.log(`Wallet ID: ${response.data.id}`);
+      this.logger.log(`Address: ${wallet.address}`);
+      this.logger.log(`Wallet ID: ${wallet.id}`);
       
       return {
-        id: response.data.id,
-        address: response.data.address,
-        chainType: response.data.chain_type,
+        id: wallet.id,
+        address: wallet.address,
+        chainType: wallet.chainType,
+        existed: false,
       };
     } catch (error: any) {
       this.logger.error(`❌ Failed to create Aptos wallet for user ${userId}`);
-      this.logger.error(`Error status: ${error.response?.status}`);
-      this.logger.error(`Error data: ${JSON.stringify(error.response?.data)}`);
+      this.logger.error(`Error type: ${error.constructor?.name}`);
       this.logger.error(`Error message: ${error.message}`);
-      throw new Error(`Failed to create Aptos wallet: ${error.response?.data?.message || error.message}`);
+      this.logger.error(`Error stack: ${error.stack}`);
+      throw new Error(`Failed to create Aptos wallet: ${error.message}`);
     }
   }
 
