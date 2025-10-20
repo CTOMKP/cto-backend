@@ -27,7 +27,11 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Validation or duplicate email', type: ErrorResponseDto })
   @Post('register')
   async register(@Body() dto: RegisterDto): Promise<RegisterResponseDto> {
-    const user = await this.authService.register(dto.name, dto.email, dto.password);
+    const user = await this.authService.register({
+      email: dto.email,
+      password: dto.password,
+      name: dto.name,
+    });
     return { id: user.id, name: user.name ?? null, email: user.email, createdAt: user.createdAt.toISOString() };
   }
 

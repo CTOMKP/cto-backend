@@ -1,8 +1,10 @@
 import { Controller, Post, Body, Get, UseGuards, Request, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { PrivyAuthService } from './privy-auth.service';
 import { AuthService } from './auth.service';
 import { PrivyAuthGuard } from './guards/privy-auth.guard';
 
+@ApiTags('PrivyAuth')
 @Controller('auth/privy')
 export class PrivyAuthController {
   private readonly logger = new Logger(PrivyAuthController.name);
@@ -16,6 +18,57 @@ export class PrivyAuthController {
    * Sync/create user after Privy authentication
    * Frontend sends Privy token, we verify it and create/update user in our DB
    */
+  @ApiOperation({ 
+    summary: 'Sync user from Privy', 
+    description: 'Verify Privy token, create/update user in DB, sync all wallets, and return JWT token' 
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        privyToken: {
+          type: 'string',
+          description: 'Privy access token from frontend authentication',
+          example: 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjEyMzQifQ...'
+        }
+      },
+      required: ['privyToken']
+    }
+  })
+  @ApiResponse({ 
+    status: 201, 
+    description: 'User synced successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        user: {
+          type: 'object',
+          properties: {
+            id: { type: 'number', example: 5 },
+            email: { type: 'string', example: 'user@example.com' },
+            walletAddress: { type: 'string', example: '0x1234...' },
+            role: { type: 'string', example: 'USER' },
+            privyUserId: { type: 'string', example: 'did:privy:...' },
+            walletsCount: { type: 'number', example: 3 }
+          }
+        },
+        token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+        wallets: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              address: { type: 'string', example: '0x1234...' },
+              chainType: { type: 'string', example: 'ethereum' },
+              walletClient: { type: 'string', example: 'metamask' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 500, description: 'Privy sync failed' })
   @Post('sync')
   async syncUser(@Body('privyToken') privyToken: string) {
     try {
@@ -166,6 +219,13 @@ export class PrivyAuthController {
   /**
    * Get current Privy user info (protected route)
    */
+  @ApiOperation({ 
+    summary: 'Get current user info', 
+    description: 'Get Privy user details and wallets (requires Privy token)' 
+  })
+  @ApiBearerAuth('JWT-auth')
+  @ApiResponse({ status: 200, description: 'User info retrieved' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @Get('me')
   @UseGuards(PrivyAuthGuard)
   async getMe(@Request() req) {
@@ -181,6 +241,24 @@ export class PrivyAuthController {
   /**
    * Verify Privy token (utility endpoint)
    */
+  @ApiOperation({ 
+    summary: 'Verify Privy token', 
+    description: 'Check if a Privy access token is valid' 
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        token: {
+          type: 'string',
+          description: 'Privy access token to verify',
+          example: 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9...'
+        }
+      },
+      required: ['token']
+    }
+  })
+  @ApiResponse({ status: 200, description: 'Token verification result' })
   @Post('verify')
   async verifyToken(@Body('token') token: string) {
     try {
@@ -201,6 +279,42 @@ export class PrivyAuthController {
   /**
    * Create Aptos wallet for user (Tier 2 chain)
    */
+  @ApiOperation({ 
+    summary: 'Create Aptos wallet', 
+    description: 'Create an Aptos wallet for a user via Privy API (Tier 2 chain support)' 
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        userId: {
+          type: 'number',
+          description: 'Internal user ID',
+          example: 5
+        }
+      },
+      required: ['userId']
+    }
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Aptos wallet created',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        wallet: {
+          type: 'object',
+          properties: {
+            address: { type: 'string', example: '0x1234...' },
+            chainType: { type: 'string', example: 'aptos' },
+            existed: { type: 'boolean', example: false }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'User not found or not linked to Privy' })
   @Post('create-aptos-wallet')
   async createAptosWallet(@Body('userId') userId: number) {
     try {
