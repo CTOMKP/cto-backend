@@ -10,7 +10,7 @@ import axios from 'axios';
 @Injectable()
 export class PrivyPaymentService {
   private readonly logger = new Logger(PrivyPaymentService.name);
-  private readonly USDC_AMOUNT = 50; // 50 USDC for listings
+  private readonly USDC_AMOUNT = 0.15; // 0.15 USDC for listings (TESTING)
   
   // USDC contract addresses by chain
   private readonly USDC_CONTRACTS = {

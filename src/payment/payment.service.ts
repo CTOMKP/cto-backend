@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Pricing configuration (in USDC)
 const PRICING = {
-  LISTING: 50, // $50 USDC to list a token
+  LISTING: 0.15, // $0.15 USDC to list a token (TESTING)
   AD_BOOST: {
     top: 100,       // $100/day - Top of listings
     priority: 75,    // $75/day - Priority placement

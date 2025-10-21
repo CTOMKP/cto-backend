@@ -140,6 +140,13 @@ export class UserListingsService {
     return { success: true, data: found };
   }
 
+  async findMyListing(userId: number, id: string) {
+    const found = await this.prisma.userListing.findUnique({ where: { id } });
+    if (!found) throw new NotFoundException('Listing not found');
+    if (found.userId !== userId) throw new ForbiddenException('Not your listing');
+    return { success: true, data: found };
+  }
+
   async addAdBoost(userId: number, id: string, dto: CreateAdBoostDto) {
     const found = await this.prisma.userListing.findUnique({ where: { id } });
     if (!found) throw new NotFoundException('Listing not found');

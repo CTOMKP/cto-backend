@@ -44,6 +44,15 @@ export class UserListingsController {
     return this.svc.findMine(Number(userId));
   }
 
+  @Get('mine/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: "Get one of current user's listings (including DRAFT)" })
+  async getMyListing(@Param('id') id: string, @Req() req: any) {
+    const userId = req?.user?.userId || req?.user?.sub;
+    return this.svc.findMyListing(Number(userId), id);
+  }
+
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
