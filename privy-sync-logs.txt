@@ -1,0 +1,376 @@
+[2025-10-20T22:54:00.587Z] === PRIVY SYNC START ===
+[2025-10-20T22:54:00.609Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T22:54:00.610Z] Step 1: Verifying token...
+[2025-10-20T22:54:01.282Z] === PRIVY SYNC START ===
+[2025-10-20T22:54:01.293Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T22:54:01.332Z] Step 1: Verifying token...
+[2025-10-20T22:54:02.372Z] ✅ Token verified. User ID: did:privy:cmgzpzmle0113js0cqcvi14od
+[2025-10-20T22:54:02.377Z] Step 2: Getting user details...
+[2025-10-20T22:54:02.416Z] ✅ Token verified. User ID: did:privy:cmgzpzmle0113js0cqcvi14od
+[2025-10-20T22:54:02.427Z] Step 2: Getting user details...
+[2025-10-20T22:54:02.942Z] === PRIVY SYNC FAILED ===
+[2025-10-20T22:54:02.945Z] Error type: UnauthorizedException
+[2025-10-20T22:54:02.947Z] Error message: User not found in Privy
+[2025-10-20T22:54:02.951Z] Error stack: UnauthorizedException: User not found in Privy
+    at PrivyAuthService.getUserById (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:55:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:103:27)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-20T22:54:02.999Z] === PRIVY SYNC FAILED ===
+[2025-10-20T22:54:03.006Z] Error type: UnauthorizedException
+[2025-10-20T22:54:03.009Z] Error message: User not found in Privy
+[2025-10-20T22:54:03.022Z] Error stack: UnauthorizedException: User not found in Privy
+    at PrivyAuthService.getUserById (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:55:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:103:27)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-20T22:55:11.167Z] === PRIVY SYNC START ===
+[2025-10-20T22:55:11.179Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T22:55:11.182Z] Step 1: Verifying token...
+[2025-10-20T22:55:11.251Z] ✅ Token verified. User ID: did:privy:cmgzqh3dr0208jy0cs7o06i21
+[2025-10-20T22:55:11.275Z] Step 2: Getting user details...
+[2025-10-20T22:55:12.541Z] ✅ User details received
+[2025-10-20T22:55:12.548Z] Step 3: Getting user wallets...
+[2025-10-20T22:55:17.723Z] ✅ Wallets received: 0 wallets
+[2025-10-20T22:55:17.725Z] Resolved email: rolleycop@gmail.com
+[2025-10-20T22:55:17.727Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-20T22:55:17.792Z] User found in DB: false
+[2025-10-20T22:55:19.619Z] Step 5: Syncing wallets...
+[2025-10-20T22:55:19.620Z] No wallets from Privy API, checking user.wallet...
+[2025-10-20T22:55:19.621Z] ⚠️ No embedded wallet found in user.wallet either!
+[2025-10-20T22:55:19.626Z] Step 6: Creating Aptos wallet...
+[2025-10-20T22:55:20.569Z] ✅ Aptos wallet created/found: 0xf24f266ae1ad4430afb9232c91fcf9e1ce823e32ce94dc4c0c5b54ef556ae2e7
+[2025-10-20T22:55:20.690Z] Step 7: Retrieved 1 total wallets from database
+[2025-10-20T22:55:20.691Z] ✅ SYNC COMPLETE - Returning 1 wallets to frontend
+[2025-10-20T22:55:20.692Z] === PRIVY SYNC END ===
+
+[2025-10-20T23:08:57.337Z] === PRIVY SYNC START ===
+[2025-10-20T23:08:57.342Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T23:08:57.350Z] Step 1: Verifying token...
+[2025-10-20T23:08:58.355Z] ✅ Token verified. User ID: did:privy:cmgzqytaa00zujy0c838kprwc
+[2025-10-20T23:08:58.363Z] Step 2: Getting user details...
+[2025-10-20T23:08:58.705Z] ✅ User details received
+[2025-10-20T23:08:58.707Z] Step 3: Getting user wallets...
+[2025-10-20T23:08:59.170Z] ✅ Wallets received: 0 wallets
+[2025-10-20T23:08:59.171Z] Resolved email: rolleycop@gmail.com
+[2025-10-20T23:08:59.174Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-20T23:08:59.200Z] User found in DB: false
+[2025-10-20T23:08:59.600Z] Step 5: Syncing wallets...
+[2025-10-20T23:08:59.600Z] No wallets from Privy API, checking user.wallet...
+[2025-10-20T23:08:59.601Z] ⚠️ No embedded wallet found in user.wallet either!
+[2025-10-20T23:08:59.603Z] Step 6: Creating Aptos wallet...
+[2025-10-20T23:08:59.869Z] ✅ Aptos wallet created/found: 0xbb0dc02a70e21605e34cfcb793877b2959a8e7fe84f666a6ac4e64af18fa45ae
+[2025-10-20T23:08:59.934Z] Step 7: Retrieved 1 total wallets from database
+[2025-10-20T23:08:59.935Z] ✅ SYNC COMPLETE - Returning 1 wallets to frontend
+[2025-10-20T23:08:59.936Z] === PRIVY SYNC END ===
+
+[2025-10-20T23:13:34.662Z] === PRIVY SYNC START ===
+[2025-10-20T23:13:34.669Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T23:13:34.670Z] Step 1: Verifying token...
+[2025-10-20T23:13:34.804Z] ✅ Token verified. User ID: did:privy:cmgzr4r39007pl50cnnlrdy7v
+[2025-10-20T23:13:34.809Z] Step 2: Getting user details...
+[2025-10-20T23:13:36.141Z] ✅ User details received
+[2025-10-20T23:13:36.147Z] Step 3: Getting user wallets...
+[2025-10-20T23:13:36.690Z] ✅ Wallets received: 0 wallets
+[2025-10-20T23:13:36.694Z] Resolved email: ouinch4all123@gmail.com
+[2025-10-20T23:13:36.696Z] Step 4: Checking if user exists in DB: ouinch4all123@gmail.com
+[2025-10-20T23:13:36.806Z] User found in DB: false
+[2025-10-20T23:13:37.200Z] Step 5: Syncing wallets...
+[2025-10-20T23:13:37.200Z] No wallets from Privy API, checking user.wallet...
+[2025-10-20T23:13:37.201Z] ⚠️ No embedded wallet found in user.wallet either!
+[2025-10-20T23:13:37.212Z] Step 6: Creating Aptos wallet...
+[2025-10-20T23:13:37.340Z] ✅ Aptos wallet created/found: 0x7e8cf253954a39edc7717dcdd1a4abcabcd157619dbf8ed5412493edd962d07d
+[2025-10-20T23:13:37.418Z] Step 7: Retrieved 1 total wallets from database
+[2025-10-20T23:13:37.427Z] ✅ SYNC COMPLETE - Returning 1 wallets to frontend
+[2025-10-20T23:13:37.432Z] === PRIVY SYNC END ===
+
+[2025-10-20T23:20:32.854Z] === PRIVY SYNC START ===
+[2025-10-20T23:20:32.865Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T23:20:32.871Z] Step 1: Verifying token...
+[2025-10-20T23:20:35.273Z] ✅ Token verified. User ID: did:privy:cmgzr4r39007pl50cnnlrdy7v
+[2025-10-20T23:20:35.287Z] Step 2: Getting user details...
+[2025-10-20T23:20:35.885Z] ✅ User details received
+[2025-10-20T23:20:35.889Z] Step 3: Getting user wallets...
+[2025-10-20T23:20:36.701Z] ✅ Wallets received: 2 wallets
+[2025-10-20T23:20:36.717Z] Resolved email: ouinch4all123@gmail.com
+[2025-10-20T23:20:36.772Z] Step 4: Checking if user exists in DB: ouinch4all123@gmail.com
+[2025-10-20T23:20:37.122Z] User found in DB: true
+[2025-10-20T23:20:37.597Z] Step 5: Syncing wallets...
+[2025-10-20T23:20:37.598Z] Found 2 wallets from Privy API
+[2025-10-20T23:20:37.600Z] Syncing wallet: 0xdcA13eB93D2c1349abb2B8d2d359f2A3e92bA361 (ethereum)
+[2025-10-20T23:20:37.604Z] === PRIVY SYNC FAILED ===
+[2025-10-20T23:20:37.608Z] Error type: TypeError
+[2025-10-20T23:20:37.612Z] Error message: Cannot read properties of undefined (reading 'log')
+[2025-10-20T23:20:37.617Z] Error stack: TypeError: Cannot read properties of undefined (reading 'log')
+    at AuthService.syncPrivyWallet (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\auth.service.ts:134:17)
+    at PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:185:34)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-20T23:26:13.484Z] === PRIVY SYNC START ===
+[2025-10-20T23:26:13.494Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T23:26:13.505Z] Step 1: Verifying token...
+[2025-10-20T23:26:16.400Z] ✅ Token verified. User ID: did:privy:cmgzr4r39007pl50cnnlrdy7v
+[2025-10-20T23:26:16.405Z] Step 2: Getting user details...
+[2025-10-20T23:26:17.219Z] ✅ User details received
+[2025-10-20T23:26:17.222Z] Step 3: Getting user wallets...
+[2025-10-20T23:26:17.833Z] ✅ Wallets received: 2 wallets
+[2025-10-20T23:26:17.849Z] Resolved email: ouinch4all123@gmail.com
+[2025-10-20T23:26:17.866Z] Step 4: Checking if user exists in DB: ouinch4all123@gmail.com
+[2025-10-20T23:26:18.087Z] User found in DB: true
+[2025-10-20T23:26:18.338Z] Step 5: Syncing wallets...
+[2025-10-20T23:26:18.339Z] Found 2 wallets from Privy API
+[2025-10-20T23:26:18.339Z] Syncing wallet: 0xdcA13eB93D2c1349abb2B8d2d359f2A3e92bA361 (ethereum)
+[2025-10-20T23:26:18.616Z] Syncing wallet: 0xdcA13eB93D2c1349abb2B8d2d359f2A3e92bA361 (ethereum)
+[2025-10-20T23:26:18.784Z] ✅ Synced 2 wallets for user: ouinch4all123@gmail.com
+[2025-10-20T23:26:18.787Z] Step 6: Creating Aptos wallet...
+[2025-10-20T23:26:22.219Z] ✅ Aptos wallet created/found: 0x7e8cf253954a39edc7717dcdd1a4abcabcd157619dbf8ed5412493edd962d07d
+[2025-10-20T23:26:22.367Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-20T23:26:22.369Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-20T23:26:22.372Z] === PRIVY SYNC END ===
+
+[2025-10-20T23:27:31.018Z] === PRIVY SYNC START ===
+[2025-10-20T23:27:31.030Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T23:27:31.033Z] Step 1: Verifying token...
+[2025-10-20T23:27:31.284Z] ✅ Token verified. User ID: did:privy:cmgzqytaa00zujy0c838kprwc
+[2025-10-20T23:27:31.285Z] Step 2: Getting user details...
+[2025-10-20T23:27:33.664Z] ✅ User details received
+[2025-10-20T23:27:33.681Z] Step 3: Getting user wallets...
+[2025-10-20T23:27:34.413Z] ✅ Wallets received: 2 wallets
+[2025-10-20T23:27:34.415Z] Resolved email: rolleycop@gmail.com
+[2025-10-20T23:27:34.423Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-20T23:27:34.564Z] User found in DB: true
+[2025-10-20T23:27:34.705Z] Step 5: Syncing wallets...
+[2025-10-20T23:27:34.708Z] Found 2 wallets from Privy API
+[2025-10-20T23:27:34.711Z] Syncing wallet: 0x8877c528738613565097b7F837fA14eE045FBD0B (ethereum)
+[2025-10-20T23:27:35.069Z] Syncing wallet: 0x8877c528738613565097b7F837fA14eE045FBD0B (ethereum)
+[2025-10-20T23:27:35.460Z] ✅ Synced 2 wallets for user: rolleycop@gmail.com
+[2025-10-20T23:27:35.462Z] Step 6: Creating Aptos wallet...
+[2025-10-20T23:27:35.627Z] ✅ Aptos wallet created/found: 0xbb0dc02a70e21605e34cfcb793877b2959a8e7fe84f666a6ac4e64af18fa45ae
+[2025-10-20T23:27:35.776Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-20T23:27:35.778Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-20T23:27:35.779Z] === PRIVY SYNC END ===
+
+[2025-10-20T23:39:59.511Z] === PRIVY SYNC START ===
+[2025-10-20T23:39:59.527Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T23:39:59.548Z] Step 1: Verifying token...
+[2025-10-20T23:40:01.691Z] ✅ Token verified. User ID: did:privy:cmgzqytaa00zujy0c838kprwc
+[2025-10-20T23:40:01.699Z] Step 2: Getting user details...
+[2025-10-20T23:40:33.002Z] === PRIVY SYNC FAILED ===
+[2025-10-20T23:40:33.008Z] Error type: Error
+[2025-10-20T23:40:33.010Z] Error message: getUserById timeout
+[2025-10-20T23:40:33.026Z] Error stack: Error: getUserById timeout
+    at Timeout._onTimeout (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:105:60)
+    at listOnTimeout (node:internal/timers:581:17)
+    at process.processTimers (node:internal/timers:519:7)
+[2025-10-20T23:40:43.584Z] === PRIVY SYNC START ===
+[2025-10-20T23:40:43.587Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T23:40:43.588Z] Step 1: Verifying token...
+[2025-10-20T23:40:43.954Z] ✅ Token verified. User ID: did:privy:cmgzr4r39007pl50cnnlrdy7v
+[2025-10-20T23:40:43.956Z] Step 2: Getting user details...
+[2025-10-20T23:40:50.330Z] ✅ User details received
+[2025-10-20T23:40:50.334Z] Step 3: Getting user wallets...
+[2025-10-20T23:40:52.305Z] ✅ Wallets received: 2 wallets
+[2025-10-20T23:40:52.307Z] Resolved email: ouinch4all123@gmail.com
+[2025-10-20T23:40:52.308Z] Step 4: Checking if user exists in DB: ouinch4all123@gmail.com
+[2025-10-20T23:40:52.820Z] User found in DB: true
+[2025-10-20T23:40:57.129Z] Step 5: Syncing wallets...
+[2025-10-20T23:40:57.133Z] Found 2 wallets from Privy API
+[2025-10-20T23:40:57.134Z] Syncing wallet: 0xdcA13eB93D2c1349abb2B8d2d359f2A3e92bA361 (ethereum)
+[2025-10-20T23:40:57.885Z] Syncing wallet: 0xdcA13eB93D2c1349abb2B8d2d359f2A3e92bA361 (ethereum)
+[2025-10-20T23:40:58.472Z] === PRIVY SYNC START ===
+[2025-10-20T23:40:58.475Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-20T23:40:58.479Z] Step 1: Verifying token...
+[2025-10-20T23:40:58.841Z] ✅ Token verified. User ID: did:privy:cmgzqytaa00zujy0c838kprwc
+[2025-10-20T23:40:58.844Z] Step 2: Getting user details...
+[2025-10-20T23:40:59.183Z] ✅ Synced 2 wallets for user: ouinch4all123@gmail.com
+[2025-10-20T23:40:59.185Z] Step 6: Creating Aptos wallet...
+[2025-10-20T23:40:59.708Z] ✅ Aptos wallet created/found: 0x7e8cf253954a39edc7717dcdd1a4abcabcd157619dbf8ed5412493edd962d07d
+[2025-10-20T23:41:00.265Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-20T23:41:00.266Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-20T23:41:00.267Z] === PRIVY SYNC END ===
+
+[2025-10-20T23:41:05.058Z] ✅ User details received
+[2025-10-20T23:41:05.072Z] Step 3: Getting user wallets...
+[2025-10-20T23:41:08.191Z] ✅ Wallets received: 2 wallets
+[2025-10-20T23:41:08.198Z] Resolved email: rolleycop@gmail.com
+[2025-10-20T23:41:08.200Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-20T23:41:09.606Z] User found in DB: true
+[2025-10-20T23:41:10.483Z] Step 5: Syncing wallets...
+[2025-10-20T23:41:10.484Z] Found 2 wallets from Privy API
+[2025-10-20T23:41:10.485Z] Syncing wallet: 0x8877c528738613565097b7F837fA14eE045FBD0B (ethereum)
+[2025-10-20T23:41:11.591Z] Syncing wallet: 0x8877c528738613565097b7F837fA14eE045FBD0B (ethereum)
+[2025-10-20T23:41:12.698Z] ✅ Synced 2 wallets for user: rolleycop@gmail.com
+[2025-10-20T23:41:12.704Z] Step 6: Creating Aptos wallet...
+[2025-10-20T23:41:13.462Z] ✅ Aptos wallet created/found: 0xbb0dc02a70e21605e34cfcb793877b2959a8e7fe84f666a6ac4e64af18fa45ae
+[2025-10-20T23:41:15.119Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-20T23:41:15.124Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-20T23:41:15.125Z] === PRIVY SYNC END ===
+
+[2025-10-21T09:50:31.255Z] === PRIVY SYNC START ===
+[2025-10-21T09:50:31.260Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-21T09:50:31.262Z] Step 1: Verifying token...
+[2025-10-21T09:50:32.922Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-21T09:50:32.929Z] Step 2: Getting user details...
+[2025-10-21T09:50:33.407Z] ✅ User details received
+[2025-10-21T09:50:33.409Z] Step 3: Getting user wallets...
+[2025-10-21T09:50:33.768Z] ✅ Wallets received: 2 wallets
+[2025-10-21T09:50:33.775Z] Resolved email: ctomarketplace2025@gmail.com
+[2025-10-21T09:50:33.787Z] Step 4: Checking if user exists in DB: ctomarketplace2025@gmail.com
+[2025-10-21T09:50:33.844Z] User found in DB: false
+[2025-10-21T09:50:34.460Z] Step 5: Syncing wallets...
+[2025-10-21T09:50:34.461Z] Found 2 wallets from Privy API
+[2025-10-21T09:50:34.462Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T09:50:34.592Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T09:50:34.721Z] ✅ Synced 2 wallets for user: ctomarketplace2025@gmail.com
+[2025-10-21T09:50:34.723Z] Step 6: Creating Aptos wallet...
+[2025-10-21T09:50:35.073Z] ✅ Aptos wallet created/found: 0xa9b7eb4e6f9001947b40ce4785159b597c8fe71daa9741551770fcd484cc9c24
+[2025-10-21T09:50:35.157Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-21T09:50:35.159Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-21T09:50:35.160Z] === PRIVY SYNC END ===
+
+[2025-10-21T10:23:19.627Z] === PRIVY SYNC START ===
+[2025-10-21T10:23:19.635Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-21T10:23:19.639Z] Step 1: Verifying token...
+[2025-10-21T10:23:22.836Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-21T10:23:23.008Z] Step 2: Getting user details...
+[2025-10-21T10:23:23.863Z] ✅ User details received
+[2025-10-21T10:23:23.911Z] Step 3: Getting user wallets...
+[2025-10-21T10:23:24.759Z] ✅ Wallets received: 2 wallets
+[2025-10-21T10:23:24.766Z] Resolved email: ctomarketplace2025@gmail.com
+[2025-10-21T10:23:24.813Z] Step 4: Checking if user exists in DB: ctomarketplace2025@gmail.com
+[2025-10-21T10:23:25.000Z] User found in DB: true
+[2025-10-21T10:23:25.226Z] Step 5: Syncing wallets...
+[2025-10-21T10:23:25.227Z] Found 2 wallets from Privy API
+[2025-10-21T10:23:25.227Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T10:23:25.523Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T10:23:25.730Z] ✅ Synced 2 wallets for user: ctomarketplace2025@gmail.com
+[2025-10-21T10:23:25.734Z] Step 6: Creating Aptos wallet...
+[2025-10-21T10:23:25.816Z] ✅ Aptos wallet created/found: 0xa9b7eb4e6f9001947b40ce4785159b597c8fe71daa9741551770fcd484cc9c24
+[2025-10-21T10:23:25.915Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-21T10:23:25.916Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-21T10:23:25.923Z] === PRIVY SYNC END ===
+
+[2025-10-21T10:33:27.503Z] === PRIVY SYNC START ===
+[2025-10-21T10:33:27.511Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-21T10:33:27.525Z] Step 1: Verifying token...
+[2025-10-21T10:33:30.321Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-21T10:33:30.329Z] Step 2: Getting user details...
+[2025-10-21T10:33:31.636Z] ✅ User details received
+[2025-10-21T10:33:31.640Z] Step 3: Getting user wallets...
+[2025-10-21T10:33:32.556Z] ✅ Wallets received: 2 wallets
+[2025-10-21T10:33:32.563Z] Resolved email: ctomarketplace2025@gmail.com
+[2025-10-21T10:33:32.566Z] Step 4: Checking if user exists in DB: ctomarketplace2025@gmail.com
+[2025-10-21T10:33:32.727Z] User found in DB: true
+[2025-10-21T10:33:32.938Z] Step 5: Syncing wallets...
+[2025-10-21T10:33:32.940Z] Found 2 wallets from Privy API
+[2025-10-21T10:33:32.943Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T10:33:33.318Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T10:33:33.489Z] ✅ Synced 2 wallets for user: ctomarketplace2025@gmail.com
+[2025-10-21T10:33:33.499Z] Step 6: Creating Aptos wallet...
+[2025-10-21T10:33:33.820Z] ✅ Aptos wallet created/found: 0xa9b7eb4e6f9001947b40ce4785159b597c8fe71daa9741551770fcd484cc9c24
+[2025-10-21T10:33:34.081Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-21T10:33:34.083Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-21T10:33:34.085Z] === PRIVY SYNC END ===
+
+[2025-10-21T10:58:55.426Z] === PRIVY SYNC START ===
+[2025-10-21T10:58:55.442Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-21T10:58:55.444Z] Step 1: Verifying token...
+[2025-10-21T10:59:03.872Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-21T10:59:03.881Z] Step 2: Getting user details...
+[2025-10-21T10:59:06.336Z] ✅ User details received
+[2025-10-21T10:59:06.345Z] Step 3: Getting user wallets...
+[2025-10-21T10:59:10.417Z] ✅ Wallets received: 2 wallets
+[2025-10-21T10:59:10.430Z] Resolved email: ctomarketplace2025@gmail.com
+[2025-10-21T10:59:10.436Z] Step 4: Checking if user exists in DB: ctomarketplace2025@gmail.com
+[2025-10-21T10:59:11.483Z] User found in DB: true
+[2025-10-21T10:59:12.776Z] Step 5: Syncing wallets...
+[2025-10-21T10:59:12.777Z] Found 2 wallets from Privy API
+[2025-10-21T10:59:12.778Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T10:59:15.491Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T10:59:17.029Z] ✅ Synced 2 wallets for user: ctomarketplace2025@gmail.com
+[2025-10-21T10:59:17.041Z] Step 6: Creating Aptos wallet...
+[2025-10-21T10:59:17.817Z] ✅ Aptos wallet created/found: 0xa9b7eb4e6f9001947b40ce4785159b597c8fe71daa9741551770fcd484cc9c24
+[2025-10-21T10:59:18.515Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-21T10:59:18.520Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-21T10:59:18.522Z] === PRIVY SYNC END ===
+
+[2025-10-21T11:13:05.717Z] === PRIVY SYNC START ===
+[2025-10-21T11:13:05.726Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-21T11:13:05.731Z] Step 1: Verifying token...
+[2025-10-21T11:13:08.453Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-21T11:13:08.456Z] Step 2: Getting user details...
+[2025-10-21T11:13:09.106Z] ✅ User details received
+[2025-10-21T11:13:09.111Z] Step 3: Getting user wallets...
+[2025-10-21T11:13:09.861Z] ✅ Wallets received: 2 wallets
+[2025-10-21T11:13:09.864Z] Resolved email: ctomarketplace2025@gmail.com
+[2025-10-21T11:13:09.872Z] Step 4: Checking if user exists in DB: ctomarketplace2025@gmail.com
+[2025-10-21T11:13:10.130Z] User found in DB: true
+[2025-10-21T11:13:10.358Z] Step 5: Syncing wallets...
+[2025-10-21T11:13:10.359Z] Found 2 wallets from Privy API
+[2025-10-21T11:13:10.361Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T11:13:10.731Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T11:13:11.089Z] ✅ Synced 2 wallets for user: ctomarketplace2025@gmail.com
+[2025-10-21T11:13:11.093Z] Step 6: Creating Aptos wallet...
+[2025-10-21T11:13:11.271Z] ✅ Aptos wallet created/found: 0xa9b7eb4e6f9001947b40ce4785159b597c8fe71daa9741551770fcd484cc9c24
+[2025-10-21T11:13:11.429Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-21T11:13:11.432Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-21T11:13:11.434Z] === PRIVY SYNC END ===
+
+[2025-10-21T11:36:09.052Z] === PRIVY SYNC START ===
+[2025-10-21T11:36:09.057Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-21T11:36:09.063Z] Step 1: Verifying token...
+[2025-10-21T11:36:09.917Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-21T11:36:09.920Z] Step 2: Getting user details...
+[2025-10-21T11:36:10.269Z] ✅ User details received
+[2025-10-21T11:36:10.272Z] Step 3: Getting user wallets...
+[2025-10-21T11:36:10.635Z] ✅ Wallets received: 2 wallets
+[2025-10-21T11:36:10.638Z] Resolved email: ctomarketplace2025@gmail.com
+[2025-10-21T11:36:10.641Z] Step 4: Checking if user exists in DB: ctomarketplace2025@gmail.com
+[2025-10-21T11:36:10.672Z] User found in DB: true
+[2025-10-21T11:36:10.699Z] Step 5: Syncing wallets...
+[2025-10-21T11:36:10.700Z] Found 2 wallets from Privy API
+[2025-10-21T11:36:10.701Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T11:36:10.731Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T11:36:10.774Z] ✅ Synced 2 wallets for user: ctomarketplace2025@gmail.com
+[2025-10-21T11:36:10.784Z] Step 6: Creating Aptos wallet...
+[2025-10-21T11:36:10.818Z] ✅ Aptos wallet created/found: 0xa9b7eb4e6f9001947b40ce4785159b597c8fe71daa9741551770fcd484cc9c24
+[2025-10-21T11:36:10.831Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-21T11:36:10.832Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-21T11:36:10.833Z] === PRIVY SYNC END ===
+
+[2025-10-21T18:32:26.008Z] === PRIVY SYNC START ===
+[2025-10-21T18:32:26.019Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-21T18:32:26.021Z] Step 1: Verifying token...
+[2025-10-21T18:32:27.800Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-21T18:32:27.804Z] Step 2: Getting user details...
+[2025-10-21T18:32:28.190Z] ✅ User details received
+[2025-10-21T18:32:28.192Z] Step 3: Getting user wallets...
+[2025-10-21T18:32:28.953Z] ✅ Wallets received: 2 wallets
+[2025-10-21T18:32:28.955Z] Resolved email: ctomarketplace2025@gmail.com
+[2025-10-21T18:32:28.958Z] Step 4: Checking if user exists in DB: ctomarketplace2025@gmail.com
+[2025-10-21T18:32:28.990Z] User found in DB: true
+[2025-10-21T18:32:29.044Z] Step 5: Syncing wallets...
+[2025-10-21T18:32:29.049Z] Found 2 wallets from Privy API
+[2025-10-21T18:32:29.050Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T18:32:29.245Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-21T18:32:29.309Z] ✅ Synced 2 wallets for user: ctomarketplace2025@gmail.com
+[2025-10-21T18:32:29.311Z] Step 6: Creating Aptos wallet...
+[2025-10-21T18:32:29.355Z] ✅ Aptos wallet created/found: 0xa9b7eb4e6f9001947b40ce4785159b597c8fe71daa9741551770fcd484cc9c24
+[2025-10-21T18:32:29.383Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-21T18:32:29.384Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-21T18:32:29.385Z] === PRIVY SYNC END ===
+
+[2025-10-21T18:44:51.501Z] === PRIVY SYNC START ===
+[2025-10-21T18:44:51.513Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-21T18:44:51.517Z] Step 1: Verifying token...
+[2025-10-21T18:44:52.664Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-21T18:44:52.668Z] Step 2: Getting user details...
+[2025-10-21T18:45:25.180Z] === PRIVY SYNC FAILED ===
+[2025-10-21T18:45:25.231Z] Error type: Error
+[2025-10-21T18:45:25.234Z] Error message: getUserById timeout
+[2025-10-21T18:45:25.541Z] Error stack: Error: getUserById timeout
+    at Timeout._onTimeout (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:105:60)
+    at listOnTimeout (node:internal/timers:581:17)
+    at process.processTimers (node:internal/timers:519:7)

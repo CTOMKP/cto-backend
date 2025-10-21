@@ -15,6 +15,7 @@ import { AssetsModule } from './assets/assets.module';
 import { DuneModule } from './dune/dune.module';
 import { PaymentModule } from './payment/payment.module';
 import { AdminModule } from './admin/admin.module';
+import { StatsModule } from './stats/stats.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { AdminModule } from './admin/admin.module';
     DuneModule,
     PaymentModule,
     AdminModule,
+    StatsModule,
   ],
   controllers: [HealthController],
   providers: [],
