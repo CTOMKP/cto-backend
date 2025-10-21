@@ -30,6 +30,7 @@
     "test:security": "node test/apiTest.js --security-only"
   },
   "dependencies": {
+    "@aptos-labs/ts-sdk": "^1.28.0",
     "@aws-sdk/client-s3": "^3.614.0",
     "@aws-sdk/s3-request-presigner": "^3.614.0",
     "@nestjs/axios": "^4.0.1",
