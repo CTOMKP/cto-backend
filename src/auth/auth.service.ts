@@ -102,6 +102,14 @@ export class AuthService {
     return this.prisma.user.findUnique({ where: { privyUserId } });
   }
 
+  // Get user wallets
+  async getUserWallets(userId: number) {
+    return this.prisma.wallet.findMany({ 
+      where: { userId },
+      orderBy: { isPrimary: 'desc' }
+    });
+  }
+
   // Issue access and refresh tokens
   async login(user: any) {
     const payload = { email: user.email, sub: user.id, role: user.role };
