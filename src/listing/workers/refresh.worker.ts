@@ -38,33 +38,36 @@ export class RefreshWorker {
     this.run();
   }
 
-  // Cleanup old records to keep database lean (run every hour)
-  @Cron(CronExpression.EVERY_HOUR)
+  // Cleanup old records to keep database lean (run every 6 hours to reduce Railway usage)
+  @Cron('0 */6 * * *') // Every 6 hours instead of every hour
   async cleanupOldRecords() {
     try {
       this.logger.log('🧹 Starting cleanup of old records...');
       
+      // Use the repository's public methods instead of accessing private prisma
+      const client = (this.repo as any)['prisma'] as any;
+      
       // Keep only the latest 100 listings
-      const listingsToKeep = await this.repo.prisma.listing.findMany({
+      const listingsToKeep = await client.listing.findMany({
         orderBy: { updatedAt: 'desc' },
         take: 100,
         select: { id: true }
       });
       
       const listingIds = listingsToKeep.map(l => l.id);
-      const deletedListings = await this.repo.prisma.listing.deleteMany({
+      const deletedListings = await client.listing.deleteMany({
         where: { id: { notIn: listingIds } }
       });
       
       // Keep only the latest 100 scan results
-      const scansToKeep = await this.repo.prisma.scanResult.findMany({
+      const scansToKeep = await client.scanResult.findMany({
         orderBy: { createdAt: 'desc' },
         take: 100,
         select: { id: true }
       });
       
       const scanIds = scansToKeep.map(s => s.id);
-      const deletedScans = await this.repo.prisma.scanResult.deleteMany({
+      const deletedScans = await client.scanResult.deleteMany({
         where: { id: { notIn: scanIds } }
       });
       
@@ -75,8 +78,8 @@ export class RefreshWorker {
   }
 
   // Pull trending/new SOL pairs (approx) from DexScreener using /dex/tokens & /dex/search endpoints
-  // Run every 5 seconds for more frequent updates
-  @Cron('*/5 * * * * *')
+  // Run every 30 minutes to reduce Railway usage
+  @Cron('0 */30 * * * *') // Every 30 minutes instead of every 5 seconds
   async scheduledFetchFeed() {
     const started = Date.now();
     let apiCalls = 0;
@@ -890,7 +893,7 @@ export class RefreshWorker {
               }
             }
           } catch (error) {
-            console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error.message}`);
+            console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
         
@@ -1001,8 +1004,8 @@ export class RefreshWorker {
     }
   }
 
-  // Phase 1 live updating: refresh all listings every 5 minutes using scan enrichment
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  // Phase 1 live updating: refresh all listings every 60 minutes using scan enrichment
+  @Cron('0 */60 * * * *') // Every 60 minutes instead of 5 minutes
   async scheduledRefreshAll() {
     const client = (this.repo as any)['prisma'] as any;
     const rows: { contractAddress: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' }[] = await client.listing.findMany({ select: { contractAddress: true, chain: true } });

@@ -374,3 +374,1121 @@
     at Timeout._onTimeout (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:105:60)
     at listOnTimeout (node:internal/timers:581:17)
     at process.processTimers (node:internal/timers:519:7)
+[2025-10-22T12:56:39.291Z] === PRIVY SYNC START ===
+[2025-10-22T12:56:39.299Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T12:56:39.301Z] Step 1: Verifying token...
+[2025-10-22T12:56:39.341Z] === PRIVY SYNC START ===
+[2025-10-22T12:56:39.348Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T12:56:39.350Z] Step 1: Verifying token...
+[2025-10-22T12:57:09.676Z] === PRIVY SYNC FAILED ===
+[2025-10-22T12:57:09.677Z] Error type: Error
+[2025-10-22T12:57:09.681Z] Error message: Token verification timeout
+[2025-10-22T12:57:09.688Z] Error stack: Error: Token verification timeout
+    at Timeout._onTimeout (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:94:60)
+    at listOnTimeout (node:internal/timers:581:17)
+    at process.processTimers (node:internal/timers:519:7)
+[2025-10-22T12:57:09.698Z] === PRIVY SYNC FAILED ===
+[2025-10-22T12:57:09.699Z] Error type: Error
+[2025-10-22T12:57:09.700Z] Error message: Token verification timeout
+[2025-10-22T12:57:09.703Z] Error stack: Error: Token verification timeout
+    at Timeout._onTimeout (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:94:60)
+    at listOnTimeout (node:internal/timers:581:17)
+    at process.processTimers (node:internal/timers:519:7)
+[2025-10-22T12:57:43.676Z] === PRIVY SYNC START ===
+[2025-10-22T12:57:43.678Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T12:57:43.683Z] Step 1: Verifying token...
+[2025-10-22T12:57:53.484Z] ✅ Token verified. User ID: did:privy:cmgzqzxlf0029l80cs7w2pmkp
+[2025-10-22T12:57:53.488Z] Step 2: Getting user details...
+[2025-10-22T12:57:58.556Z] ✅ User details received
+[2025-10-22T12:57:58.558Z] Step 3: Getting user wallets...
+[2025-10-22T12:58:06.338Z] ✅ Wallets received: 2 wallets
+[2025-10-22T12:58:06.345Z] Resolved email: ctomarketplace2025@gmail.com
+[2025-10-22T12:58:06.346Z] Step 4: Checking if user exists in DB: ctomarketplace2025@gmail.com
+[2025-10-22T12:58:07.598Z] User found in DB: true
+[2025-10-22T12:58:09.035Z] Step 5: Syncing wallets...
+[2025-10-22T12:58:09.036Z] Found 2 wallets from Privy API
+[2025-10-22T12:58:09.037Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-22T12:58:12.677Z] Syncing wallet: 0x10EcCf3f8d49b89E83789729D65Ca09cD832B53D (ethereum)
+[2025-10-22T12:58:15.576Z] ✅ Synced 2 wallets for user: ctomarketplace2025@gmail.com
+[2025-10-22T12:58:15.578Z] Step 6: Creating Aptos wallet...
+[2025-10-22T12:58:17.427Z] ✅ Aptos wallet created/found: 0xa9b7eb4e6f9001947b40ce4785159b597c8fe71daa9741551770fcd484cc9c24
+[2025-10-22T12:58:19.792Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-22T12:58:19.797Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-22T12:58:19.799Z] === PRIVY SYNC END ===
+
+[2025-10-22T13:59:56.466Z] === PRIVY SYNC START ===
+[2025-10-22T13:59:56.610Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T13:59:56.732Z] Step 1: Verifying token...
+[2025-10-22T14:00:13.845Z] === PRIVY SYNC FAILED ===
+[2025-10-22T14:00:13.867Z] Error type: UnauthorizedException
+[2025-10-22T14:00:13.953Z] Error message: Invalid Privy authentication token
+[2025-10-22T14:00:14.045Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:92:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T14:01:45.887Z] === PRIVY SYNC START ===
+[2025-10-22T14:01:45.981Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T14:01:46.047Z] Step 1: Verifying token...
+[2025-10-22T14:02:17.662Z] === PRIVY SYNC FAILED ===
+[2025-10-22T14:02:17.792Z] Error type: UnauthorizedException
+[2025-10-22T14:02:17.860Z] Error message: Invalid Privy authentication token
+[2025-10-22T14:02:17.972Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:92:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T14:16:51.234Z] === PRIVY SYNC START ===
+[2025-10-22T14:16:51.343Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T14:16:51.395Z] Step 1: Verifying token...
+[2025-10-22T14:17:15.036Z] === PRIVY SYNC FAILED ===
+[2025-10-22T14:17:15.252Z] Error type: UnauthorizedException
+[2025-10-22T14:17:15.737Z] Error message: Invalid Privy authentication token
+[2025-10-22T14:17:16.469Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:92:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T14:52:07.570Z] === PRIVY SYNC START ===
+[2025-10-22T14:52:07.725Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T14:52:07.849Z] Step 1: Verifying token...
+[2025-10-22T14:52:07.971Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T14:52:19.236Z] === PRIVY SYNC FAILED ===
+[2025-10-22T14:52:19.257Z] Error type: UnauthorizedException
+[2025-10-22T14:52:19.293Z] Error message: Invalid Privy authentication token
+[2025-10-22T14:52:19.368Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T14:52:45.367Z] === PRIVY SYNC START ===
+[2025-10-22T14:52:45.518Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T14:52:45.720Z] Step 1: Verifying token...
+[2025-10-22T14:52:45.838Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T14:52:58.196Z] === PRIVY SYNC FAILED ===
+[2025-10-22T14:52:58.267Z] Error type: UnauthorizedException
+[2025-10-22T14:52:58.387Z] Error message: Invalid Privy authentication token
+[2025-10-22T14:52:58.476Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T14:53:25.577Z] === PRIVY SYNC START ===
+[2025-10-22T14:53:25.715Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T14:53:26.014Z] Step 1: Verifying token...
+[2025-10-22T14:53:26.163Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T14:53:49.538Z] === PRIVY SYNC FAILED ===
+[2025-10-22T14:53:49.774Z] Error type: UnauthorizedException
+[2025-10-22T14:53:49.942Z] Error message: Invalid Privy authentication token
+[2025-10-22T14:53:50.220Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T14:59:09.342Z] === PRIVY SYNC START ===
+[2025-10-22T14:59:09.535Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T14:59:09.674Z] Step 1: Verifying token...
+[2025-10-22T14:59:09.840Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T14:59:20.279Z] === PRIVY SYNC FAILED ===
+[2025-10-22T14:59:20.338Z] Error type: UnauthorizedException
+[2025-10-22T14:59:20.445Z] Error message: Invalid Privy authentication token
+[2025-10-22T14:59:20.554Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at process.processTimers (node:internal/timers:516:9)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T14:59:27.857Z] === PRIVY SYNC START ===
+[2025-10-22T14:59:27.944Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T14:59:28.094Z] Step 1: Verifying token...
+[2025-10-22T14:59:28.287Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T14:59:41.851Z] === PRIVY SYNC FAILED ===
+[2025-10-22T14:59:42.013Z] Error type: UnauthorizedException
+[2025-10-22T14:59:42.166Z] Error message: Invalid Privy authentication token
+[2025-10-22T14:59:42.278Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T14:59:59.757Z] === PRIVY SYNC START ===
+[2025-10-22T14:59:59.869Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T14:59:59.919Z] Step 1: Verifying token...
+[2025-10-22T15:00:00.017Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:00:13.368Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:00:13.446Z] Error type: UnauthorizedException
+[2025-10-22T15:00:13.533Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:00:13.584Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:01:54.276Z] === PRIVY SYNC START ===
+[2025-10-22T15:01:54.352Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:01:54.407Z] Step 1: Verifying token...
+[2025-10-22T15:01:54.509Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:01:54.621Z] === PRIVY SYNC START ===
+[2025-10-22T15:01:54.716Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:01:54.794Z] Step 1: Verifying token...
+[2025-10-22T15:01:54.876Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:02:05.763Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:02:05.878Z] Error type: UnauthorizedException
+[2025-10-22T15:02:05.909Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:02:05.972Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:02:06.286Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:02:06.355Z] Error type: UnauthorizedException
+[2025-10-22T15:02:06.405Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:02:06.461Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:03:40.289Z] === PRIVY SYNC START ===
+[2025-10-22T15:03:40.578Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:03:40.724Z] Step 1: Verifying token...
+[2025-10-22T15:03:40.793Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:03:40.922Z] === PRIVY SYNC START ===
+[2025-10-22T15:03:40.970Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:03:41.086Z] Step 1: Verifying token...
+[2025-10-22T15:03:41.128Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:03:51.612Z] === PRIVY SYNC START ===
+[2025-10-22T15:03:51.693Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:03:51.775Z] Step 1: Verifying token...
+[2025-10-22T15:03:51.819Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:03:52.724Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:03:52.822Z] Error type: UnauthorizedException
+[2025-10-22T15:03:52.914Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:03:52.978Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:03:53.373Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:03:53.414Z] Error type: UnauthorizedException
+[2025-10-22T15:03:53.528Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:03:53.623Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:04:05.667Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:04:05.731Z] Error type: UnauthorizedException
+[2025-10-22T15:04:05.785Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:04:05.839Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:04:18.182Z] === PRIVY SYNC START ===
+[2025-10-22T15:04:18.267Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:04:18.304Z] Step 1: Verifying token...
+[2025-10-22T15:04:18.381Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:04:34.473Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:04:34.519Z] Error type: UnauthorizedException
+[2025-10-22T15:04:34.592Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:04:34.723Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:04:57.138Z] === PRIVY SYNC START ===
+[2025-10-22T15:04:57.233Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:04:57.351Z] Step 1: Verifying token...
+[2025-10-22T15:04:57.422Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:05:12.484Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:05:12.547Z] Error type: UnauthorizedException
+[2025-10-22T15:05:12.616Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:05:12.670Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:06:27.738Z] === PRIVY SYNC START ===
+[2025-10-22T15:06:27.824Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:06:27.876Z] Step 1: Verifying token...
+[2025-10-22T15:06:28.029Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:06:28.799Z] === PRIVY SYNC START ===
+[2025-10-22T15:06:28.871Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:06:28.902Z] Step 1: Verifying token...
+[2025-10-22T15:06:28.961Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:06:45.000Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:06:45.057Z] Error type: UnauthorizedException
+[2025-10-22T15:06:45.129Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:06:45.249Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:06:45.707Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:06:45.781Z] Error type: UnauthorizedException
+[2025-10-22T15:06:45.822Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:06:45.896Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:07:03.311Z] === PRIVY SYNC START ===
+[2025-10-22T15:07:03.422Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:07:03.566Z] Step 1: Verifying token...
+[2025-10-22T15:07:03.692Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:07:03.798Z] === PRIVY SYNC START ===
+[2025-10-22T15:07:03.842Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:07:03.945Z] Step 1: Verifying token...
+[2025-10-22T15:07:04.096Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:07:15.242Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:07:15.318Z] Error type: UnauthorizedException
+[2025-10-22T15:07:15.354Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:07:15.477Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:07:15.884Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:07:15.969Z] Error type: UnauthorizedException
+[2025-10-22T15:07:16.066Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:07:16.146Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:07:24.347Z] === PRIVY SYNC START ===
+[2025-10-22T15:07:24.423Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:07:24.555Z] Step 1: Verifying token...
+[2025-10-22T15:07:24.620Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:07:34.917Z] === PRIVY SYNC START ===
+[2025-10-22T15:07:35.079Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:07:35.150Z] Step 1: Verifying token...
+[2025-10-22T15:07:35.251Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:07:53.795Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:07:54.182Z] Error type: UnauthorizedException
+[2025-10-22T15:07:54.477Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:07:54.739Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:08:09.834Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:08:10.126Z] Error type: UnauthorizedException
+[2025-10-22T15:08:10.428Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:08:10.763Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:25:45.496Z] === PRIVY SYNC START ===
+[2025-10-22T15:25:45.559Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:25:45.612Z] Step 1: Verifying token...
+[2025-10-22T15:25:45.694Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:26:03.343Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:26:03.390Z] Error type: UnauthorizedException
+[2025-10-22T15:26:03.508Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:26:03.602Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:26:14.613Z] === PRIVY SYNC START ===
+[2025-10-22T15:26:14.677Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:26:14.748Z] Step 1: Verifying token...
+[2025-10-22T15:26:14.802Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:26:27.824Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:26:27.914Z] Error type: UnauthorizedException
+[2025-10-22T15:26:28.006Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:26:28.147Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:26:36.125Z] === PRIVY SYNC START ===
+[2025-10-22T15:26:36.159Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:26:36.305Z] Step 1: Verifying token...
+[2025-10-22T15:26:36.473Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:26:52.246Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:26:52.313Z] Error type: UnauthorizedException
+[2025-10-22T15:26:52.413Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:26:52.474Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:27:09.284Z] === PRIVY SYNC START ===
+[2025-10-22T15:27:09.718Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:27:09.960Z] Step 1: Verifying token...
+[2025-10-22T15:27:10.313Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:27:29.439Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:27:29.488Z] Error type: UnauthorizedException
+[2025-10-22T15:27:29.534Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:27:29.588Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:27:37.631Z] === PRIVY SYNC START ===
+[2025-10-22T15:27:37.718Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:27:37.807Z] Step 1: Verifying token...
+[2025-10-22T15:27:37.892Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:27:54.543Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:27:54.582Z] Error type: UnauthorizedException
+[2025-10-22T15:27:54.618Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:27:54.712Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T15:28:09.024Z] === PRIVY SYNC START ===
+[2025-10-22T15:28:09.311Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T15:28:09.441Z] Step 1: Verifying token...
+[2025-10-22T15:28:09.570Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T15:28:33.351Z] === PRIVY SYNC FAILED ===
+[2025-10-22T15:28:33.430Z] Error type: UnauthorizedException
+[2025-10-22T15:28:33.499Z] Error message: Invalid Privy authentication token
+[2025-10-22T15:28:33.777Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at runNextTicks (node:internal/process/task_queues:64:3)
+    at process.processTimers (node:internal/timers:516:9)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:40:10.737Z] === PRIVY SYNC START ===
+[2025-10-22T16:40:10.760Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:40:10.785Z] Step 1: Verifying token...
+[2025-10-22T16:40:10.902Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:40:36.531Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:40:36.571Z] Error type: UnauthorizedException
+[2025-10-22T16:40:36.627Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:40:36.728Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:40:50.196Z] === PRIVY SYNC START ===
+[2025-10-22T16:40:50.285Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:40:50.365Z] Step 1: Verifying token...
+[2025-10-22T16:40:50.419Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:41:04.525Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:41:04.584Z] Error type: UnauthorizedException
+[2025-10-22T16:41:04.636Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:41:04.739Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:41:14.797Z] === PRIVY SYNC START ===
+[2025-10-22T16:41:14.870Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:41:14.939Z] Step 1: Verifying token...
+[2025-10-22T16:41:14.997Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:41:35.447Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:41:35.493Z] Error type: UnauthorizedException
+[2025-10-22T16:41:35.541Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:41:35.643Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:41:48.308Z] === PRIVY SYNC START ===
+[2025-10-22T16:41:48.389Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:41:48.582Z] Step 1: Verifying token...
+[2025-10-22T16:41:48.748Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:42:05.152Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:42:05.211Z] Error type: UnauthorizedException
+[2025-10-22T16:42:05.296Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:42:05.387Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:42:18.587Z] === PRIVY SYNC START ===
+[2025-10-22T16:42:18.639Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:42:18.715Z] Step 1: Verifying token...
+[2025-10-22T16:42:18.786Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:42:38.181Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:42:38.247Z] Error type: UnauthorizedException
+[2025-10-22T16:42:38.345Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:42:38.444Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:43:00.941Z] === PRIVY SYNC START ===
+[2025-10-22T16:43:01.009Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:43:01.087Z] Step 1: Verifying token...
+[2025-10-22T16:43:01.192Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:43:15.994Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:43:16.024Z] Error type: UnauthorizedException
+[2025-10-22T16:43:16.186Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:43:16.308Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:44:59.540Z] === PRIVY SYNC START ===
+[2025-10-22T16:44:59.631Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:44:59.701Z] Step 1: Verifying token...
+[2025-10-22T16:44:59.768Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:44:59.872Z] === PRIVY SYNC START ===
+[2025-10-22T16:44:59.974Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:45:00.047Z] Step 1: Verifying token...
+[2025-10-22T16:45:00.176Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:45:01.752Z] === PRIVY SYNC START ===
+[2025-10-22T16:45:01.802Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:45:01.863Z] Step 1: Verifying token...
+[2025-10-22T16:45:01.988Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:45:02.103Z] === PRIVY SYNC START ===
+[2025-10-22T16:45:02.184Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:45:02.288Z] Step 1: Verifying token...
+[2025-10-22T16:45:02.385Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:45:17.358Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:45:17.399Z] Error type: UnauthorizedException
+[2025-10-22T16:45:17.401Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:45:17.459Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at runNextTicks (node:internal/process/task_queues:64:3)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:45:17.807Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:45:17.905Z] Error type: UnauthorizedException
+[2025-10-22T16:45:18.000Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:45:18.155Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at runNextTicks (node:internal/process/task_queues:64:3)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:45:18.498Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:45:18.585Z] Error type: UnauthorizedException
+[2025-10-22T16:45:18.660Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:45:18.784Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at runNextTicks (node:internal/process/task_queues:64:3)
+    at process.processTimers (node:internal/timers:516:9)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:45:27.113Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:45:27.154Z] Error type: UnauthorizedException
+[2025-10-22T16:45:27.271Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:45:27.356Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at runNextTicks (node:internal/process/task_queues:64:3)
+    at process.processTimers (node:internal/timers:516:9)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:45:35.941Z] === PRIVY SYNC START ===
+[2025-10-22T16:45:36.009Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:45:36.087Z] Step 1: Verifying token...
+[2025-10-22T16:45:36.150Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:45:36.239Z] === PRIVY SYNC START ===
+[2025-10-22T16:45:36.317Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:45:36.389Z] Step 1: Verifying token...
+[2025-10-22T16:45:36.465Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:46:00.263Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:46:00.338Z] Error type: UnauthorizedException
+[2025-10-22T16:46:00.387Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:46:00.467Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:46:00.938Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:46:01.190Z] Error type: UnauthorizedException
+[2025-10-22T16:46:01.444Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:46:01.617Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:46:11.298Z] === PRIVY SYNC START ===
+[2025-10-22T16:46:11.406Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:46:11.512Z] Step 1: Verifying token...
+[2025-10-22T16:46:11.562Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:46:11.657Z] === PRIVY SYNC START ===
+[2025-10-22T16:46:11.765Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:46:11.897Z] Step 1: Verifying token...
+[2025-10-22T16:46:12.052Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:46:34.184Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:46:34.205Z] Error type: UnauthorizedException
+[2025-10-22T16:46:34.257Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:46:34.341Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:46:34.687Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:46:34.784Z] Error type: UnauthorizedException
+[2025-10-22T16:46:34.858Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:46:34.916Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:49:02.147Z] === PRIVY SYNC START ===
+[2025-10-22T16:49:02.332Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:49:02.467Z] Step 1: Verifying token...
+[2025-10-22T16:49:02.617Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:49:20.534Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:49:20.641Z] Error type: UnauthorizedException
+[2025-10-22T16:49:20.693Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:49:20.809Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:49:34.370Z] === PRIVY SYNC START ===
+[2025-10-22T16:49:34.453Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:49:34.565Z] Step 1: Verifying token...
+[2025-10-22T16:49:34.659Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:49:45.513Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:49:45.637Z] Error type: UnauthorizedException
+[2025-10-22T16:49:45.691Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:49:45.769Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:49:46.845Z] === PRIVY SYNC START ===
+[2025-10-22T16:49:46.925Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:49:47.023Z] Step 1: Verifying token...
+[2025-10-22T16:49:47.209Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:50:08.898Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:50:08.900Z] Error type: UnauthorizedException
+[2025-10-22T16:50:08.902Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:50:08.907Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:50:34.632Z] === PRIVY SYNC START ===
+[2025-10-22T16:50:34.813Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:50:35.022Z] Step 1: Verifying token...
+[2025-10-22T16:50:35.328Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:50:51.257Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:50:51.296Z] Error type: UnauthorizedException
+[2025-10-22T16:50:51.329Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:50:51.363Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:50:54.360Z] === PRIVY SYNC START ===
+[2025-10-22T16:50:54.460Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:50:54.520Z] Step 1: Verifying token...
+[2025-10-22T16:50:54.590Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:51:12.742Z] === PRIVY SYNC START ===
+[2025-10-22T16:51:12.763Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:51:12.784Z] Step 1: Verifying token...
+[2025-10-22T16:51:12.799Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:51:23.110Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:51:23.114Z] Error type: UnauthorizedException
+[2025-10-22T16:51:23.117Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:51:23.125Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:51:25.238Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:51:25.244Z] Error type: Error
+[2025-10-22T16:51:25.253Z] Error message: Token verification timeout
+[2025-10-22T16:51:25.259Z] Error stack: Error: Token verification timeout
+    at Timeout._onTimeout (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:102:60)
+    at listOnTimeout (node:internal/timers:581:17)
+    at process.processTimers (node:internal/timers:519:7)
+[2025-10-22T16:52:19.805Z] === PRIVY SYNC START ===
+[2025-10-22T16:52:19.843Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:52:19.867Z] Step 1: Verifying token...
+[2025-10-22T16:52:19.905Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:52:30.278Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:52:30.400Z] Error type: UnauthorizedException
+[2025-10-22T16:52:30.475Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:52:30.610Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:52:51.522Z] === PRIVY SYNC START ===
+[2025-10-22T16:52:51.558Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:52:51.592Z] Step 1: Verifying token...
+[2025-10-22T16:52:51.605Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:53:04.647Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:53:04.650Z] Error type: UnauthorizedException
+[2025-10-22T16:53:05.245Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:53:05.258Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:54:34.376Z] === PRIVY SYNC START ===
+[2025-10-22T16:54:34.430Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:54:34.477Z] Step 1: Verifying token...
+[2025-10-22T16:54:34.547Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:54:47.966Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:54:47.980Z] Error type: UnauthorizedException
+[2025-10-22T16:54:48.068Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:54:48.134Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at runNextTicks (node:internal/process/task_queues:64:3)
+    at process.processTimers (node:internal/timers:516:9)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:54:53.845Z] === PRIVY SYNC START ===
+[2025-10-22T16:54:53.862Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:54:53.904Z] Step 1: Verifying token...
+[2025-10-22T16:54:53.924Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:55:06.971Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:55:07.001Z] Error type: UnauthorizedException
+[2025-10-22T16:55:07.063Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:55:07.095Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at runNextTicks (node:internal/process/task_queues:64:3)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:55:10.727Z] === PRIVY SYNC START ===
+[2025-10-22T16:55:10.751Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:55:10.792Z] Step 1: Verifying token...
+[2025-10-22T16:55:10.829Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:55:41.081Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:55:41.096Z] Error type: Error
+[2025-10-22T16:55:41.146Z] Error message: Token verification timeout
+[2025-10-22T16:55:41.211Z] Error stack: Error: Token verification timeout
+    at Timeout._onTimeout (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:102:60)
+    at listOnTimeout (node:internal/timers:581:17)
+    at process.processTimers (node:internal/timers:519:7)
+[2025-10-22T16:55:50.221Z] === PRIVY SYNC START ===
+[2025-10-22T16:55:50.253Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:55:50.314Z] Step 1: Verifying token...
+[2025-10-22T16:55:50.350Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:56:02.677Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:56:02.708Z] Error type: UnauthorizedException
+[2025-10-22T16:56:02.733Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:56:02.770Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at runNextTicks (node:internal/process/task_queues:64:3)
+    at process.processTimers (node:internal/timers:516:9)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:56:18.961Z] === PRIVY SYNC START ===
+[2025-10-22T16:56:19.046Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:56:19.206Z] Step 1: Verifying token...
+[2025-10-22T16:56:19.277Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:56:46.469Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:56:46.597Z] Error type: UnauthorizedException
+[2025-10-22T16:56:46.658Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:56:46.724Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T16:57:14.722Z] === PRIVY SYNC START ===
+[2025-10-22T16:57:14.803Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T16:57:14.868Z] Step 1: Verifying token...
+[2025-10-22T16:57:14.933Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T16:57:30.092Z] === PRIVY SYNC FAILED ===
+[2025-10-22T16:57:30.206Z] Error type: UnauthorizedException
+[2025-10-22T16:57:30.390Z] Error message: Invalid Privy authentication token
+[2025-10-22T16:57:30.457Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:39:13)
+    at runNextTicks (node:internal/process/task_queues:60:5)
+    at listOnTimeout (node:internal/timers:545:9)
+    at process.processTimers (node:internal/timers:519:7)
+    at async PrivyAuthController.syncUser (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:100:25)
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-22T17:28:15.733Z] === PRIVY SYNC START ===
+[2025-10-22T17:28:15.754Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T17:28:15.760Z] Step 1: Verifying token...
+[2025-10-22T17:28:15.766Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T17:28:47.887Z] === PRIVY SYNC FAILED ===
+[2025-10-22T17:28:47.942Z] Error type: Error
+[2025-10-22T17:28:47.957Z] Error message: Token verification timeout
+[2025-10-22T17:28:47.969Z] Error stack: Error: Token verification timeout
+    at Timeout._onTimeout (C:\Users\DPOBUY GADGETS\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:102:60)
+    at listOnTimeout (node:internal/timers:581:17)
+    at process.processTimers (node:internal/timers:519:7)
+[2025-10-22T17:28:51.437Z] === PRIVY SYNC START ===
+[2025-10-22T17:28:51.440Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-22T17:28:51.442Z] Step 1: Verifying token...
+[2025-10-22T17:28:51.449Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-22T17:28:55.387Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-22T17:28:55.389Z] Step 2: Getting user details...
+[2025-10-22T17:28:57.182Z] ✅ User details received
+[2025-10-22T17:28:57.185Z] Step 3: Getting user wallets...
+[2025-10-22T17:28:58.900Z] ✅ Wallets received: 2 wallets
+[2025-10-22T17:28:58.904Z] Resolved email: rolleycop@gmail.com
+[2025-10-22T17:28:58.906Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-22T17:28:59.355Z] User found in DB: false
+[2025-10-22T17:29:01.887Z] Step 5: Syncing wallets...
+[2025-10-22T17:29:01.888Z] Found 2 wallets from Privy API
+[2025-10-22T17:29:01.888Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-22T17:29:02.562Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-22T17:29:03.721Z] ✅ Synced 2 wallets for user: rolleycop@gmail.com
+[2025-10-22T17:29:03.723Z] Step 6: Creating Aptos wallet...
+[2025-10-22T17:29:06.805Z] ✅ Aptos wallet created/found: 0x7d3e2db4879dbaf91609bf330073344173d27fa332e9f8f2985fda9432e5421c
+[2025-10-22T17:29:07.115Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-22T17:29:07.116Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-22T17:29:07.117Z] === PRIVY SYNC END ===
+
+[2025-10-23T10:07:48.064Z] === PRIVY SYNC START ===
+[2025-10-23T10:07:48.072Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T10:07:48.074Z] Step 1: Verifying token...
+[2025-10-23T10:07:48.076Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T10:07:49.693Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T10:07:49.694Z] Step 2: Getting user details...
+[2025-10-23T10:07:59.721Z] === PRIVY SYNC FAILED ===
+[2025-10-23T10:07:59.723Z] Error type: UnauthorizedException
+[2025-10-23T10:07:59.725Z] Error message: User not found in Privy
+[2025-10-23T10:07:59.728Z] Error stack: UnauthorizedException: User not found in Privy
+    at PrivyAuthService.getUserById (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:59:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PrivyAuthController.syncUser (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:111:27)
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-23T10:07:59.729Z] Privy API Response: undefined
+[2025-10-23T10:08:00.248Z] === PRIVY SYNC START ===
+[2025-10-23T10:08:00.249Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T10:08:00.251Z] Step 1: Verifying token...
+[2025-10-23T10:08:00.254Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T10:08:00.268Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T10:08:00.271Z] Step 2: Getting user details...
+[2025-10-23T10:08:10.310Z] === PRIVY SYNC FAILED ===
+[2025-10-23T10:08:10.312Z] Error type: UnauthorizedException
+[2025-10-23T10:08:10.316Z] Error message: User not found in Privy
+[2025-10-23T10:08:10.318Z] Error stack: UnauthorizedException: User not found in Privy
+    at PrivyAuthService.getUserById (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:59:13)
+    at async PrivyAuthController.syncUser (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:111:27)
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-23T10:08:10.320Z] Privy API Response: undefined
+[2025-10-23T10:08:10.837Z] === PRIVY SYNC START ===
+[2025-10-23T10:08:10.839Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T10:08:10.840Z] Step 1: Verifying token...
+[2025-10-23T10:08:10.841Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T10:08:10.844Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T10:08:10.845Z] Step 2: Getting user details...
+[2025-10-23T10:08:20.861Z] === PRIVY SYNC FAILED ===
+[2025-10-23T10:08:20.863Z] Error type: UnauthorizedException
+[2025-10-23T10:08:20.864Z] Error message: User not found in Privy
+[2025-10-23T10:08:20.867Z] Error stack: UnauthorizedException: User not found in Privy
+    at PrivyAuthService.getUserById (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:59:13)
+    at async PrivyAuthController.syncUser (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:111:27)
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-23T10:08:20.868Z] Privy API Response: undefined
+[2025-10-23T10:08:21.406Z] === PRIVY SYNC START ===
+[2025-10-23T10:08:21.410Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T10:08:21.412Z] Step 1: Verifying token...
+[2025-10-23T10:08:21.414Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T10:08:21.418Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T10:08:21.420Z] Step 2: Getting user details...
+[2025-10-23T10:08:31.432Z] === PRIVY SYNC FAILED ===
+[2025-10-23T10:08:31.433Z] Error type: UnauthorizedException
+[2025-10-23T10:08:31.434Z] Error message: User not found in Privy
+[2025-10-23T10:08:31.437Z] Error stack: UnauthorizedException: User not found in Privy
+    at PrivyAuthService.getUserById (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:59:13)
+    at async PrivyAuthController.syncUser (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:111:27)
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-23T10:08:31.438Z] Privy API Response: undefined
+[2025-10-23T10:08:32.899Z] === PRIVY SYNC START ===
+[2025-10-23T10:08:32.900Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T10:08:32.902Z] Step 1: Verifying token...
+[2025-10-23T10:08:32.904Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T10:08:32.908Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T10:08:32.910Z] Step 2: Getting user details...
+[2025-10-23T10:08:42.972Z] === PRIVY SYNC FAILED ===
+[2025-10-23T10:08:42.974Z] Error type: UnauthorizedException
+[2025-10-23T10:08:42.976Z] Error message: User not found in Privy
+[2025-10-23T10:08:42.980Z] Error stack: UnauthorizedException: User not found in Privy
+    at PrivyAuthService.getUserById (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:59:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async PrivyAuthController.syncUser (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:111:27)
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-23T10:08:42.981Z] Privy API Response: undefined
+[2025-10-23T10:08:43.496Z] === PRIVY SYNC START ===
+[2025-10-23T10:08:43.497Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T10:08:43.499Z] Step 1: Verifying token...
+[2025-10-23T10:08:43.500Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T10:08:43.504Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T10:08:43.505Z] Step 2: Getting user details...
+[2025-10-23T10:08:45.774Z] ✅ User details received
+[2025-10-23T10:08:45.776Z] Step 3: Getting user wallets...
+[2025-10-23T10:08:47.147Z] ✅ Wallets received: 2 wallets
+[2025-10-23T10:08:47.148Z] Resolved email: rolleycop@gmail.com
+[2025-10-23T10:08:47.149Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-23T10:08:47.185Z] User found in DB: false
+[2025-10-23T10:08:47.615Z] Step 5: Syncing wallets...
+[2025-10-23T10:08:47.616Z] Found 2 wallets from Privy API
+[2025-10-23T10:08:47.616Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T10:08:47.763Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T10:08:47.863Z] ✅ Synced 2 wallets for user: rolleycop@gmail.com
+[2025-10-23T10:08:47.864Z] Step 6: Creating Aptos wallet...
+[2025-10-23T10:08:48.142Z] ✅ Aptos wallet created/found: 0xf43734f8d4683f2930d540039e1878a85068946b88b99f6185999660eec8a3d1
+[2025-10-23T10:08:48.204Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-23T10:08:48.205Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-23T10:08:48.205Z] === PRIVY SYNC END ===
+
+[2025-10-23T11:01:57.976Z] === PRIVY SYNC START ===
+[2025-10-23T11:01:57.983Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T11:01:57.985Z] Step 1: Verifying token...
+[2025-10-23T11:01:57.987Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T11:02:08.409Z] === PRIVY SYNC FAILED ===
+[2025-10-23T11:02:08.475Z] Error type: UnauthorizedException
+[2025-10-23T11:02:08.556Z] Error message: Invalid Privy authentication token
+[2025-10-23T11:02:08.677Z] Error stack: UnauthorizedException: Invalid Privy authentication token
+    at PrivyAuthService.verifyToken (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.service.ts:44:13)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at process.processTimers (node:internal/timers:538:9)
+    at async PrivyAuthController.syncUser (C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\src\auth\privy-auth.controller.ts:136:25)
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-execution-context.js:46:28
+    at async C:\Users\EMMA\Desktop\cto-vineyard\cto-backend\node_modules\@nestjs\core\router\router-proxy.js:9:17
+[2025-10-23T11:02:08.758Z] Privy API Response: undefined
+[2025-10-23T11:02:13.385Z] === PRIVY SYNC START ===
+[2025-10-23T11:02:13.387Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T11:02:13.388Z] Step 1: Verifying token...
+[2025-10-23T11:02:13.390Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T11:02:15.468Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T11:02:15.469Z] Step 2: Getting user details...
+[2025-10-23T11:02:15.471Z] 🔄 Attempt 1/5 to get user details...
+[2025-10-23T11:02:16.049Z] ✅ User details received on attempt 1
+[2025-10-23T11:02:16.051Z] ✅ User details received
+[2025-10-23T11:02:16.056Z] Step 3: Getting user wallets...
+[2025-10-23T11:02:16.061Z] 🔄 Attempt 1/3 to get user details...
+[2025-10-23T11:02:16.929Z] ✅ User details received on attempt 1
+[2025-10-23T11:02:16.931Z] ✅ Wallets received: 2 wallets
+[2025-10-23T11:02:16.933Z] Resolved email: rolleycop@gmail.com
+[2025-10-23T11:02:16.936Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-23T11:02:16.971Z] User found in DB: true
+[2025-10-23T11:02:17.018Z] Step 5: Syncing wallets...
+[2025-10-23T11:02:17.019Z] Found 2 wallets from Privy API
+[2025-10-23T11:02:17.021Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T11:02:17.044Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T11:02:17.054Z] ✅ Synced 2 wallets for user: rolleycop@gmail.com
+[2025-10-23T11:02:17.056Z] Step 6: Creating Aptos wallet...
+[2025-10-23T11:02:17.066Z] ✅ Aptos wallet created/found: 0xf43734f8d4683f2930d540039e1878a85068946b88b99f6185999660eec8a3d1
+[2025-10-23T11:02:17.078Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-23T11:02:17.079Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-23T11:02:17.080Z] === PRIVY SYNC END ===
+
+[2025-10-23T11:51:52.505Z] === PRIVY SYNC START ===
+[2025-10-23T11:51:52.528Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T11:51:52.542Z] Step 1: Verifying token...
+[2025-10-23T11:51:52.554Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T11:51:54.390Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T11:51:54.392Z] Step 2: Getting user details...
+[2025-10-23T11:51:54.396Z] 🔄 Attempt 1/5 to get user details...
+[2025-10-23T11:51:55.940Z] ✅ User details received on attempt 1
+[2025-10-23T11:51:55.945Z] ✅ User details received
+[2025-10-23T11:51:55.956Z] Step 3: Getting user wallets...
+[2025-10-23T11:51:55.967Z] 🔄 Attempt 1/3 to get user details...
+[2025-10-23T11:51:56.552Z] ✅ User details received on attempt 1
+[2025-10-23T11:51:56.555Z] ✅ Wallets received: 2 wallets
+[2025-10-23T11:51:56.557Z] Resolved email: rolleycop@gmail.com
+[2025-10-23T11:51:56.559Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-23T11:51:56.710Z] User found in DB: true
+[2025-10-23T11:51:56.819Z] Step 5: Syncing wallets...
+[2025-10-23T11:51:56.820Z] Found 2 wallets from Privy API
+[2025-10-23T11:51:56.821Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T11:51:56.993Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T11:51:57.125Z] ✅ Synced 2 wallets for user: rolleycop@gmail.com
+[2025-10-23T11:51:57.127Z] Step 6: Creating Aptos wallet...
+[2025-10-23T11:51:57.185Z] ✅ Aptos wallet created/found: 0xf43734f8d4683f2930d540039e1878a85068946b88b99f6185999660eec8a3d1
+[2025-10-23T11:51:57.274Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-23T11:51:57.275Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-23T11:51:57.276Z] === PRIVY SYNC END ===
+
+[2025-10-23T12:57:46.701Z] === PRIVY SYNC START ===
+[2025-10-23T12:57:46.708Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T12:57:46.710Z] Step 1: Verifying token...
+[2025-10-23T12:57:46.711Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T12:57:48.339Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T12:57:48.359Z] Step 2: Getting user details...
+[2025-10-23T12:57:49.174Z] ✅ User details received
+[2025-10-23T12:57:49.177Z] Step 3: Getting user wallets...
+[2025-10-23T12:57:49.898Z] ✅ Wallets received: 2 wallets
+[2025-10-23T12:57:49.972Z] Resolved email: rolleycop@gmail.com
+[2025-10-23T12:57:50.049Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-23T12:57:50.345Z] User found in DB: true
+[2025-10-23T12:57:50.488Z] Step 5: Syncing wallets...
+[2025-10-23T12:57:50.489Z] Found 2 wallets from Privy API
+[2025-10-23T12:57:50.490Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T12:57:50.590Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T12:57:50.647Z] ✅ Synced 2 wallets for user: rolleycop@gmail.com
+[2025-10-23T12:57:50.648Z] Step 6: Creating Aptos wallet...
+[2025-10-23T12:57:50.670Z] ✅ Aptos wallet created/found: 0xf43734f8d4683f2930d540039e1878a85068946b88b99f6185999660eec8a3d1
+[2025-10-23T12:57:50.689Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-23T12:57:50.690Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-23T12:57:50.691Z] === PRIVY SYNC END ===
+
+[2025-10-23T13:11:49.699Z] === PRIVY SYNC START ===
+[2025-10-23T13:11:49.705Z] Received token: eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZj...
+[2025-10-23T13:11:49.709Z] Step 1: Verifying token...
+[2025-10-23T13:11:49.716Z] Token length: 413, starts with: eyJhbGciOiJFUzI1NiIs...
+[2025-10-23T13:11:51.150Z] ✅ Token verified. User ID: did:privy:cmh28gyap00objl0cu7dw25ud
+[2025-10-23T13:11:51.166Z] Step 2: Getting user details...
+[2025-10-23T13:11:51.552Z] ✅ User details received
+[2025-10-23T13:11:51.555Z] Step 3: Getting user wallets...
+[2025-10-23T13:11:52.237Z] ✅ Wallets received: 2 wallets
+[2025-10-23T13:11:52.241Z] Resolved email: rolleycop@gmail.com
+[2025-10-23T13:11:52.281Z] Step 4: Checking if user exists in DB: rolleycop@gmail.com
+[2025-10-23T13:11:52.311Z] User found in DB: true
+[2025-10-23T13:11:52.672Z] Step 5: Syncing wallets...
+[2025-10-23T13:11:52.673Z] Found 2 wallets from Privy API
+[2025-10-23T13:11:52.674Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T13:11:53.117Z] Syncing wallet: 0x93C4c76C840a8F560D4Dab574feda552CEfcfD20 (ethereum)
+[2025-10-23T13:11:53.181Z] ✅ Synced 2 wallets for user: rolleycop@gmail.com
+[2025-10-23T13:11:53.187Z] Step 6: Creating Aptos wallet...
+[2025-10-23T13:11:53.233Z] ✅ Aptos wallet created/found: 0xf43734f8d4683f2930d540039e1878a85068946b88b99f6185999660eec8a3d1
+[2025-10-23T13:11:53.254Z] Step 7: Retrieved 2 total wallets from database
+[2025-10-23T13:11:53.255Z] ✅ SYNC COMPLETE - Returning 2 wallets to frontend
+[2025-10-23T13:11:53.256Z] === PRIVY SYNC END ===
+

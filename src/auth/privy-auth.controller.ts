@@ -14,7 +14,12 @@ export class PrivyAuthController {
   private logToFile(message: string): void {
     const logFile = path.join(process.cwd(), 'privy-sync-logs.txt');
     const timestamp = new Date().toISOString();
-    fs.appendFileSync(logFile, `[${timestamp}] ${message}\n`);
+    try {
+      fs.appendFileSync(logFile, `[${timestamp}] ${message}\n`);
+    } catch (error) {
+      // If file write fails, just log to console
+      console.log(`[${timestamp}] ${message}`);
+    }
   }
 
   constructor(
@@ -89,6 +94,9 @@ export class PrivyAuthController {
       // Verify Privy token
       this.logger.log('Step 1: Verifying token...');
       this.logToFile('Step 1: Verifying token...');
+      this.logger.log(`Token length: ${privyToken?.length}, starts with: ${privyToken?.substring(0, 20)}...`);
+      this.logToFile(`Token length: ${privyToken?.length}, starts with: ${privyToken?.substring(0, 20)}...`);
+      
       const privyUser = await Promise.race([
         this.privyAuthService.verifyToken(privyToken),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Token verification timeout')), 30000))
@@ -268,6 +276,12 @@ export class PrivyAuthController {
       this.logToFile(`Error message: ${(error as any).message}`);
       this.logger.error(`Error stack: ${(error as any).stack}`);
       this.logToFile(`Error stack: ${(error as any).stack}`);
+      
+      // Log additional Privy-specific error details
+      if ((error as any).response) {
+        this.logger.error(`Privy API Response: ${JSON.stringify((error as any).response.data)}`);
+        this.logToFile(`Privy API Response: ${JSON.stringify((error as any).response.data)}`);
+      }
       
       // Return a more helpful error message
       throw {

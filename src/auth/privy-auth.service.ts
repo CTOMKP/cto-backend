@@ -36,6 +36,11 @@ export class PrivyAuthService {
       return claims;
     } catch (error) {
       this.logger.error('Privy token verification failed', error);
+      this.logger.error('Privy error details:', {
+        message: error.message,
+        status: error.status,
+        response: error.response?.data
+      });
       throw new UnauthorizedException('Invalid Privy authentication token');
     }
   }

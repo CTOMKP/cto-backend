@@ -8,7 +8,7 @@ import { ScanService } from '../scan/services/scan.service';
 
 @Injectable()
 export class UserListingsService {
-  private readonly MAX_RISK = 40; // pass if risk_score <= MAX_RISK
+  private readonly MAX_RISK = 40; // pass if risk_score >= MAX_RISK (higher = safer in repoanalyzer.io system)
 
   constructor(private prisma: PrismaService, private scanService: ScanService) {}
 
@@ -17,10 +17,10 @@ export class UserListingsService {
     // Delegate to existing ScanService; use userId to persist scan result linkage
     const result = await this.scanService.scanToken(dto.contractAddr, userId, chain as any);
 
-    const score = result?.risk_score ?? 100; // lower is better
+    const score = result?.risk_score ?? 0; // higher is better (matches repoanalyzer.io)
     const tier = result?.tier ?? 'Seed';
 
-    const passed = typeof score === 'number' && score <= this.MAX_RISK && result?.eligible !== false;
+    const passed = typeof score === 'number' && score >= this.MAX_RISK && result?.eligible !== false;
     return {
       success: passed,
       vettingScore: score,

@@ -39,6 +39,9 @@ JWT_SECRET=your_jwt_secret_here
 
 # Aptos Wallet Encryption (32 characters)
 APTOS_WALLET_ENCRYPTION_KEY=12345678901234567890123456789012
+
+# Solana RPC Configuration (for real blockchain data)
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 ```
 
 ### Option 2: Use the Same Wallet for All Chains

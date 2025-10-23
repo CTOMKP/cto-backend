@@ -9,7 +9,7 @@ export class ListingRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async findListings(query: ListingQueryDto) {
-    const { q, chain, category, tier, minRisk, maxRisk, sort = 'updatedAt:desc', page = 1, limit = 20 } = query as any;
+    const { q, chain, category, tier, minRisk, maxRisk, minLpBurned, maxTop10Holders, mintAuthDisabled, noRaiding, sort = 'updatedAt:desc', page = 1, limit = 20 } = query as any;
 
     const where: any = {};
     if (q) {
@@ -26,6 +26,20 @@ export class ListingRepository {
       where.riskScore = {};
       if (minRisk !== undefined) where.riskScore.gte = Number(minRisk);
       if (maxRisk !== undefined) where.riskScore.lte = Number(maxRisk);
+    }
+    
+    // New filter logic
+    if (minLpBurned !== undefined) {
+      where.lpBurnedPercentage = { gte: Number(minLpBurned) };
+    }
+    if (maxTop10Holders !== undefined) {
+      where.top10HoldersPercentage = { lte: Number(maxTop10Holders) };
+    }
+    if (mintAuthDisabled !== undefined) {
+      where.mintAuthDisabled = Boolean(mintAuthDisabled);
+    }
+    if (noRaiding !== undefined) {
+      where.raidingDetected = !Boolean(noRaiding); // noRaiding=true means raidingDetected=false
     }
 
     const [sortField, sortDir] = String(sort).split(':');
@@ -64,6 +78,8 @@ export class ListingRepository {
       const ageHours = parseAgeToHours(ageStr);
       const risk = Number(i?.riskScore ?? 0);
 
+      // Community Score: 0-100, HIGHER = BETTER (like academic grading)
+      // Formula: Holders (30%) + Transactions (25%) + Price changes (15%) + Liquidity (15%) + Age (5%) + Safety bonus (10%)
       const holdersScore = clamp(holders / 1000, 0, 1) * 30;      // up to 30
       const txScore = clamp(tx24h / 1000, 0, 1) * 25;             // up to 25
       const changeScore = clamp(Math.max(0, change24h) / 100, 0, 1) * 15; // up to 15 for positive moves
@@ -74,6 +90,7 @@ export class ListingRepository {
       const total = holdersScore + txScore + changeScore + liqScore + ageScore + safetyBonus;
       return Math.round(clamp(total, 0, 100) * 100) / 100; // 2 decimals
     };
+
 
     // Fallback to metadata.market fields when top-level values are null and compute communityScore
     const enriched = items.map((i: any) => {

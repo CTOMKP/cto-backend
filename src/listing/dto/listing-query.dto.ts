@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum ChainDto {
@@ -55,6 +55,31 @@ export class ListingQueryDto {
   @Type(() => Number)
   @IsNumber()
   maxRisk?: number;
+
+  // New filter fields
+  @ApiProperty({ required: false, description: 'Filter by LP burned percentage (e.g., 50 for >=50%)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  minLpBurned?: number;
+
+  @ApiProperty({ required: false, description: 'Filter by top 10 holders percentage (e.g., 15 for <15%)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  maxTop10Holders?: number;
+
+  @ApiProperty({ required: false, description: 'Filter by mint authority disabled' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  mintAuthDisabled?: boolean;
+
+  @ApiProperty({ required: false, description: 'Filter by raiding detection (false = no raiding)' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  noRaiding?: boolean;
 
   @ApiProperty({ required: false, default: 'updatedAt:desc' })
   @IsOptional()

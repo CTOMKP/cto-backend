@@ -10,11 +10,12 @@ import { RateLimiterGuard } from './services/rate-limiter.guard';
 import { MetricsService } from './services/metrics.service';
 import { ListingGateway } from './services/listing.gateway';
 import { AnalyticsService } from './services/analytics.service';
+import { TokenAnalysisService } from './services/token-analysis.service';
 
 @Module({
   imports: [PrismaModule, ScanModule],
   controllers: [ListingController],
-  providers: [ListingService, ListingRepository, CacheService, RefreshWorker, RateLimiterGuard, MetricsService, ListingGateway, AnalyticsService],
-  exports: [ListingService, MetricsService, ListingGateway, AnalyticsService],
+  providers: [ListingService, ListingRepository, CacheService, RefreshWorker, RateLimiterGuard, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
+  exports: [ListingService, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
 })
 export class ListingModule {}

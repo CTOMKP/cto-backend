@@ -63,7 +63,7 @@ export interface TokenData {
 
 /**
  * Calculates the risk score for a token based on its data and tier
- * Returns a score from 0-100 (lower is better/safer)
+ * Returns a score from 0-100 (LOWER is MORE DANGEROUS - matches repoanalyzer.io)
  */
 export function calculateRiskScore(tokenData, tier) {
   const weighting = tier.weighting;
@@ -196,12 +196,13 @@ function calculateSmartContractScore(tokenData, tier) {
 }
 
 /**
- * Gets risk level description based on score
+ * Gets risk level description based on score (matches repoanalyzer.io)
+ * LOWER score = MORE DANGEROUS
  */
 export function getRiskLevel(score) {
-  if (score <= 39) return 'Low Risk';
-  if (score <= 69) return 'Medium Risk';
-  return 'High Risk';
+  if (score <= 39) return 'High Risk';      // 0-39 = High Risk (dangerous)
+  if (score <= 69) return 'Medium Risk';    // 40-69 = Medium Risk (moderate)
+  return 'Low Risk';                        // 70-100 = Low Risk (safe)
 }
 
 /**

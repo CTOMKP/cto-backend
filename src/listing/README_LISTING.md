@@ -9,8 +9,9 @@ The Listing module provides production-ready endpoints for token listing data: s
 - POST `/api/listing/refresh` — Enqueue a background refresh (JWT required)
 
 ## Background Refresh
-- Every 2 minutes, fetches trending/new Solana tokens from DexScreener and upserts basic market metadata (price, liquidity, volumes, FDV, txns).
-- Every 5 minutes, enriches known listings by running the full scan to compute riskScore, tier, and summary.
+- Every 30 minutes, fetches trending/new Solana tokens from DexScreener and upserts basic market metadata (price, liquidity, volumes, FDV, txns).
+- Every 60 minutes, enriches known listings by running the full scan to compute riskScore, tier, and summary.
+- Every 6 hours, cleans up old records to keep database lean.
 - Structured logs report: refreshed count, API calls, failures, and duration.
 
 ## Environment

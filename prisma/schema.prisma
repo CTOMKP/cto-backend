@@ -114,6 +114,13 @@ model Listing {
   txCount24h      Int?
   metadata        Json?
   lastScannedAt   DateTime?
+  
+  // New filter fields
+  lpBurnedPercentage     Float?    // LP burned percentage (0-100)
+  top10HoldersPercentage  Float?    // Top 10 holders percentage (0-100)
+  mintAuthDisabled       Boolean?  // Mint authority disabled
+  raidingDetected        Boolean?  // Raiding activity detected
+  
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
