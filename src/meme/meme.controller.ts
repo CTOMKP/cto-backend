@@ -102,7 +102,8 @@ export class MemeController {
 
     return {
       uploadUrl: result.uploadUrl,
-      key: meme.id, // Return database ID (not S3 key) so frontend can delete by ID
+      key: result.key, // Return S3 key (not database ID) so frontend can build CloudFront URL
+      s3Key: result.key, // Explicitly include S3 key
       viewUrl: cloudfrontUrl,
       url: cloudfrontUrl, // Return CloudFront URL
       memeId: meme.id,
@@ -114,6 +115,7 @@ export class MemeController {
         url: cloudfrontUrl, // Return CloudFront URL
         originalName: meme.filename,
         uploadDate: new Date().toISOString(),
+        path: result.key, // Include S3 key path
       },
     };
   }
