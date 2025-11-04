@@ -60,6 +60,7 @@ export class MemeController {
   constructor(
     private readonly memeService: MemeService,
     private readonly imageService: ImageService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -171,12 +172,21 @@ export class MemeController {
   @Get(':id')
   async getMemeById(@Param('id') id: string) {
     const meme = await this.memeService.getMemeById(id);
+    // Generate CloudFront URL from S3 key
+    const cloudfrontDomain = this.configService.get<string>('CLOUDFRONT_DOMAIN', 'd2cjbd1iqkwr9j.cloudfront.net');
+    const cloudfrontUrl = `https://${cloudfrontDomain}/${meme.s3Key}`;
+    
     // Map to frontend format
     return {
-      ...meme,
-      url: meme.s3Url,
+      id: meme.id,
+      url: cloudfrontUrl,
+      filename: meme.filename,
       originalName: meme.filename,
+      size: meme.size,
       uploadDate: meme.createdAt.toISOString(),
+      description: meme.description,
+      category: meme.category,
+      mimeType: meme.mimeType,
     };
   }
 
