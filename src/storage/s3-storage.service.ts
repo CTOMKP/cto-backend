@@ -40,8 +40,15 @@ export class S3StorageService implements StorageProvider {
       ContentType: mimeType,
     });
     const url = await getSignedUrl(this.s3, cmd, { expiresIn: ttlSeconds });
+    
+    // Log which AWS credentials are being used (first few chars of access key)
+    const accessKeyId = this.config.get<string>('AWS_ACCESS_KEY_ID', '');
+    const accessKeyPreview = accessKeyId ? `${accessKeyId.substring(0, 8)}...` : 'NOT SET';
+    
     this.logger.log(`Presigned PUT: ${key} → Bucket: ${this.bucket} (ttl=${ttlSeconds}s)`);
-    this.logger.log(`Presigned URL points to bucket: ${this.bucket}`);
+    this.logger.log(`Using AWS Access Key: ${accessKeyPreview}`);
+    this.logger.log(`Presigned URL bucket check: ${url.includes(this.bucket) ? 'CORRECT' : 'MISMATCH'}`);
+    
     return url;
   }
 
