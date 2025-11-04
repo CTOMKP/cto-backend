@@ -275,5 +275,47 @@ export class MemeController {
       skipped: result.skipped,
     };
   }
+
+  /**
+   * Verify file exists in S3 (Admin only) - Debug endpoint
+   */
+  @ApiOperation({ summary: 'Verify meme file exists in S3' })
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/verify-s3')
+  async verifyS3File(@Param('id') id: string, @Req() req: any) {
+    const userRole = req?.user?.role;
+
+    if (userRole !== 'ADMIN') {
+      throw new HttpException('Only admins can verify files', HttpStatus.FORBIDDEN);
+    }
+
+    try {
+      const meme = await this.memeService.getMemeById(id);
+      
+      if (!this.storage || !('fileExists' in this.storage) || typeof this.storage.fileExists !== 'function') {
+        return {
+          memeId: id,
+          s3Key: meme.s3Key,
+          exists: false,
+          error: 'Storage provider does not support fileExists check',
+        };
+      }
+
+      const exists = await this.storage.fileExists(meme.s3Key);
+      const bucket = this.configService.get<string>('AWS_S3_BUCKET_NAME', 'unknown');
+      
+      return {
+        memeId: id,
+        s3Key: meme.s3Key,
+        bucket: bucket,
+        exists: exists,
+        cloudfrontUrl: `https://${this.configService.get<string>('CLOUDFRONT_DOMAIN', 'd2cjbd1iqkwr9j.cloudfront.net')}/${meme.s3Key}`,
+      };
+    } catch (error) {
+      this.logger.error('Verify S3 error:', error);
+      throw new HttpException('Failed to verify file', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }
 
