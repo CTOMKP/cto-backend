@@ -18,6 +18,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { MemeService, CreateMemeDto, UpdateMemeDto } from './meme.service';
 import { ImageService } from '../image/image.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ConfigService } from '@nestjs/config';
 import { IsNotEmpty, IsString, IsNumber, IsOptional } from 'class-validator';
 
 class PresignMemeUploadDto {
@@ -59,6 +60,7 @@ export class MemeController {
   constructor(
     private readonly memeService: MemeService,
     private readonly imageService: ImageService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -84,11 +86,15 @@ export class MemeController {
       mimeType: dto.mimeType,
     });
 
-    // Create database entry for the meme
+    // Generate CloudFront URL for permanent access (don't store presigned URL)
+    const cloudfrontDomain = this.configService.get<string>('CLOUDFRONT_DOMAIN', 'd2cjbd1iqkwr9j.cloudfront.net');
+    const cloudfrontUrl = `https://${cloudfrontDomain}/${result.key}`;
+
+    // Create database entry for the meme (store CloudFront URL, not presigned URL)
     const meme = await this.memeService.createMeme({
       filename: dto.filename,
       s3Key: result.key,
-      s3Url: result.viewUrl,
+      s3Url: cloudfrontUrl, // Store CloudFront URL instead of presigned URL
       size: dto.size || 0,
       mimeType: dto.mimeType,
       uploadedById: userId,
@@ -97,15 +103,15 @@ export class MemeController {
     return {
       uploadUrl: result.uploadUrl,
       key: meme.id, // Return database ID (not S3 key) so frontend can delete by ID
-      viewUrl: result.viewUrl,
-      url: meme.s3Url, // Frontend expects 'url' field
+      viewUrl: cloudfrontUrl,
+      url: cloudfrontUrl, // Return CloudFront URL
       memeId: meme.id,
       metadata: {
         id: meme.id, // Database ID
         filename: meme.filename,
         size: meme.size,
         mimeType: meme.mimeType,
-        url: meme.s3Url,
+        url: cloudfrontUrl, // Return CloudFront URL
         originalName: meme.filename,
         uploadDate: new Date().toISOString(),
       },
@@ -119,13 +125,26 @@ export class MemeController {
   @Get()
   async getAllMemes() {
     const memes = await this.memeService.getAllMemes();
-    // Map to frontend format: s3Url → url, fix date format
-    return memes.map(meme => ({
-      ...meme,
-      url: meme.s3Url,
-      originalName: meme.filename,
-      uploadDate: meme.createdAt.toISOString(),
-    }));
+    // Get CloudFront domain or use direct S3 URL
+    const cloudfrontDomain = this.configService.get<string>('CLOUDFRONT_DOMAIN', 'd2cjbd1iqkwr9j.cloudfront.net');
+    
+    // Map to frontend format: generate CloudFront URLs from S3 keys
+    return memes.map(meme => {
+      // Generate CloudFront URL from S3 key (don't use stored presigned URL)
+      const cloudfrontUrl = `https://${cloudfrontDomain}/${meme.s3Key}`;
+      
+      return {
+        id: meme.id,
+        url: cloudfrontUrl,
+        filename: meme.filename,
+        originalName: meme.filename,
+        size: meme.size,
+        uploadDate: meme.createdAt.toISOString(),
+        description: meme.description,
+        category: meme.category,
+        mimeType: meme.mimeType,
+      };
+    });
   }
 
   /**
@@ -151,12 +170,21 @@ export class MemeController {
   @Get(':id')
   async getMemeById(@Param('id') id: string) {
     const meme = await this.memeService.getMemeById(id);
+    // Generate CloudFront URL from S3 key
+    const cloudfrontDomain = this.configService.get<string>('CLOUDFRONT_DOMAIN', 'd2cjbd1iqkwr9j.cloudfront.net');
+    const cloudfrontUrl = `https://${cloudfrontDomain}/${meme.s3Key}`;
+    
     // Map to frontend format
     return {
-      ...meme,
-      url: meme.s3Url,
+      id: meme.id,
+      url: cloudfrontUrl,
+      filename: meme.filename,
       originalName: meme.filename,
+      size: meme.size,
       uploadDate: meme.createdAt.toISOString(),
+      description: meme.description,
+      category: meme.category,
+      mimeType: meme.mimeType,
     };
   }
 
