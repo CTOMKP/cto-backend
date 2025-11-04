@@ -40,7 +40,8 @@ export class S3StorageService implements StorageProvider {
       ContentType: mimeType,
     });
     const url = await getSignedUrl(this.s3, cmd, { expiresIn: ttlSeconds });
-    this.logger.debug(`Presigned PUT: ${key} (ttl=${ttlSeconds}s)`);
+    this.logger.log(`Presigned PUT: ${key} → Bucket: ${this.bucket} (ttl=${ttlSeconds}s)`);
+    this.logger.log(`Presigned URL points to bucket: ${this.bucket}`);
     return url;
   }
 
