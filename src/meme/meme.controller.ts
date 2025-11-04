@@ -12,6 +12,8 @@ import {
   HttpCode,
   HttpStatus,
   HttpException,
+  Logger,
+  Inject,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -19,6 +21,7 @@ import { MemeService, CreateMemeDto, UpdateMemeDto } from './meme.service';
 import { ImageService } from '../image/image.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ConfigService } from '@nestjs/config';
+import { STORAGE_PROVIDER, StorageProvider } from '../storage/storage.provider';
 import { IsNotEmpty, IsString, IsNumber, IsOptional } from 'class-validator';
 
 class PresignMemeUploadDto {
@@ -57,10 +60,13 @@ class BulkImportMemesDto {
 @ApiTags('Memes')
 @Controller('memes')
 export class MemeController {
+  private readonly logger = new Logger(MemeController.name);
+
   constructor(
     private readonly memeService: MemeService,
     private readonly imageService: ImageService,
     private readonly configService: ConfigService,
+    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
   /**
@@ -158,10 +164,25 @@ export class MemeController {
     try {
       const meme = await this.memeService.getMemeById(id);
       const filename = meme.filename || 'download';
+      
+      // Check if file exists in S3 before generating presigned URL
+      if (this.storage && 'fileExists' in this.storage && typeof this.storage.fileExists === 'function') {
+        const exists = await this.storage.fileExists(meme.s3Key);
+        if (!exists) {
+          return res.status(HttpStatus.NOT_FOUND).json({ 
+            message: 'Image file not found in storage. It may have been deleted.' 
+          });
+        }
+      }
+      
       const downloadUrl = await this.imageService.getPresignedDownloadUrl(meme.s3Key, filename, 300);
       res.redirect(downloadUrl);
     } catch (error) {
-      res.status(HttpStatus.NOT_FOUND).json({ message: 'Meme not found' });
+      this.logger.error('Download error:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      res.status(HttpStatus.NOT_FOUND).json({ message: 'Meme not found or file does not exist' });
     }
   }
 

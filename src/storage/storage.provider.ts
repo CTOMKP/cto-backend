@@ -12,6 +12,9 @@ export interface StorageProvider {
 
   // Optional: delete object
   deleteFile?(key: string): Promise<void>;
+
+  // Optional: check if file exists
+  fileExists?(key: string): Promise<boolean>;
 }
 
 export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');
