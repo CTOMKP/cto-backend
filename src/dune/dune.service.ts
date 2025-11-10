@@ -9,7 +9,7 @@ interface DuneQueryResult {
   };
 }
 
-interface MemecoinStats {
+export interface MemecoinStats {
   dailyTokensDeployed: number;  // Daily launched tokens
   dailyGraduates: number;        // Daily graduates
   topTokensLast7Days: number;    // Runners (market cap ≥ $500K)
