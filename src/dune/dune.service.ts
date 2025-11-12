@@ -138,9 +138,14 @@ export class DuneService {
 
   /**
    * Execute a Dune query and get results
+   * Retries up to 2 times if query times out
    */
-  private async executeQuery(queryId: number): Promise<any> {
+  private async executeQuery(queryId: number, retryCount: number = 0): Promise<any> {
+    const maxRetries = 2;
+    
     try {
+      this.logger.debug(`Executing Dune query ${queryId} (attempt ${retryCount + 1}/${maxRetries + 1})`);
+      
       // Step 1: Execute the query
       const executeResponse = await fetch(`${this.baseUrl}/query/${queryId}/execute`, {
         method: 'POST',
@@ -150,18 +155,23 @@ export class DuneService {
       });
 
       if (!executeResponse.ok) {
+        const errorText = await executeResponse.text();
+        this.logger.error(`Dune API execute failed (${executeResponse.status}): ${errorText}`);
         throw new Error(`Dune API execute failed: ${executeResponse.statusText}`);
       }
 
       const executeData: DuneQueryResult = await executeResponse.json();
       const executionId = executeData.execution_id;
+      
+      this.logger.debug(`Query ${queryId} execution started, execution_id: ${executionId}`);
 
-      // Step 2: Poll for results (max 30 seconds)
+      // Step 2: Poll for results (max 90 seconds - Dune queries can take time)
       let attempts = 0;
-      const maxAttempts = 30;
+      const maxAttempts = 90; // Increased from 30 to 90 seconds
+      const pollInterval = 2000; // Poll every 2 seconds instead of 1
 
       while (attempts < maxAttempts) {
-        await this.sleep(1000); // Wait 1 second between polls
+        await this.sleep(pollInterval);
 
         const statusResponse = await fetch(`${this.baseUrl}/execution/${executionId}/results`, {
           headers: {
@@ -170,25 +180,44 @@ export class DuneService {
         });
 
         if (!statusResponse.ok) {
+          const errorText = await statusResponse.text();
+          this.logger.error(`Dune API status check failed (${statusResponse.status}): ${errorText}`);
           throw new Error(`Dune API status check failed: ${statusResponse.statusText}`);
         }
 
         const statusData: DuneQueryResult = await statusResponse.json();
 
         if (statusData.state === 'QUERY_STATE_COMPLETED') {
+          this.logger.debug(`Query ${queryId} completed after ${attempts * (pollInterval / 1000)} seconds`);
           return statusData.result?.rows || [];
         }
 
         if (statusData.state === 'QUERY_STATE_FAILED') {
+          this.logger.error(`Query ${queryId} execution failed, state: ${statusData.state}`);
           throw new Error('Query execution failed');
+        }
+
+        // Log progress every 10 attempts (every 20 seconds)
+        if (attempts % 10 === 0 && attempts > 0) {
+          this.logger.debug(`Query ${queryId} still running... (${attempts * (pollInterval / 1000)}s elapsed, state: ${statusData.state})`);
         }
 
         attempts++;
       }
 
-      throw new Error('Query timeout - results not ready after 30 seconds');
+      this.logger.error(`Query ${queryId} timeout after ${maxAttempts * (pollInterval / 1000)} seconds`);
+      throw new Error(`Query timeout - results not ready after ${maxAttempts * (pollInterval / 1000)} seconds`);
     } catch (error) {
-      this.logger.error(`Execute query ${queryId} failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Execute query ${queryId} failed (attempt ${retryCount + 1}): ${errorMessage}`);
+      
+      // Retry on timeout if we haven't exceeded max retries
+      if (errorMessage.includes('timeout') && retryCount < maxRetries) {
+        this.logger.warn(`Retrying query ${queryId} in 5 seconds... (${retryCount + 1}/${maxRetries})`);
+        await this.sleep(5000); // Wait 5 seconds before retry
+        return this.executeQuery(queryId, retryCount + 1);
+      }
+      
       throw error;
     }
   }
