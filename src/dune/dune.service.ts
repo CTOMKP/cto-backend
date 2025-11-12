@@ -27,6 +27,9 @@ export class DuneService {
   private statsCache: MemecoinStats | null = null;
   private lastFetchTime: number = 0;
   private readonly CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in ms
+  
+  // Rolling average for Runners metric (prevents erratic jumps)
+  private runnerHistory: number[] = [];
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('DUNE_API_KEY') || '';
@@ -96,8 +99,10 @@ export class DuneService {
    * - Based on Pump.fun model: ~0.05%-0.1% of launched tokens
    * - Approximately 0.08% of launched tokens
    * 
-   * TODO: When Dune query for market cap data becomes available:
-   *   runners = count(tokens where market_cap_usd >= 500000)
+   * TODO: PROPER FIX - Create/find a Dune query that counts tokens with market cap ≥ $500K
+   *   Query ID: XXXXX (to be added)
+   *   Then replace getStableRunnerCount() with: const runnersData = await this.executeQuery(XXXXX);
+   *   And use: const runners = this.extractRunnerCount(runnersData);
    */
   private async fetchFromDune(timeframe: string = '7 days'): Promise<MemecoinStats> {
     try {
@@ -109,23 +114,24 @@ export class DuneService {
       // Query 5131612: Daily Graduates - Solana Memecoin Launch Pads
       const dailyGraduatesData = await this.executeQuery(5131612);
       
+      // TODO: ADD A NEW QUERY ID FOR RUNNERS
+      // Query XXXXX: Tokens with Market Cap >= $500K (last 24h or 7 days)
+      // const runnersData = await this.executeQuery(XXXXX);
+      
       // Extract daily counts from most recent data
       const launched = this.extractDailyCount(dailyDeployedData);
       const graduated = this.extractDailyCount(dailyGraduatesData);
       
-      // Client's Runners Logic:
-      // - Runners = tokens with market cap ≥ $500K
-      // - Approximate using 0.05%-0.1% range (avg ~0.08%)
-      // - Conservative estimate: 0.0008 (0.08% of launched)
-      const runnerRatio = 0.0008; // 0.08% - midpoint between 0.05% and 0.1%
-      const runners = Math.max(1, Math.round(launched * runnerRatio));
+      // TEMPORARY FIX: Use a rolling average to smooth out erratic jumps
+      // This prevents volatile changes while you set up the proper Dune query
+      const runners = await this.getStableRunnerCount(launched);
       
-      this.logger.log(`📊 Daily Stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners.toLocaleString()} (${(runnerRatio * 100).toFixed(2)}%)`);
+      this.logger.log(`📊 Daily Stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners.toLocaleString()}`);
       
       return {
         dailyTokensDeployed: launched,
         dailyGraduates: graduated,
-        topTokensLast7Days: runners, // 0.05%-0.1% of launched (market cap ≥ $500K)
+        topTokensLast7Days: runners,
         lastUpdated: new Date().toISOString(),
         timeframe: timeframe,
       };
@@ -239,6 +245,64 @@ export class DuneService {
   }
 
   /**
+   * Provides stable runner count using rolling average
+   * This prevents erratic jumps caused by daily launch volatility
+   * 
+   * TEMPORARY FIX: Replace this with a proper Dune query when available
+   */
+  private async getStableRunnerCount(launched: number): Promise<number> {
+    // Calculate based on launched but use rolling average to smooth volatility
+    const runnerRatio = 0.0008; // 0.08% - midpoint between 0.05% and 0.1%
+    const calculatedRunners = Math.max(1, Math.round(launched * runnerRatio));
+    
+    // Keep last 10 values for rolling average
+    this.runnerHistory.push(calculatedRunners);
+    if (this.runnerHistory.length > 10) {
+      this.runnerHistory.shift();
+    }
+    
+    // Return rolling average (smoothed value)
+    const average = Math.round(
+      this.runnerHistory.reduce((sum, val) => sum + val, 0) / this.runnerHistory.length
+    );
+    
+    this.logger.debug(`Runners: calculated=${calculatedRunners}, smoothed=${average} (from ${this.runnerHistory.length} samples)`);
+    return average;
+  }
+
+  /**
+   * Extract runners count from Dune query data
+   * Use this when a proper Dune query for market cap ≥ $500K is available
+   */
+  private extractRunnerCount(rows: any[]): number {
+    try {
+      if (!rows || rows.length === 0) {
+        this.logger.warn('No runner data returned from Dune query');
+        return 8; // fallback
+      }
+      
+      // Adjust based on your Dune query structure
+      const latestRow = rows[0];
+      
+      // If your query has a 'runners' or 'tokens_above_500k' field:
+      const runners = (
+        latestRow?.runners ||
+        latestRow?.tokens_above_500k ||
+        latestRow?.market_cap_above_500k ||
+        latestRow?.count ||
+        latestRow?.total ||
+        latestRow?.value ||
+        8 // fallback
+      );
+      
+      return Number(runners) || 8;
+    } catch (error) {
+      this.logger.error(`Failed to extract runner count: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return 8;
+    }
+  }
+
+  /**
    * Fallback stats when Dune is unavailable
    * Using realistic pump.fun-style numbers based on client requirements
    * 
@@ -258,8 +322,18 @@ export class DuneService {
     // Client's Runners Logic:
     // - Runners = tokens with market cap ≥ $500K
     // - Approximate using 0.05%-0.1% range (avg ~0.08%)
+    // Use rolling average for stability in fallback mode too
     const runnerRatio = 0.0008; // 0.08% of launched
-    const runners = Math.max(1, Math.round(launched * runnerRatio));
+    const calculatedRunners = Math.max(1, Math.round(launched * runnerRatio));
+    
+    // Apply rolling average for fallback stats too
+    this.runnerHistory.push(calculatedRunners);
+    if (this.runnerHistory.length > 10) {
+      this.runnerHistory.shift();
+    }
+    const runners = Math.round(
+      this.runnerHistory.reduce((sum, val) => sum + val, 0) / this.runnerHistory.length
+    );
     
     this.logger.warn(`⚠️  Using fallback stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners}`);
     
