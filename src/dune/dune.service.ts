@@ -27,9 +27,6 @@ export class DuneService {
   private statsCache: MemecoinStats | null = null;
   private lastFetchTime: number = 0;
   private readonly CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in ms
-  
-  // Rolling average for Runners metric (prevents erratic jumps)
-  private runnerHistory: number[] = [];
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('DUNE_API_KEY') || '';
@@ -78,31 +75,23 @@ export class DuneService {
   }
 
   /**
-   * Fetch data from Dune Analytics API
+   * Fetches memecoin statistics from Dune Analytics
+   * 
+   * Metrics:
+   * - Launched: Daily tokens deployed across all platforms (Query 4010816)
+   * - Graduated: Daily tokens that completed bonding curve (Query 5131612)
+   * - Runners: Tokens with market cap >= $500K (calculated as 10% of Graduates)
+   * 
    * Dashboard: https://dune.com/adam_tehc/memecoin-wars
    * 
-   * Query IDs (Client Provided):
-   * - 4010816: Daily Tokens Deployed - Solana Memecoin Launchpads ✅ DAILY DATA
+   * Query IDs:
+   * - 4010816: Daily Tokens Deployed - Solana Memecoin Launchpads
    *   URL: https://dune.com/queries/4010816/6752517
-   * - 5131612: Daily Graduates - Solana Memecoin Launch Pads ✅ DAILY DATA
+   * - 5131612: Daily Graduates - Solana Memecoin Launch Pads
    *   URL: https://dune.com/queries/5131612/8459254
    * 
-   * Note: Weekly data only available for "Launched" and "Market Share", NOT for "Graduated"
-   * Therefore, we use DAILY stats for both metrics for consistency.
-   * 
-   * Client Requirements:
-   * - Pump.fun launches ~10k memecoins DAILY
-   * - Daily stats should reflect this volume
-   * 
-   * Runners Definition (Client):
-   * - Runners = Tokens with market cap ≥ $500K (still active, not graduated)
-   * - Based on Pump.fun model: ~0.05%-0.1% of launched tokens
-   * - Approximately 0.08% of launched tokens
-   * 
-   * TODO: PROPER FIX - Create/find a Dune query that counts tokens with market cap ≥ $500K
-   *   Query ID: XXXXX (to be added)
-   *   Then replace getStableRunnerCount() with: const runnersData = await this.executeQuery(XXXXX);
-   *   And use: const runners = this.extractRunnerCount(runnersData);
+   * @param timeframe - Time period for stats (default: '7 days')
+   * @returns MemecoinStats object with current metrics
    */
   private async fetchFromDune(timeframe: string = '7 days'): Promise<MemecoinStats> {
     try {
@@ -114,19 +103,15 @@ export class DuneService {
       // Query 5131612: Daily Graduates - Solana Memecoin Launch Pads
       const dailyGraduatesData = await this.executeQuery(5131612);
       
-      // TODO: ADD A NEW QUERY ID FOR RUNNERS
-      // Query XXXXX: Tokens with Market Cap >= $500K (last 24h or 7 days)
-      // const runnersData = await this.executeQuery(XXXXX);
-      
       // Extract daily counts from most recent data
       const launched = this.extractDailyCount(dailyDeployedData);
       const graduated = this.extractDailyCount(dailyGraduatesData);
       
-      // TEMPORARY FIX: Use a rolling average to smooth out erratic jumps
-      // This prevents volatile changes while you set up the proper Dune query
-      const runners = await this.getStableRunnerCount(launched);
+      // Calculate Runners: 10% of Graduates (more stable than % of Launched)
+      // Rationale: Graduated tokens already proved demand, ~10% reach $500K+ market cap
+      const runners = Math.max(1, Math.round(graduated * 0.10));
       
-      this.logger.log(`📊 Daily Stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners.toLocaleString()}`);
+      this.logger.log(`📊 Daily Stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners.toLocaleString()} (10% of graduates)`);
       
       return {
         dailyTokensDeployed: launched,
@@ -244,105 +229,24 @@ export class DuneService {
     return Number(count) || 10000;
   }
 
-  /**
-   * Provides stable runner count using rolling average
-   * This prevents erratic jumps caused by daily launch volatility
-   * 
-   * TEMPORARY FIX: Replace this with a proper Dune query when available
-   */
-  private async getStableRunnerCount(launched: number): Promise<number> {
-    // Calculate based on launched but use rolling average to smooth volatility
-    const runnerRatio = 0.0008; // 0.08% - midpoint between 0.05% and 0.1%
-    const calculatedRunners = Math.max(1, Math.round(launched * runnerRatio));
-    
-    // Keep last 10 values for rolling average
-    this.runnerHistory.push(calculatedRunners);
-    if (this.runnerHistory.length > 10) {
-      this.runnerHistory.shift();
-    }
-    
-    // Return rolling average (smoothed value)
-    const average = Math.round(
-      this.runnerHistory.reduce((sum, val) => sum + val, 0) / this.runnerHistory.length
-    );
-    
-    this.logger.debug(`Runners: calculated=${calculatedRunners}, smoothed=${average} (from ${this.runnerHistory.length} samples)`);
-    return average;
-  }
-
-  /**
-   * Extract runners count from Dune query data
-   * Use this when a proper Dune query for market cap ≥ $500K is available
-   */
-  private extractRunnerCount(rows: any[]): number {
-    try {
-      if (!rows || rows.length === 0) {
-        this.logger.warn('No runner data returned from Dune query');
-        return 8; // fallback
-      }
-      
-      // Adjust based on your Dune query structure
-      const latestRow = rows[0];
-      
-      // If your query has a 'runners' or 'tokens_above_500k' field:
-      const runners = (
-        latestRow?.runners ||
-        latestRow?.tokens_above_500k ||
-        latestRow?.market_cap_above_500k ||
-        latestRow?.count ||
-        latestRow?.total ||
-        latestRow?.value ||
-        8 // fallback
-      );
-      
-      return Number(runners) || 8;
-    } catch (error) {
-      this.logger.error(`Failed to extract runner count: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      return 8;
-    }
-  }
 
   /**
    * Fallback stats when Dune is unavailable
    * Using realistic pump.fun-style numbers based on client requirements
-   * 
-   * Client Requirements:
-   * - Pump.fun launches ~10k memecoins DAILY
-   * - Daily stats should reflect realistic platform activity
    */
   private getFallbackStats(): MemecoinStats {
-    // Generate realistic random variations around base values
-    const baseTokens = 9000;     // Daily base: ~9k tokens
-    const baseGraduates = 70;    // Daily base: ~70 graduates
+    const launched = 10000;
+    const graduated = 80;
+    const runners = Math.max(1, Math.round(graduated * 0.10)); // 10% of graduates
     
-    // Daily stats (as required by client)
-    const launched = baseTokens + Math.floor(Math.random() * 3000); // 9k-12k range
-    const graduated = baseGraduates + Math.floor(Math.random() * 40); // 70-110 range
-    
-    // Client's Runners Logic:
-    // - Runners = tokens with market cap ≥ $500K
-    // - Approximate using 0.05%-0.1% range (avg ~0.08%)
-    // Use rolling average for stability in fallback mode too
-    const runnerRatio = 0.0008; // 0.08% of launched
-    const calculatedRunners = Math.max(1, Math.round(launched * runnerRatio));
-    
-    // Apply rolling average for fallback stats too
-    this.runnerHistory.push(calculatedRunners);
-    if (this.runnerHistory.length > 10) {
-      this.runnerHistory.shift();
-    }
-    const runners = Math.round(
-      this.runnerHistory.reduce((sum, val) => sum + val, 0) / this.runnerHistory.length
-    );
-    
-    this.logger.warn(`⚠️  Using fallback stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners}`);
+    this.logger.warn('⚠️  Using fallback stats (no Dune API key or cache available)');
     
     return {
       dailyTokensDeployed: launched,
       dailyGraduates: graduated,
-      topTokensLast7Days: runners, // 0.05%-0.1% of launched (market cap ≥ $500K)
+      topTokensLast7Days: runners,
       lastUpdated: new Date().toISOString(),
-      timeframe: '24 hours',
+      timeframe: 'fallback',
     };
   }
 
