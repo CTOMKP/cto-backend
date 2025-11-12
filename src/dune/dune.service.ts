@@ -32,6 +32,9 @@ export class DuneService {
     this.apiKey = this.configService.get<string>('DUNE_API_KEY') || '';
     if (!this.apiKey) {
       this.logger.warn('⚠️  DUNE_API_KEY not configured - using fallback stats');
+      this.logger.warn('⚠️  Set DUNE_API_KEY in environment variables to fetch live data from Dune Analytics');
+    } else {
+      this.logger.log('✅ DUNE_API_KEY configured - will fetch live data from Dune Analytics');
     }
   }
 
@@ -49,9 +52,11 @@ export class DuneService {
 
     // If no API key, return fallback stats
     if (!this.apiKey) {
+      this.logger.warn('⚠️  No DUNE_API_KEY - returning fallback stats');
       return this.getFallbackStats();
     }
 
+    this.logger.log(`🔄 Fetching fresh stats from Dune Analytics (timeframe: ${timeframe})`);
     try {
       // Fetch fresh data from Dune
       const stats = await this.fetchFromDune(timeframe);
@@ -60,16 +65,21 @@ export class DuneService {
       this.statsCache = stats;
       this.lastFetchTime = now;
       
+      this.logger.log(`✅ Successfully fetched stats: Launched=${stats.dailyTokensDeployed}, Graduated=${stats.dailyGraduates}, Runners=${stats.topTokensLast7Days}`);
       return stats;
     } catch (error) {
-      this.logger.error(`Failed to fetch Dune stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(`❌ Failed to fetch Dune stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (error instanceof Error && error.stack) {
+        this.logger.error(`Stack trace: ${error.stack}`);
+      }
       
       // Return cached data if available, otherwise fallback
       if (this.statsCache) {
-        this.logger.warn('Using stale cached stats due to fetch error');
+        this.logger.warn('⚠️  Using stale cached stats due to fetch error');
         return this.statsCache;
       }
       
+      this.logger.warn('⚠️  No cache available - returning fallback stats');
       return this.getFallbackStats();
     }
   }
