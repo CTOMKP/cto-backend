@@ -23,10 +23,10 @@ export class DuneService {
   private readonly apiKey: string;
   private readonly baseUrl = 'https://api.dune.com/api/v1';
   
-  // Cache for stats (refresh every 10 minutes)
+  // Cache for stats (refresh every 30 minutes to reduce API calls and avoid rate limits)
   private statsCache: MemecoinStats | null = null;
   private lastFetchTime: number = 0;
-  private readonly CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in ms
+  private readonly CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in ms (increased to reduce rate limit issues)
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('DUNE_API_KEY') || '';
@@ -156,6 +156,23 @@ export class DuneService {
 
       if (!executeResponse.ok) {
         const errorText = await executeResponse.text();
+        
+        // Handle rate limiting on initial execute
+        if (executeResponse.status === 429) {
+          const retryAfter = executeResponse.headers.get('Retry-After');
+          const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000; // Default 60s
+          
+          this.logger.warn(`⚠️  Rate limited (429) on query ${queryId} execute. Waiting ${waitTime / 1000}s...`);
+          
+          // Retry after waiting if we have retries left
+          if (retryCount < maxRetries) {
+            await this.sleep(waitTime);
+            return this.executeQuery(queryId, retryCount + 1);
+          }
+          
+          throw new Error('Too Many Requests - Rate limit exceeded. Please upgrade Dune plan or wait before retrying.');
+        }
+        
         this.logger.error(`Dune API execute failed (${executeResponse.status}): ${errorText}`);
         throw new Error(`Dune API execute failed: ${executeResponse.statusText}`);
       }
@@ -181,6 +198,17 @@ export class DuneService {
 
         if (!statusResponse.ok) {
           const errorText = await statusResponse.text();
+          
+          // Handle rate limiting (429) with exponential backoff
+          if (statusResponse.status === 429) {
+            const retryAfter = statusResponse.headers.get('Retry-After');
+            const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : Math.min(60000, 5000 * Math.pow(2, attempts)); // Max 60s, exponential backoff
+            
+            this.logger.warn(`⚠️  Rate limited (429) on query ${queryId}. Waiting ${waitTime / 1000}s before retry...`);
+            await this.sleep(waitTime);
+            continue; // Continue polling instead of throwing
+          }
+          
           this.logger.error(`Dune API status check failed (${statusResponse.status}): ${errorText}`);
           throw new Error(`Dune API status check failed: ${statusResponse.statusText}`);
         }
@@ -211,11 +239,22 @@ export class DuneService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Execute query ${queryId} failed (attempt ${retryCount + 1}): ${errorMessage}`);
       
-      // Retry on timeout if we haven't exceeded max retries
-      if (errorMessage.includes('timeout') && retryCount < maxRetries) {
-        this.logger.warn(`Retrying query ${queryId} in 5 seconds... (${retryCount + 1}/${maxRetries})`);
-        await this.sleep(5000); // Wait 5 seconds before retry
+      // Retry on timeout or rate limit if we haven't exceeded max retries
+      const isRateLimit = errorMessage.includes('Too Many Requests') || errorMessage.includes('429');
+      const isTimeout = errorMessage.includes('timeout');
+      
+      if ((isTimeout || isRateLimit) && retryCount < maxRetries) {
+        // Exponential backoff: 10s, 20s, 40s
+        const waitTime = 10000 * Math.pow(2, retryCount);
+        this.logger.warn(`Retrying query ${queryId} in ${waitTime / 1000}s... (${retryCount + 1}/${maxRetries})`);
+        await this.sleep(waitTime);
         return this.executeQuery(queryId, retryCount + 1);
+      }
+      
+      // If rate limited and no retries left, return empty array to trigger fallback
+      if (isRateLimit) {
+        this.logger.error(`⚠️  Rate limited on query ${queryId} - using fallback stats. Consider upgrading Dune plan or increasing cache duration.`);
+        return []; // Return empty to trigger fallback
       }
       
       throw error;
