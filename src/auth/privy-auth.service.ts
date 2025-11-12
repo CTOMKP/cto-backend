@@ -75,25 +75,63 @@ export class PrivyAuthService {
 
       // Check for embedded wallet in user.wallet
       if (user.wallet?.address) {
-        this.logger.log(`Adding embedded wallet: ${user.wallet.address}`);
+        const chainType = user.wallet.chainType || 'ethereum';
+        this.logger.log(`Adding embedded wallet: ${user.wallet.address} (${chainType})`);
+        
+        // Map chain types to our blockchain enum
+        let blockchain: string;
+        if (chainType === 'aptos' || chainType === 'movement') {
+          blockchain = 'MOVEMENT'; // Movement wallets are detected as 'aptos' chainType
+        } else if (chainType === 'ethereum') {
+          blockchain = 'ETHEREUM';
+        } else if (chainType === 'solana') {
+          blockchain = 'SOLANA';
+        } else {
+          blockchain = 'OTHER';
+        }
+
         wallets.push({
           id: 'embedded',
           address: user.wallet.address,
-          chainType: user.wallet.chainType || 'ethereum',
+          chainType: chainType,
+          blockchain: blockchain,
           walletClient: 'privy',
-          type: 'wallet'
+          type: 'PRIVY_EMBEDDED'
         });
       }
 
-      // Check for wallets in linkedAccounts
+      // Check for wallets in linkedAccounts (including Movement wallets)
       if (user.linkedAccounts) {
         const linkedWallets = user.linkedAccounts.filter(
           (account: any) => account.type === 'wallet' && account.address
         );
+        
         linkedWallets.forEach((w: any) => {
-          this.logger.log(`Adding linked wallet: ${w.address} (${w.chainType})`);
+          const chainType = w.chainType || 'ethereum';
+          let blockchain: string;
+          
+          // Movement wallets are detected as chainType === 'aptos' (Aptos-compatible)
+          if (chainType === 'aptos' || chainType === 'movement') {
+            blockchain = 'MOVEMENT';
+          } else if (chainType === 'ethereum') {
+            blockchain = 'ETHEREUM';
+          } else if (chainType === 'solana') {
+            blockchain = 'SOLANA';
+          } else {
+            blockchain = 'OTHER';
+          }
+
+          this.logger.log(`Adding linked wallet: ${w.address} (${chainType} -> ${blockchain})`);
+          
+          wallets.push({
+            id: w.id,
+            address: w.address,
+            chainType: chainType,
+            blockchain: blockchain,
+            walletClient: w.walletClient || 'external',
+            type: 'PRIVY_EXTERNAL'
+          });
         });
-        wallets.push(...linkedWallets);
       }
 
       this.logger.log(`✅ Total wallets found: ${wallets.length}`);

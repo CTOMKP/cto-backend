@@ -384,7 +384,8 @@ export class PrivyAuthController {
       'arbitrum': 'ETHEREUM',
       'optimism': 'ETHEREUM',
       'bsc': 'BSC',
-      'aptos': 'APTOS',
+      'aptos': 'MOVEMENT', // Movement wallets are detected as 'aptos' chainType (Aptos-compatible)
+      'movement': 'MOVEMENT',
     };
     return mapping[chainType?.toLowerCase()] || 'UNKNOWN';
   }

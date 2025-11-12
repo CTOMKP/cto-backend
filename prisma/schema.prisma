@@ -74,7 +74,8 @@ enum Chain {
   BSC
   SUI
   BASE
-  APTOS
+  APTOS      // Keep for backward compatibility
+  MOVEMENT   // NEW - Movement Network (Aptos-compatible)
   NEAR
   OSMOSIS
   OTHER
