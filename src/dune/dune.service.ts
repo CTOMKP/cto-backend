@@ -23,10 +23,10 @@ export class DuneService {
   private readonly apiKey: string;
   private readonly baseUrl = 'https://api.dune.com/api/v1';
   
-  // Cache for stats (refresh every 30 minutes to reduce API calls and avoid rate limits)
+  // Cache for stats (refresh every 60 minutes to reduce API calls and avoid rate limits)
   private statsCache: MemecoinStats | null = null;
   private lastFetchTime: number = 0;
-  private readonly CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in ms (increased to reduce rate limit issues)
+  private readonly CACHE_DURATION = 60 * 60 * 1000; // 60 minutes in ms (increased to reduce rate limit issues)
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('DUNE_API_KEY') || '';
@@ -46,7 +46,8 @@ export class DuneService {
     // Return cached data if still fresh
     const now = Date.now();
     if (this.statsCache && (now - this.lastFetchTime < this.CACHE_DURATION)) {
-      this.logger.debug('Returning cached stats');
+      const cacheAge = Math.round((now - this.lastFetchTime) / 1000 / 60); // Age in minutes
+      this.logger.debug(`Returning cached stats (${cacheAge} minutes old, valid for ${this.CACHE_DURATION / 1000 / 60} minutes)`);
       return this.statsCache;
     }
 
@@ -73,13 +74,15 @@ export class DuneService {
         this.logger.error(`Stack trace: ${error.stack}`);
       }
       
-      // Return cached data if available, otherwise fallback
+      // Return cached data if available (even if stale), otherwise fallback
       if (this.statsCache) {
-        this.logger.warn('⚠️  Using stale cached stats due to fetch error');
+        const cacheAge = Math.round((now - this.lastFetchTime) / 1000 / 60); // Age in minutes
+        this.logger.warn(`⚠️  Using stale cached stats (${cacheAge} minutes old) due to fetch error`);
         return this.statsCache;
       }
       
       this.logger.warn('⚠️  No cache available - returning fallback stats');
+      this.logger.warn('⚠️  This usually means Dune API is rate limited. Stats will update once rate limit clears.');
       return this.getFallbackStats();
     }
   }
