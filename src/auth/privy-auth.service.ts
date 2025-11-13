@@ -101,12 +101,26 @@ export class PrivyAuthService {
       }
 
       // Check for wallets in linkedAccounts (including Movement wallets)
+      // Track addresses we've already added to avoid duplicates
+      const addedAddresses = new Set<string>();
+      if (user.wallet?.address) {
+        addedAddresses.add(user.wallet.address.toLowerCase());
+      }
+
       if (user.linkedAccounts) {
         const linkedWallets = user.linkedAccounts.filter(
           (account: any) => account.type === 'wallet' && account.address
         );
         
         linkedWallets.forEach((w: any) => {
+          const walletAddress = w.address?.toLowerCase();
+          
+          // Skip if we already added this address (avoid duplicates)
+          if (walletAddress && addedAddresses.has(walletAddress)) {
+            this.logger.log(`Skipping duplicate wallet: ${w.address}`);
+            return;
+          }
+          
           const chainType = w.chainType || 'ethereum';
           let blockchain: string;
           
@@ -121,15 +135,32 @@ export class PrivyAuthService {
             blockchain = 'OTHER';
           }
 
-          this.logger.log(`Adding linked wallet: ${w.address} (${chainType} -> ${blockchain})`);
+          // Determine wallet type based on connectorType and walletClientType
+          let walletType = 'PRIVY_EXTERNAL';
+          let walletClient = w.walletClientType || w.walletClient || 'external';
+          
+          // If it's an embedded wallet (connectorType === 'embedded'), mark it as embedded
+          if (w.connectorType === 'embedded') {
+            walletType = 'PRIVY_EMBEDDED';
+            walletClient = 'privy';
+          } else if (w.connectorType === 'injected') {
+            // Injected wallets are external wallets like MetaMask
+            walletClient = w.walletClientType || 'metamask'; // MetaMask, Coinbase Wallet, etc.
+          }
+
+          this.logger.log(`Adding linked wallet: ${w.address} (${chainType} -> ${blockchain}, type: ${walletType}, client: ${walletClient})`);
+          
+          if (walletAddress) {
+            addedAddresses.add(walletAddress);
+          }
           
           wallets.push({
             id: w.id,
             address: w.address,
             chainType: chainType,
             blockchain: blockchain,
-            walletClient: w.walletClient || 'external',
-            type: 'PRIVY_EXTERNAL'
+            walletClient: walletClient,
+            type: walletType
           });
         });
       }
