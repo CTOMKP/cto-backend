@@ -160,6 +160,12 @@ export class DuneService {
       if (!executeResponse.ok) {
         const errorText = await executeResponse.text();
         
+        // Handle payment required (402) - Dune plan needs upgrade
+        if (executeResponse.status === 402) {
+          this.logger.error(`💳 Payment Required (402) - Dune API plan needs upgrade. Visit https://dune.com/pricing`);
+          throw new Error('Payment Required - Dune API plan needs to be upgraded. Please upgrade at https://dune.com/pricing');
+        }
+        
         // Handle rate limiting on initial execute
         if (executeResponse.status === 429) {
           const retryAfter = executeResponse.headers.get('Retry-After');
@@ -202,6 +208,12 @@ export class DuneService {
         if (!statusResponse.ok) {
           const errorText = await statusResponse.text();
           
+          // Handle payment required (402) - Dune plan needs upgrade
+          if (statusResponse.status === 402) {
+            this.logger.error(`💳 Payment Required (402) - Dune API plan needs upgrade. Visit https://dune.com/pricing`);
+            throw new Error('Payment Required - Dune API plan needs to be upgraded. Please upgrade at https://dune.com/pricing');
+          }
+          
           // Handle rate limiting (429) with exponential backoff
           if (statusResponse.status === 429) {
             const retryAfter = statusResponse.headers.get('Retry-After');
@@ -241,6 +253,13 @@ export class DuneService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Execute query ${queryId} failed (attempt ${retryCount + 1}): ${errorMessage}`);
+      
+      // Don't retry on payment required - user needs to upgrade plan
+      const isPaymentRequired = errorMessage.includes('Payment Required') || errorMessage.includes('402');
+      if (isPaymentRequired) {
+        this.logger.error(`💳 Payment Required - Dune API plan needs upgrade. Using fallback stats. Visit https://dune.com/pricing`);
+        return []; // Return empty to trigger fallback
+      }
       
       // Retry on timeout or rate limit if we haven't exceeded max retries
       const isRateLimit = errorMessage.includes('Too Many Requests') || errorMessage.includes('429');

@@ -63,13 +63,23 @@ export class S3StorageService implements StorageProvider {
   }
 
   async getPresignedDownloadUrl(key: string, filename: string, ttlSeconds = 900): Promise<string> {
+    // Sanitize filename: remove or replace invalid characters (keep spaces)
+    const sanitizedFilename = filename
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') // Replace invalid filename characters
+      .substring(0, 255); // Limit length
+    
+    // Encode filename for Content-Disposition header (RFC 5987)
+    // AWS S3 supports both filename and filename* formats
+    const encodedFilename = encodeURIComponent(sanitizedFilename);
+    const contentDisposition = `attachment; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`;
+    
     const cmd = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
-      ResponseContentDisposition: `attachment; filename="${filename}"`,
+      ResponseContentDisposition: contentDisposition,
     });
     const url = await getSignedUrl(this.s3, cmd, { expiresIn: ttlSeconds });
-    this.logger.debug(`Presigned DOWNLOAD: ${key} (ttl=${ttlSeconds}s)`);
+    this.logger.debug(`Presigned DOWNLOAD: ${key} -> ${sanitizedFilename} (ttl=${ttlSeconds}s)`);
     return url;
   }
 

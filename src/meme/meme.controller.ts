@@ -163,7 +163,26 @@ export class MemeController {
   async downloadMeme(@Param('id') id: string, @Res() res: Response) {
     try {
       const meme = await this.memeService.getMemeById(id);
-      const filename = meme.filename || 'download';
+      let filename = meme.filename || 'download';
+      
+      // Ensure filename has correct extension based on mimeType
+      if (meme.mimeType) {
+        const mimeToExt: Record<string, string> = {
+          'image/jpeg': '.jpg',
+          'image/jpg': '.jpg',
+          'image/png': '.png',
+          'image/gif': '.gif',
+          'image/webp': '.webp',
+          'image/svg+xml': '.svg',
+        };
+        
+        const extension = mimeToExt[meme.mimeType.toLowerCase()];
+        if (extension) {
+          // Remove any existing extension and add the correct one
+          const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+          filename = nameWithoutExt + extension;
+        }
+      }
       
       // Check if file exists in S3 before generating presigned URL
       if (this.storage && 'fileExists' in this.storage && typeof this.storage.fileExists === 'function') {
