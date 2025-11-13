@@ -72,39 +72,52 @@ export class PrivyAuthService {
 
       // Debug: Log what we got
       this.logger.log(`Privy returned - Has user.wallet: ${!!user.wallet}, LinkedAccounts: ${user.linkedAccounts?.length || 0}`);
-
-      // Check for embedded wallet in user.wallet
-      if (user.wallet?.address) {
-        const chainType = user.wallet.chainType || 'ethereum';
-        this.logger.log(`Adding embedded wallet: ${user.wallet.address} (${chainType})`);
-        
-        // Map chain types to our blockchain enum
-        let blockchain: string;
-        if (chainType === 'aptos' || chainType === 'movement') {
-          blockchain = 'MOVEMENT'; // Movement wallets are detected as 'aptos' chainType
-        } else if (chainType === 'ethereum') {
-          blockchain = 'ETHEREUM';
-        } else if (chainType === 'solana') {
-          blockchain = 'SOLANA';
-        } else {
-          blockchain = 'OTHER';
-        }
-
-        wallets.push({
-          id: 'embedded',
-          address: user.wallet.address,
-          chainType: chainType,
-          blockchain: blockchain,
-          walletClient: 'privy',
-          type: 'PRIVY_EMBEDDED'
-        });
-      }
-
-      // Check for wallets in linkedAccounts (including Movement wallets)
+      
       // Track addresses we've already added to avoid duplicates
       const addedAddresses = new Set<string>();
+
+      // IMPORTANT: Privy stores wallets in linkedAccounts, NOT in user.wallet
+      // user.wallet is just a reference to the primary wallet, which is already in linkedAccounts
+      // So we should ONLY process linkedAccounts to avoid duplicates
+      
+      // However, if user.wallet exists and is NOT in linkedAccounts, add it
+      // (This is a fallback for edge cases)
       if (user.wallet?.address) {
-        addedAddresses.add(user.wallet.address.toLowerCase());
+        const walletInLinkedAccounts = user.linkedAccounts?.some(
+          (acc: any) => acc.type === 'wallet' && 
+                       acc.address?.toLowerCase() === user.wallet.address.toLowerCase()
+        );
+        
+        if (!walletInLinkedAccounts) {
+          // Only add user.wallet if it's not already in linkedAccounts
+          const chainType = user.wallet.chainType || 'ethereum';
+          this.logger.log(`Adding user.wallet (not in linkedAccounts): ${user.wallet.address} (${chainType})`);
+          
+          // Map chain types to our blockchain enum
+          let blockchain: string;
+          if (chainType === 'aptos' || chainType === 'movement') {
+            blockchain = 'MOVEMENT';
+          } else if (chainType === 'ethereum') {
+            blockchain = 'ETHEREUM';
+          } else if (chainType === 'solana') {
+            blockchain = 'SOLANA';
+          } else {
+            blockchain = 'OTHER';
+          }
+
+          wallets.push({
+            id: 'embedded',
+            address: user.wallet.address,
+            chainType: chainType,
+            blockchain: blockchain,
+            walletClient: 'privy',
+            type: 'PRIVY_EMBEDDED'
+          });
+          
+          addedAddresses.add(user.wallet.address.toLowerCase());
+        } else {
+          this.logger.log(`Skipping user.wallet - already in linkedAccounts: ${user.wallet.address}`);
+        }
       }
 
       if (user.linkedAccounts) {
