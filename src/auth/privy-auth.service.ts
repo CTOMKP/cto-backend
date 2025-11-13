@@ -131,9 +131,21 @@ export class PrivyAuthService {
           walletClient: acc.walletClient
         })))}`);
         
-        // Filter for wallet accounts (both type === 'wallet' and wallets in linkedAccounts)
+        // Filter for wallet accounts
+        // MetaMask appears as type === 'wallet' in linkedAccounts, but Privy dashboard shows it as "Linked account"
+        // So we check for both: type === 'wallet' OR (has address AND connectorType === 'injected')
         const linkedWallets = user.linkedAccounts.filter(
-          (account: any) => account.type === 'wallet' && account.address
+          (account: any) => {
+            // Include if it's a wallet type
+            if (account.type === 'wallet' && account.address) {
+              return true;
+            }
+            // Also include if it's an injected wallet (MetaMask, etc.) even if type isn't 'wallet'
+            if (account.connectorType === 'injected' && account.address) {
+              return true;
+            }
+            return false;
+          }
         );
         
         linkedWallets.forEach((w: any) => {
@@ -173,7 +185,7 @@ export class PrivyAuthService {
           let walletType = 'PRIVY_EXTERNAL';
           let walletClient = 'external'; // Default
           
-          // Check connectorType first
+          // Check connectorType first - this is the most reliable indicator
           if (w.connectorType === 'embedded') {
             // Embedded wallets are Privy's managed wallets
             walletType = 'PRIVY_EMBEDDED';
@@ -181,22 +193,55 @@ export class PrivyAuthService {
           } else if (w.connectorType === 'injected') {
             // Injected wallets are external browser extensions (MetaMask, Coinbase Wallet, etc.)
             walletType = 'PRIVY_EXTERNAL';
-            // Try to get the actual wallet client name
-            walletClient = w.walletClientType || w.walletClient || 'metamask';
-            // Normalize common wallet names
-            if (walletClient.toLowerCase().includes('metamask')) {
+            // Try multiple fields to get the actual wallet client name
+            const clientName = w.walletClientType || w.walletClient || (w as any).walletClientName || '';
+            walletClient = clientName.toLowerCase();
+            
+            // Normalize common wallet names - check for MetaMask first
+            if (walletClient.includes('metamask') || (w as any).name?.toLowerCase().includes('metamask')) {
               walletClient = 'metamask';
-            } else if (walletClient.toLowerCase().includes('coinbase')) {
+            } else if (walletClient.includes('coinbase')) {
               walletClient = 'coinbase_wallet';
-            } else if (walletClient.toLowerCase().includes('phantom')) {
+            } else if (walletClient.includes('phantom')) {
               walletClient = 'phantom';
+            } else if (clientName) {
+              // Use the client name as-is if it exists
+              walletClient = clientName.toLowerCase();
+            } else {
+              // Default to metamask for injected wallets if we can't determine
+              walletClient = 'metamask';
             }
           } else {
-            // For other connector types, try to detect from walletClientType
+            // For other connector types, try to detect from walletClientType or walletClient
             if (w.walletClientType) {
               walletClient = w.walletClientType.toLowerCase();
+              // Check if it's MetaMask
+              if (walletClient.includes('metamask')) {
+                walletClient = 'metamask';
+                walletType = 'PRIVY_EXTERNAL';
+              } else if (walletClient.includes('coinbase')) {
+                walletClient = 'coinbase_wallet';
+                walletType = 'PRIVY_EXTERNAL';
+              } else if (walletClient.includes('phantom')) {
+                walletClient = 'phantom';
+                walletType = 'PRIVY_EXTERNAL';
+              }
             } else if (w.walletClient) {
               walletClient = w.walletClient.toLowerCase();
+              // Check if it's MetaMask
+              if (walletClient.includes('metamask')) {
+                walletClient = 'metamask';
+                walletType = 'PRIVY_EXTERNAL';
+              }
+            }
+            
+            // If still not identified and connectorType is missing, check if it matches known MetaMask address pattern
+            // MetaMask addresses are Ethereum addresses (0x...)
+            // But we can't reliably detect by address alone, so we'll default to embedded if no other info
+            if (walletClient === 'external' && !w.connectorType && chainType === 'ethereum') {
+              // If it's Ethereum and we don't know the connector type, assume it might be external
+              // But we need more info - log it for debugging
+              this.logger.warn(`⚠️ Unknown wallet type for ${w.address} - connectorType: ${w.connectorType}, walletClientType: ${w.walletClientType}`);
             }
           }
 
