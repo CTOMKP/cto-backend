@@ -90,6 +90,9 @@ export async function createApp() {
   // Allow enabling in production by setting ENABLE_SWAGGER=true
   const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
   if (enableSwagger) {
+    // Get API base URL from environment or use default
+    const apiBaseUrl = process.env.APP_URL || process.env.BACKEND_BASE_URL || 'https://api.ctomarketplace.com';
+    
     const config = new DocumentBuilder()
       .setTitle('CTO Marketplace API')
       .setDescription(`
@@ -98,29 +101,52 @@ export async function createApp() {
         • **Cross-Chain Transfers** - CCTP/Wormhole integration for USDC transfers
         • **Token Swaps** - Panora integration for buying/selling memecoins
         • **Wallet Funding** - Real blockchain funding instructions
-        • **Traditional Features** - Token scanning, listing, and vetting
+        • **Privy Authentication** - Wallet-based authentication with Movement Network support
+        • **Traditional Features** - Token scanning, listing, vetting, memes, and waitlist
+        
+        **Base URL**: ${apiBaseUrl}
+        
+        **Authentication**: Most endpoints require JWT Bearer token. Click "Authorize" button above to add your token.
       `)
       .setVersion('2.0')
+      .addServer(apiBaseUrl, 'Production API')
+      .addServer('http://localhost:3001', 'Local Development')
       .addBearerAuth(
         {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
           name: 'JWT',
-          description: 'Enter JWT token',
+          description: 'Enter JWT token obtained from /api/auth/login or /api/auth/privy/sync',
           in: 'header',
         },
         'JWT-auth',
       )
-      .addTag('auth', 'User Authentication & Registration')
+      .addTag('Authentication', 'Traditional email/password authentication')
+      .addTag('PrivyAuth', 'Privy wallet-based authentication (MetaMask, WalletConnect, etc.)')
       .addTag('circle', 'Circle Programmable Wallets - User management, wallet creation, balances')
       .addTag('transfers', 'Cross-Chain Transfers - CCTP/Wormhole for USDC movement')
       .addTag('funding', 'Wallet Funding - Deposit instructions and balance management')
-      .addTag('scan', 'Token Scanning & Vetting')
-      .addTag('listing', 'Project Listings & Management')
+      .addTag('Token Scanning', 'Token Scanning & Vetting - Analyze Solana tokens for safety')
+      .addTag('Listing', 'Project Listings & Management - Public project listings')
+      .addTag('UserListings', 'User-specific listings management')
+      .addTag('waitlist', 'Waitlist Management - Join and manage waitlist')
+      .addTag('stats', 'Statistics - Memecoin stats from Dune Analytics')
+      .addTag('Memes', 'Meme Management - Upload, download, and manage memes')
+      .addTag('payment', 'Payment Processing - Payment management')
+      .addTag('admin', 'Admin Operations - Administrative endpoints')
+      .addTag('Health', 'Health Check - API health and status')
+      .addTag('images', 'Image Management - Upload, view, and manage images')
+      .addTag('assets', 'Static Assets - Serve static assets from S3/CDN')
       .build();
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true, // Keep auth token after page refresh
+        tagsSorter: 'alpha', // Sort tags alphabetically
+        operationsSorter: 'alpha', // Sort operations alphabetically
+      },
+    });
   }
 
   await app.init();

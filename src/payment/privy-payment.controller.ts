@@ -1,6 +1,8 @@
 import { Controller, Post, Body, Get, Param, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { PrivyPaymentService } from './privy-payment.service';
 
+@ApiTags('payment')
 @Controller('payment/privy')
 export class PrivyPaymentController {
   private readonly logger = new Logger(PrivyPaymentController.name);
@@ -11,6 +13,18 @@ export class PrivyPaymentController {
    * Create a listing payment for Privy user
    */
   @Post('listing')
+  @ApiOperation({ summary: 'Create a listing payment for Privy user' })
+  @ApiResponse({ status: 201, description: 'Payment created successfully' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        userId: { type: 'number', example: 1 },
+        listingId: { type: 'string', example: 'cmhx1234567890' },
+        chain: { type: 'string', example: 'SOLANA', required: false },
+      },
+    },
+  })
   async createListingPayment(
     @Body('userId') userId: number,
     @Body('listingId') listingId: string,
@@ -24,6 +38,17 @@ export class PrivyPaymentController {
    * Verify a payment was completed
    */
   @Post('verify/:paymentId')
+  @ApiOperation({ summary: 'Verify a payment was completed' })
+  @ApiParam({ name: 'paymentId', description: 'Payment ID' })
+  @ApiResponse({ status: 200, description: 'Payment verified' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        txHash: { type: 'string', example: '0x123...', required: false },
+      },
+    },
+  })
   async verifyPayment(
     @Param('paymentId') paymentId: string,
     @Body('txHash') txHash?: string,
