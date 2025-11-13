@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Request, Logger, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { PrivyAuthService } from './privy-auth.service';
 import { AuthService } from './auth.service';
@@ -71,7 +71,15 @@ export class PrivyAuthController {
    */
   @ApiOperation({ 
     summary: 'Sync user from Privy', 
-    description: 'Verify Privy token, create/update user in DB, sync all wallets, and return JWT token' 
+    description: `Verify Privy token, create/update user in DB, sync all wallets, and return JWT token.
+    
+**⚠️ IMPORTANT**: You cannot create a Privy user directly in Swagger. Privy authentication happens on the frontend.
+    
+**To test this endpoint**:
+1. Login via frontend app (connect wallet via Privy UI)
+2. Get Privy token from browser console: \`await window.privy.getAccessToken()\`
+3. Use that token in the \`privyToken\` field below
+4. The response will include a JWT token - use that for other protected endpoints` 
   })
   @ApiBody({
     schema: {
@@ -392,23 +400,39 @@ export class PrivyAuthController {
 
   /**
    * Get current Privy user info (protected route)
+   * Uses JWT token from /sync endpoint to get user's Privy details
    */
   @ApiOperation({ 
     summary: 'Get current user info', 
-    description: 'Get Privy user details and wallets (requires Privy token)' 
+    description: 'Get Privy user details and wallets (requires JWT token from /sync endpoint)' 
   })
   @ApiBearerAuth('JWT-auth')
   @ApiResponse({ status: 200, description: 'User info retrieved' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @Get('me')
-  @UseGuards(PrivyAuthGuard)
-  async getMe(@Request() req) {
-    const privyUserId = req.user.userId;
-    const userDetails = await this.privyAuthService.getUserById(privyUserId);
+  @UseGuards(JwtAuthGuard)
+  async getMe(@Request() req: any) {
+    // Get user from JWT token (set by JwtAuthGuard)
+    const userId = req.user.userId;
+    const user = await this.authService.getUserById(userId);
+    
+    if (!user || !user.privyUserId) {
+      throw new UnauthorizedException('User not found or no Privy ID');
+    }
+    
+    // Get Privy user details using stored Privy user ID
+    const userDetails = await this.privyAuthService.getUserById(user.privyUserId);
+    const wallets = await this.privyAuthService.getUserWallets(user.privyUserId);
     
     return {
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        privyUserId: user.privyUserId,
+      },
       privyUser: userDetails,
-      wallets: await this.privyAuthService.getUserWallets(privyUserId),
+      wallets: wallets,
     };
   }
 
