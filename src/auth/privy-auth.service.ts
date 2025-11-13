@@ -108,6 +108,17 @@ export class PrivyAuthService {
       }
 
       if (user.linkedAccounts) {
+        // Log all linked accounts to see what Privy returns
+        this.logger.log(`📋 All linkedAccounts: ${JSON.stringify(user.linkedAccounts.map((acc: any) => ({
+          type: acc.type,
+          address: acc.address,
+          chainType: acc.chainType,
+          connectorType: acc.connectorType,
+          walletClientType: acc.walletClientType,
+          walletClient: acc.walletClient
+        })))}`);
+        
+        // Filter for wallet accounts (both type === 'wallet' and wallets in linkedAccounts)
         const linkedWallets = user.linkedAccounts.filter(
           (account: any) => account.type === 'wallet' && account.address
         );
