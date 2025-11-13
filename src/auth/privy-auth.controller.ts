@@ -438,10 +438,34 @@ export class PrivyAuthController {
 
   /**
    * Verify Privy token (utility endpoint)
+   * ⚠️ This endpoint verifies PRIVY tokens, not JWT tokens!
+   * Use this to check if a Privy access token (from frontend) is still valid.
+   * JWT tokens are automatically verified by JWT guards on protected endpoints.
    */
   @ApiOperation({ 
     summary: 'Verify Privy token', 
-    description: 'Check if a Privy access token is valid' 
+    description: `Check if a Privy access token is valid.
+    
+**⚠️ CRITICAL**: This endpoint verifies **Privy tokens** (ES256 algorithm), NOT JWT tokens (HS256 algorithm)!
+
+**How to identify token types:**
+- **Privy Token** (ES256): Starts with \`eyJhbGciOiJFUzI1NiIs...\` (decodes to \`{"alg":"ES256"...}\`)
+  - Get from: Browser cookies (\`privy-token\`) or \`await window.privy.getAccessToken()\`
+  - Used for: \`/api/auth/privy/verify\`, \`/api/auth/privy/sync\`
+  
+- **JWT Token** (HS256): Starts with \`eyJhbGciOiJIUzI1NiIs...\` (decodes to \`{"alg":"HS256"...}\`)
+  - Get from: Response of \`/api/auth/privy/sync\` or \`/api/auth/login\`
+  - Used for: All other protected endpoints (\`/me\`, \`/wallets\`, etc.)
+  - ❌ **DO NOT** use JWT tokens with this endpoint - they will be rejected!
+
+**Example Privy Token** (from browser console):
+\`eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZjVwSjNHSVdKUFdXcU16VlN4OG5FeURzVVRhcVg4aGtTLUYtZ3hFVU0ifQ.eyJzaWQiOiJjbWh4NTZrem0wMGlpa3cwYzltYjdiYmprIiwiaXNzIjoicHJpdnkuaW8iLCJpYXQiOjE3NjMwMjA5OTksImF1ZCI6ImNtZ3Y3NzIxczAwczNsNzBjcGNpMmUyc2EiLCJzdWIiOiJkaWQ6cHJpdnk6Y21oeDU2bDExMDBpa2t3MGN5ZGF4NzdrMiIsImV4cCI6MTc2MzAyNDU5OX0...\`
+
+**Testing in Swagger:**
+1. Login via frontend (https://www.ctomarketplace.com)
+2. Open browser DevTools → Application → Cookies
+3. Copy the \`privy-token\` cookie value
+4. Paste it here (NOT the JWT token from /sync response)` 
   })
   @ApiBody({
     schema: {
@@ -449,14 +473,36 @@ export class PrivyAuthController {
       properties: {
         token: {
           type: 'string',
-          description: 'Privy access token to verify',
-          example: 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9...'
+          description: 'Privy access token (ES256) - Get from browser cookies or getAccessToken(). NOT JWT token!',
+          example: 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZjVwSjNHSVdKUFdXcU16VlN4OG5FeURzVVRhcVg4aGtTLUYtZ3hFVU0ifQ...'
         }
       },
       required: ['token']
     }
   })
-  @ApiResponse({ status: 200, description: 'Token verification result' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Token verification result',
+    schema: {
+      type: 'object',
+      properties: {
+        valid: { type: 'boolean', example: true },
+        userId: { type: 'string', example: 'did:privy:cmhx...' },
+        claims: { type: 'object' }
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Invalid token',
+    schema: {
+      type: 'object',
+      properties: {
+        valid: { type: 'boolean', example: false },
+        error: { type: 'string', example: 'Invalid Privy authentication token' }
+      }
+    }
+  })
   @Post('verify')
   async verifyToken(@Body('token') token: string) {
     try {
@@ -500,9 +546,14 @@ export class PrivyAuthController {
    */
   @Post('create-aptos-wallet')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
     summary: 'Create Aptos wallet (Manual)', 
-    description: 'Create a server-generated Aptos wallet for payments on Aptos chain - called from user dashboard' 
+    description: `Create a server-generated Aptos wallet for payments on Aptos chain - called from user dashboard.
+
+**Authentication Required**: JWT token (from /sync response)
+
+**Note**: This endpoint is deprecated - Movement wallets are now created automatically via Privy.` 
   })
   @ApiResponse({ 
     status: 201, 
@@ -517,6 +568,7 @@ export class PrivyAuthController {
     }
   })
   @ApiResponse({ status: 400, description: 'User already has Aptos wallet' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
   @ApiResponse({ status: 500, description: 'Failed to create Aptos wallet' })
   async createAptosWalletManual(@Request() req: any) {
     try {
@@ -556,9 +608,19 @@ export class PrivyAuthController {
    */
   @Get('wallets')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
     summary: 'Get user wallets', 
-    description: 'Get all wallets for the authenticated user' 
+    description: `Get all wallets for the authenticated user.
+
+**Authentication Required**: JWT token (from /sync response)
+
+**Steps to test:**
+1. Call \`/api/auth/privy/sync\` with Privy token to get JWT token
+2. Click "Authorize" button at top of Swagger page
+3. Enter JWT token in format: \`Bearer <your-jwt-token>\` or just paste the token
+4. Click "Authorize" then "Close"
+5. Now execute this endpoint` 
   })
   @ApiResponse({ 
     status: 200, 
@@ -583,6 +645,7 @@ export class PrivyAuthController {
       }
     }
   })
+  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
   async getUserWallets(@Request() req: any) {
     try {
       const userId = req.user.userId;
@@ -616,9 +679,19 @@ export class PrivyAuthController {
    */
   @Post('sync-wallets')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
     summary: 'Sync user wallets from Privy', 
-    description: 'Manually sync all wallets from Privy API for the authenticated user' 
+    description: `Manually sync all wallets from Privy API for the authenticated user.
+
+**Authentication Required**: JWT token (from /sync response)
+
+**Steps to test:**
+1. Call \`/api/auth/privy/sync\` with Privy token to get JWT token
+2. Click "Authorize" button at top of Swagger page
+3. Enter JWT token in format: \`Bearer <your-jwt-token>\` or just paste the token
+4. Click "Authorize" then "Close"
+5. Now execute this endpoint` 
   })
   @ApiResponse({ 
     status: 200, 
@@ -632,6 +705,7 @@ export class PrivyAuthController {
       }
     }
   })
+  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
   async syncUserWallets(@Request() req: any) {
     try {
       const userId = req.user.userId;
