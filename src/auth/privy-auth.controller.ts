@@ -239,13 +239,13 @@ export class PrivyAuthController {
       if (userWallets && (userWallets as any).length > 0) {
         this.logToFile(`Found ${(userWallets as any).length} wallets from Privy API`);
         for (const wallet of (userWallets as any)) {
-          this.logToFile(`Syncing wallet: ${(wallet as any).address} (${(wallet as any).chainType})`);
+          this.logToFile(`Syncing wallet: ${(wallet as any).address} (${(wallet as any).chainType}, client: ${(wallet as any).walletClient}, type: ${(wallet as any).type})`);
           await this.authService.syncPrivyWallet(user.id, {
             privyWalletId: (wallet as any).id,
             address: (wallet as any).address,
             blockchain: this.mapChainType((wallet as any).chainType),
-            type: (wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL',
-            walletClient: (wallet as any).walletClient || 'privy',
+            type: (wallet as any).type || ((wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL'),
+            walletClient: (wallet as any).walletClient || 'external', // Use walletClient from getUserWallets, default to 'external' not 'privy'
             isPrimary: (userWallets as any)[0].id === (wallet as any).id,
           });
         }
@@ -295,13 +295,13 @@ export class PrivyAuthController {
               
               // Sync the retry wallets
               for (const wallet of (retryWallets as any)) {
-                this.logToFile(`Syncing retry wallet: ${(wallet as any).address} (${(wallet as any).chainType})`);
+                this.logToFile(`Syncing retry wallet: ${(wallet as any).address} (${(wallet as any).chainType}, client: ${(wallet as any).walletClient}, type: ${(wallet as any).type})`);
                 await this.authService.syncPrivyWallet(user.id, {
                   privyWalletId: (wallet as any).id,
                   address: (wallet as any).address,
                   blockchain: this.mapChainType((wallet as any).chainType),
-                  type: (wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL',
-                  walletClient: (wallet as any).walletClient || 'privy',
+                  type: (wallet as any).type || ((wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL'),
+                  walletClient: (wallet as any).walletClient || 'external', // Use walletClient from getUserWallets, default to 'external' not 'privy'
                   isPrimary: (retryWallets as any)[0].id === (wallet as any).id,
                 });
               }

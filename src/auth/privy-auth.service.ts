@@ -121,6 +121,16 @@ export class PrivyAuthService {
             return;
           }
           
+          // Log full wallet object to debug
+          this.logger.log(`🔍 Wallet object: ${JSON.stringify({
+            address: w.address,
+            chainType: w.chainType,
+            connectorType: w.connectorType,
+            walletClientType: w.walletClientType,
+            walletClient: w.walletClient,
+            type: w.type
+          })}`);
+          
           const chainType = w.chainType || 'ethereum';
           let blockchain: string;
           
@@ -137,18 +147,36 @@ export class PrivyAuthService {
 
           // Determine wallet type based on connectorType and walletClientType
           let walletType = 'PRIVY_EXTERNAL';
-          let walletClient = w.walletClientType || w.walletClient || 'external';
+          let walletClient = 'external'; // Default
           
-          // If it's an embedded wallet (connectorType === 'embedded'), mark it as embedded
+          // Check connectorType first
           if (w.connectorType === 'embedded') {
+            // Embedded wallets are Privy's managed wallets
             walletType = 'PRIVY_EMBEDDED';
             walletClient = 'privy';
           } else if (w.connectorType === 'injected') {
-            // Injected wallets are external wallets like MetaMask
-            walletClient = w.walletClientType || 'metamask'; // MetaMask, Coinbase Wallet, etc.
+            // Injected wallets are external browser extensions (MetaMask, Coinbase Wallet, etc.)
+            walletType = 'PRIVY_EXTERNAL';
+            // Try to get the actual wallet client name
+            walletClient = w.walletClientType || w.walletClient || 'metamask';
+            // Normalize common wallet names
+            if (walletClient.toLowerCase().includes('metamask')) {
+              walletClient = 'metamask';
+            } else if (walletClient.toLowerCase().includes('coinbase')) {
+              walletClient = 'coinbase_wallet';
+            } else if (walletClient.toLowerCase().includes('phantom')) {
+              walletClient = 'phantom';
+            }
+          } else {
+            // For other connector types, try to detect from walletClientType
+            if (w.walletClientType) {
+              walletClient = w.walletClientType.toLowerCase();
+            } else if (w.walletClient) {
+              walletClient = w.walletClient.toLowerCase();
+            }
           }
 
-          this.logger.log(`Adding linked wallet: ${w.address} (${chainType} -> ${blockchain}, type: ${walletType}, client: ${walletClient})`);
+          this.logger.log(`✅ Adding linked wallet: ${w.address} (${chainType} -> ${blockchain}, connectorType: ${w.connectorType}, walletType: ${walletType}, walletClient: ${walletClient})`);
           
           if (walletAddress) {
             addedAddresses.add(walletAddress);
