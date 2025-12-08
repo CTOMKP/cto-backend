@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Logger, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Request, Logger, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { PrivyAuthService } from './privy-auth.service';
 import { AuthService } from './auth.service';
@@ -201,15 +201,35 @@ export class PrivyAuthController {
 
       if (!user) {
         this.logger.log(`Creating NEW user in database...`);
-        // Create new user in our DB
-        user = await this.authService.register({
-          email,
-          password: `privy-${(privyUser as any).userId}`, // Placeholder password for Privy users
-        });
+        try {
+          // Create new user in our DB
+          user = await this.authService.register({
+            email,
+            password: `privy-${(privyUser as any).userId}`, // Placeholder password for Privy users
+          });
+          
+          this.logger.log(`✅ User created with ID: ${user.id}`);
+        } catch (registerError: any) {
+          // If email already exists (race condition or previous failed attempt), find the existing user
+          if (registerError.message?.includes('Email already in use') || 
+              (registerError instanceof BadRequestException && registerError.message?.includes('Email already in use'))) {
+            this.logger.warn(`Email already exists, finding existing user: ${email}`);
+            this.logToFile(`Email already exists, finding existing user: ${email}`);
+            user = await this.authService.findByEmail(email);
+            
+            if (!user) {
+              // Still can't find user, this is a real error
+              throw new BadRequestException(`Email ${email} already exists but user not found in database`);
+            }
+            
+            this.logger.log(`✅ Found existing user with ID: ${user.id}`);
+          } else {
+            // Re-throw other errors
+            throw registerError;
+          }
+        }
         
-        this.logger.log(`✅ User created with ID: ${user.id}`);
-        
-        // Store Privy user ID
+        // Store Privy user ID (for both new and existing users)
         this.logger.log(`Updating user with Privy fields...`);
         await this.authService.updateUser(user.id, {
           privyUserId: (privyUser as any).userId,
@@ -218,9 +238,9 @@ export class PrivyAuthController {
           lastLoginAt: new Date(),
         });
         
-        this.logger.log(`✅ Created new user from Privy: ${email} (ID: ${user.id})`);
+        this.logger.log(`✅ User synced from Privy: ${email} (ID: ${user.id})`);
         
-        // Verify user was actually created
+        // Verify user was actually created/found
         const verifyUser = await this.authService.getUserById(user.id);
         this.logger.log(`Verification - User in DB: ${!!verifyUser}, Email: ${verifyUser?.email}`);
       } else {

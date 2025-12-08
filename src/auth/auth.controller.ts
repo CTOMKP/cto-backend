@@ -63,7 +63,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('profile')
   async getProfile(@Request() req) {
-    return { id: req.user.userId, email: req.user.email };
+    const userId = req.user.sub || req.user.userId;
+    const user = await this.authService.getUserById(userId);
+    return { 
+      id: user.id, 
+      email: user.email,
+      avatarUrl: user.avatarUrl || null,
+      name: user.name || null,
+      bio: user.bio || null,
+    };
   }
 
   @ApiOperation({ summary: 'Logout user', description: 'Logout current authenticated user (token remains valid until expiration)' })
