@@ -109,7 +109,8 @@ export class PrivyAuthController {
             walletAddress: { type: 'string', example: '0x1234...' },
             role: { type: 'string', example: 'USER' },
             privyUserId: { type: 'string', example: 'did:privy:...' },
-            walletsCount: { type: 'number', example: 3 }
+            walletsCount: { type: 'number', example: 3 },
+            avatarUrl: { type: 'string', nullable: true, example: 'https://example.com/avatar.png' }
           }
         },
         token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
@@ -332,6 +333,9 @@ export class PrivyAuthController {
       const allUserWallets = await this.aptosWalletService.getUserWallets(user.id);
       this.logToFile(`Step 7: Retrieved ${allUserWallets?.length || 0} total wallets from database`);
 
+      // Refresh user data to get latest avatarUrl
+      const updatedUser = await this.authService.getUserById(user.id);
+      
       const response = {
         success: true,
         user: {
@@ -341,6 +345,7 @@ export class PrivyAuthController {
           role: user.role,
           privyUserId: (privyUser as any).userId,
           walletsCount: allUserWallets?.length || 0,
+          avatarUrl: (updatedUser as any).avatarUrl || null,
         },
         token: jwtToken.access_token,
         wallets: allUserWallets?.map(w => ({
