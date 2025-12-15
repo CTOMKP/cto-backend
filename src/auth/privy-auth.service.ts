@@ -95,7 +95,7 @@ export class PrivyAuthService {
           
           // Map chain types to our blockchain enum
           let blockchain: string;
-          if (chainType === 'aptos' || chainType === 'movement') {
+          if ((chainType as string) === 'aptos' || (chainType as string) === 'movement') {
             blockchain = 'MOVEMENT';
           } else if (chainType === 'ethereum') {
             blockchain = 'ETHEREUM';

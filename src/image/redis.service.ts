@@ -38,10 +38,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (url) {
-        this.client = createClient({ url, socket: { connectTimeout, keepAlive: true, noDelay: true } });
+        this.client = createClient({ url, socket: { connectTimeout, keepAlive: 60000, noDelay: true } });
       } else {
         this.client = createClient({
-          socket: { host, port, connectTimeout, keepAlive: true, noDelay: true },
+          socket: { host, port, connectTimeout, keepAlive: 60000, noDelay: true },
           password: password || undefined,
           database: db,
           commandsQueueMaxLength: 1000,

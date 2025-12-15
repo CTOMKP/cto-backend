@@ -18,6 +18,22 @@ export class TransferService {
 
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Map SupportedChains enum to Prisma Chain enum
+   */
+  private mapSupportedChainToPrismaChain(chain: SupportedChains): any {
+    const chainMap: Record<SupportedChains, any> = {
+      [SupportedChains.ETHEREUM]: 'ETHEREUM',
+      [SupportedChains.BASE]: 'BASE',
+      [SupportedChains.ARBITRUM]: 'ARBITRUM',
+      [SupportedChains.OPTIMISM]: 'OPTIMISM',
+      [SupportedChains.POLYGON]: 'POLYGON',
+      [SupportedChains.AVALANCHE]: 'OTHER', // Map to OTHER for now
+      [SupportedChains.SOLANA]: 'SOLANA',
+    };
+    return chainMap[chain] || 'UNKNOWN';
+  }
+
   private headers(userToken?: string): AxiosRequestHeaders {
     const h: AxiosRequestHeaders = {
       'Content-Type': 'application/json',
@@ -46,7 +62,7 @@ export class TransferService {
       let walletId = dto.walletId;
       if (!walletId) {
         const wallet = await this.prisma.wallet.findFirst({
-          where: { userId: user.id, blockchain: dto.sourceChain }
+          where: { userId: user.id, blockchain: this.mapSupportedChainToPrismaChain(dto.sourceChain) as any }
         });
         if (!wallet) throw new BadRequestException('No wallet found for source chain');
         walletId = wallet.circleWalletId;
@@ -128,10 +144,11 @@ export class TransferService {
   // Redeem USDC on destination chain using Wormhole
   async redeemWormholeTransfer(dto: WormholeAttestationDto, attestation: string) {
     try {
-      // Get user token
+      // Get user token - userId should be passed in the DTO, but we'll use a default for now
+      const userId = (dto as any).userId || 'user@example.com';
       const tokenResp = await axios.post(
         `${this.base}/users/token`,
-        { userId: dto.userId || 'user@example.com' }, // This should be passed in the DTO
+        { userId },
         { headers: this.headers() }
       );
       const userToken = tokenResp.data?.data?.userToken;
@@ -201,7 +218,7 @@ export class TransferService {
       if (!walletId) {
         // First try to find wallet on the requested chain
         let wallet = await this.prisma.wallet.findFirst({
-          where: { userId: user.id, blockchain: dto.chain }
+          where: { userId: user.id, blockchain: this.mapSupportedChainToPrismaChain(dto.chain) as any }
         });
         
         // If not found, try to find any wallet for the user
@@ -293,7 +310,7 @@ export class TransferService {
     if (!user) throw new BadRequestException('User not found');
 
     const wallet = await this.prisma.wallet.findFirst({
-      where: { userId: user.id, blockchain: chain }
+      where: { userId: user.id, blockchain: this.mapSupportedChainToPrismaChain(chain) as any }
     });
 
     if (!wallet) throw new BadRequestException(`No wallet found for ${chain}`);

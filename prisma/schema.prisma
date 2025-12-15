@@ -31,6 +31,7 @@ model User {
   lastLoginAt     DateTime?
   // Profile fields
   avatarUrl       String?        // Profile picture URL
+  bio             String?        // User bio
 
   // Relations
   wallets         Wallet[]

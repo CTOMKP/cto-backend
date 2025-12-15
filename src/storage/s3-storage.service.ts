@@ -28,8 +28,7 @@ export class S3StorageService implements StorageProvider {
       region: this.region,
       credentials: { accessKeyId, secretAccessKey },
       // Disable auto checksum headers on presigned PUTs so browsers don't need to send x-amz-checksum-*
-      // @ts-expect-error: property exists in newer AWS SDKs; casting below keeps TS happy on older versions.
-      requestChecksumCalculation: 'NEVER',
+      requestChecksumCalculation: 'NEVER' as any,
     } as any);
   }
 

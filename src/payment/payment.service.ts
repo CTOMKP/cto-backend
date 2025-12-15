@@ -27,10 +27,10 @@ export class PaymentService {
   constructor(private prisma: PrismaService) {}
 
   private headers(userToken?: string): AxiosRequestHeaders {
-    const h: AxiosRequestHeaders = {
+    const h: any = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${this.apiKey}`,
-    } as Record<string, string>;
+    };
     if (userToken) h['X-User-Token'] = userToken;
     return h;
   }
@@ -352,7 +352,7 @@ export class PaymentService {
       // Update payment status based on transfer status
       let paymentStatus = payment.status;
       if (transferStatus === 'COMPLETE' || transferStatus === 'CONFIRMED') {
-        paymentStatus = 'COMPLETED';
+        paymentStatus = 'COMPLETED' as any;
         
         // If this is a listing payment, publish the listing
         if (payment.paymentType === 'LISTING' && payment.listingId) {
@@ -407,7 +407,7 @@ export class PaymentService {
       const payments = await this.prisma.payment.findMany({
         where: {
           userId: user.id,
-          ...(paymentType && { paymentType })
+          ...(paymentType && { paymentType: paymentType as any })
         },
         orderBy: { createdAt: 'desc' }
       });

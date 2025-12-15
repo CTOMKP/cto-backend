@@ -21,7 +21,7 @@ export class PrivyPaymentController {
       properties: {
         userId: { type: 'number', example: 1 },
         listingId: { type: 'string', example: 'cmhx1234567890' },
-        chain: { type: 'string', example: 'SOLANA', required: false },
+        chain: { type: 'string', example: 'SOLANA' },
       },
     },
   })
@@ -45,7 +45,7 @@ export class PrivyPaymentController {
     schema: {
       type: 'object',
       properties: {
-        txHash: { type: 'string', example: '0x123...', required: false },
+        txHash: { type: 'string', example: '0x123...' },
       },
     },
   })

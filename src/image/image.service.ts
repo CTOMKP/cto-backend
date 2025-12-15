@@ -150,8 +150,9 @@ export class ImageService {
   }
 
   async getPresignedDownloadUrl(key: string, filename: string, ttlSeconds = this.defaultGetTtl): Promise<string> {
-    if (this.storage.getPresignedDownloadUrl) {
-      return this.storage.getPresignedDownloadUrl(key, filename, ttlSeconds);
+    // Check if storage provider has getPresignedDownloadUrl method (optional)
+    if ('getPresignedDownloadUrl' in this.storage && typeof (this.storage as any).getPresignedDownloadUrl === 'function') {
+      return (this.storage as any).getPresignedDownloadUrl(key, filename, ttlSeconds);
     }
     // Fallback to regular GET URL
     return this.storage.getPresignedGetUrl(key, ttlSeconds);
