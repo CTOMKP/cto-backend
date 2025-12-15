@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import helmet from 'helmet';
 import * as compression from 'compression';
 import { AppModule } from './app.module';
@@ -13,6 +14,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   });
+
+  // Use Socket.IO adapter for WebSockets
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
