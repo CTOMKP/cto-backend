@@ -1,167 +1,99 @@
-import 'reflect-metadata';
-import * as crypto from 'crypto';
-
-// Ensure crypto is available globally for NestJS Schedule
-if (typeof globalThis.crypto === 'undefined') {
-  globalThis.crypto = crypto.webcrypto as any;
-}
-
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe, Logger } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import helmet from 'helmet';
+import * as compression from 'compression';
 import { AppModule } from './app.module';
-import { ValidationPipe, INestApplication } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { Request, Response } from 'express';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
-export async function createApp() {
-  const app = await NestFactory.create(AppModule);
-  
-  // Enable CORS - Allow all origins for memes (public content)
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+  });
+
+  const configService = app.get(ConfigService);
+  const logger = new Logger('Bootstrap');
+
+  // Security middleware
+  app.use(helmet());
+  app.use(compression());
+
+  // CORS configuration
+  const corsOrigins = configService.get('CORS_ORIGIN', 'http://localhost:3000').split(',');
   app.enableCors({
-    origin: true, // Allow all origins since memes are public
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    origin: corsOrigins,
+    credentials: configService.get('CORS_CREDENTIALS', true),
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
 
   // Global validation pipe
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }));
-
-  // Add root-level endpoints BEFORE setting global prefix
-  const expressApp = app.getHttpAdapter().getInstance();
-  
-  // Root health check for Railway - Simple check that doesn't depend on DB
-  expressApp.get('/health', (req: Request, res: Response) => {
-    try {
-      res.status(200).json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        environment: process.env.NODE_ENV || 'development',
-        version: '1.0.0',
-        message: 'CTO Vetting API is running'
-      });
-    } catch (error) {
-      console.error('Health check error:', error);
-      res.status(500).json({
-        status: 'ERROR',
-        timestamp: new Date().toISOString(),
-        error: 'Health check failed'
-      });
-    }
-  });
-
-  // API info endpoint - BEFORE global prefix
-  expressApp.get('/api', (req: Request, res: Response) => {
-    res.json({
-      message: 'CTO Marketplace API',
-      version: '2.0.0',
-      features: [
-        'Circle Programmable Wallets',
-        'Cross-Chain USDC Transfers (CCTP/Wormhole)',
-        'Token Swaps (Panora)',
-        'Wallet Funding',
-        'Token Scanning & Vetting',
-        'Project Listings'
-      ],
-      endpoints: {
-        health: '/health',
-        auth: '/api/auth/*',
-        circle: '/api/circle/*',
-        transfers: '/api/transfers/*',
-        funding: '/api/funding/*',
-        scan: '/api/scan/*',
-        images: '/api/images/*',
-        listing: '/api/listing/*'
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
       },
-      documentation: (process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production')
-        ? '/api/docs'
-        : 'Disabled in production'
-    });
-  });
+    }),
+  );
 
-  // Global prefix - MUST be set AFTER custom routes but BEFORE Swagger
-  app.setGlobalPrefix('api');
+  // Global filters and interceptors
+  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(
+    new LoggingInterceptor(),
+    new TransformInterceptor(),
+  );
+
+  // API prefix
+  const apiPrefix = configService.get('API_PREFIX', 'api');
+  const apiVersion = configService.get('API_VERSION', 'v1');
+  app.setGlobalPrefix(`${apiPrefix}/${apiVersion}`);
 
   // Swagger documentation
-  // Allow enabling in production by setting ENABLE_SWAGGER=true
-  const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
-  if (enableSwagger) {
-    const config = new DocumentBuilder()
-      .setTitle('CTO Marketplace API')
-      .setDescription(`
-        Complete CTO Marketplace Backend API with:
-        • **Circle Programmable Wallets** - User authentication, wallet management, and custody
-        • **Cross-Chain Transfers** - CCTP/Wormhole integration for USDC transfers
-        • **Token Swaps** - Panora integration for buying/selling memecoins
-        • **Wallet Funding** - Real blockchain funding instructions
-        • **Traditional Features** - Token scanning, listing, and vetting
-      `)
-      .setVersion('2.0')
-      .addBearerAuth(
-        {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT',
-          name: 'JWT',
-          description: 'Enter JWT token',
-          in: 'header',
-        },
-        'JWT-auth',
-      )
-      .addTag('auth', 'User Authentication & Registration')
-      .addTag('circle', 'Circle Programmable Wallets - User management, wallet creation, balances')
-      .addTag('transfers', 'Cross-Chain Transfers - CCTP/Wormhole for USDC movement')
-      .addTag('funding', 'Wallet Funding - Deposit instructions and balance management')
-      .addTag('scan', 'Token Scanning & Vetting')
-      .addTag('listing', 'Project Listings & Management')
-      .build();
-    const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document);
-  }
+  const config = new DocumentBuilder()
+    .setTitle('CTOMarketplace API')
+    .setDescription('Premier platform for community-takenover crypto projects')
+    .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'JWT-auth',
+    )
+    .addTag('auth', 'Authentication endpoints')
+    .addTag('tokens', 'Token management and listing')
+    .addTag('vetting', 'Token vetting and risk assessment')
+    .addTag('monitoring', 'Token monitoring and alerts')
+    .addTag('users', 'User management')
+    .addTag('analytics', 'Analytics and reporting')
+    .build();
 
-  await app.init();
-  return app;
-}
-
-// Only run the server if this file is executed directly (not imported)
-if (require.main === module) {
-  createApp().then(async (app) => {
-    const PORT = process.env.PORT || 3001;
-    await app.listen(PORT);
-    
-    console.log(`🚀 CTO Vetting API running on port ${PORT}`);
-    console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 Database URL: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
-    console.log(`🏥 Health check: http://localhost:${PORT}/health`);
-    console.log(`📚 API Documentation available at: http://localhost:${PORT}/api/docs`);
-  }).catch(error => {
-    console.error('❌ Failed to start CTO Vetting API:', error);
-    process.exit(1);
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup(`${apiPrefix}/docs`, app, document, {
+    swaggerOptions: {
+      persistAuthorization: true,
+    },
   });
+
+  const port = configService.get('PORT', 3001);
+  await app.listen(port);
+
+  logger.log(`🚀 CTOMarketplace API is running on: http://localhost:${port}`);
+  logger.log(`📚 API Documentation: http://localhost:${port}/${apiPrefix}/docs`);
+  logger.log(`🌍 Environment: ${configService.get('NODE_ENV', 'development')}`);
 }
 
-// Export for Vercel serverless function
-let app: INestApplication;
-
-export default async (req: Request, res: Response) => {
-  try {
-    if (!app) {
-      console.log('Creating NestJS app for Vercel...');
-      app = await createApp();
-    }
-    
-    const handler = app.getHttpAdapter().getInstance();
-    return handler(req, res);
-  } catch (error) {
-    console.error('Error in Vercel function:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-};
-
+bootstrap().catch((error) => {
+  console.error('Failed to start application:', error);
+  process.exit(1);
+});
