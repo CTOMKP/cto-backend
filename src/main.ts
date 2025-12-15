@@ -49,6 +49,11 @@ async function bootstrap() {
     new TransformInterceptor(),
   );
 
+  // Root-level health check endpoint (for Coolify/Railway health checks)
+  app.getHttpAdapter().get('/health', (req, res) => {
+    res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  });
+
   // API prefix
   const apiPrefix = configService.get('API_PREFIX', 'api');
   const apiVersion = configService.get('API_VERSION', 'v1');
