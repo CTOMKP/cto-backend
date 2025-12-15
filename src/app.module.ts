@@ -95,6 +95,8 @@ import { CommonModule } from './common/common.module';
     N8nService,
     S3Service,
     TokenImageService,
+    DatabaseConfig,
+    ThrottlerConfig,
   ],
 })
 export class AppModule {}
