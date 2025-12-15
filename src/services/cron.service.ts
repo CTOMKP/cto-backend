@@ -292,7 +292,16 @@ export class CronService {
       // Extract token info
       // DexScreener returns a single pair object, not an array
       const pair = dexScreenerData || combinedData?.dexScreener;
-      const baseToken = pair?.baseToken || {};
+      const baseToken = (pair?.baseToken || {}) as { name?: string; symbol?: string; decimals?: number };
+      const gmgnData = (combinedData?.gmgn as unknown) as { 
+        name?: string; 
+        symbol?: string; 
+        decimals?: number; 
+        description?: string;
+        top10HolderRate?: number;
+        topTraders?: unknown[];
+        [key: string]: unknown;
+      } | undefined;
       
       // Calculate token age
       const creationTimestamp = heliusData?.creationTimestamp || pair?.pairCreatedAt;
@@ -305,11 +314,11 @@ export class CronService {
         contractAddress,
         chain,
         tokenInfo: {
-          name: baseToken.name || combinedData?.gmgn?.name || 'Unknown',
-          symbol: baseToken.symbol || combinedData?.gmgn?.symbol || 'UNKNOWN',
+          name: baseToken.name || gmgnData?.name || 'Unknown',
+          symbol: baseToken.symbol || gmgnData?.symbol || 'UNKNOWN',
           image: imageUrl, // Always non-null from TokenImageService
-          decimals: baseToken.decimals || combinedData?.gmgn?.decimals || 6,
-          description: combinedData?.gmgn?.description || null,
+          decimals: baseToken.decimals || gmgnData?.decimals || 6,
+          description: gmgnData?.description || null,
           websites: combinedData?.gmgn?.socials?.website ? [combinedData.gmgn.socials.website] : [],
           socials: [
             combinedData?.gmgn?.socials?.twitter,
@@ -319,7 +328,7 @@ export class CronService {
         security: {
           isMintable: heliusData?.isMintable ?? alchemyData?.isMintable ?? false,
           isFreezable: heliusData?.isFreezable ?? alchemyData?.isFreezable ?? false,
-          lpLockPercentage: pair?.liquidity?.lockedPercentage || bearTreeData?.lpLockPercentage || 0,
+          lpLockPercentage: (pair?.liquidity as { lockedPercentage?: number } | undefined)?.lockedPercentage || bearTreeData?.lpLockPercentage || 0,
           totalSupply: heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0,
           circulatingSupply: heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0,
           lpLocks: bearTreeData?.lpLocks || [],
@@ -336,7 +345,7 @@ export class CronService {
           creatorAddress: bearTreeData?.creatorAddress || combinedData?.gmgn?.creator?.address || null,
           creatorBalance: Number(bearTreeData?.creatorBalance || combinedData?.gmgn?.creator?.balance || 0),
           creatorStatus: bearTreeData?.creatorStatus || combinedData?.gmgn?.creator?.status || 'unknown',
-          top10HolderRate: Number(bearTreeData?.top10HolderRate || combinedData?.gmgn?.top10HolderRate || 0),
+          top10HolderRate: Number(bearTreeData?.top10HolderRate || gmgnData?.top10HolderRate || 0),
           twitterCreateTokenCount: bearTreeData?.twitterCreateTokenCount || 0,
         },
         trading: {
@@ -354,7 +363,7 @@ export class CronService {
           holderCount: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
         },
         tokenAge: Math.max(0, tokenAge),
-        topTraders: combinedData?.gmgn?.topTraders?.slice(0, 5) || [],
+        topTraders: (gmgnData?.topTraders || []) as unknown[],
       };
     } catch (error) {
       this.logger.error(`Failed to fetch all token data for ${contractAddress}:`, error);
