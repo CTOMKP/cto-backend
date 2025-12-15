@@ -29,6 +29,8 @@ model User {
   privyUserId     String?       @unique
   privyDid        String?       @unique
   lastLoginAt     DateTime?
+  // Profile fields
+  avatarUrl       String?        // Profile picture URL
 
   // Relations
   wallets         Wallet[]
@@ -74,7 +76,8 @@ enum Chain {
   BSC
   SUI
   BASE
-  APTOS
+  APTOS      // Keep for backward compatibility
+  MOVEMENT   // NEW - Movement Network (Aptos-compatible)
   NEAR
   OSMOSIS
   OTHER

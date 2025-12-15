@@ -34,16 +34,23 @@ export class ImageService {
 
   private buildKey(kind: UploadKind, params: { userId?: string; filename: string }) {
     const file = this.sanitize(params.filename);
-    const userId = params.userId;
-    if (!userId) throw new HttpException('userId required', HttpStatus.BAD_REQUEST);
-
+    
     // Determine default extension by type if missing on original filename
     const defaultExt = kind === 'profile' ? '.png' : '.jpg';
     const ensuredExt = this.extOr(defaultExt, file); // returns existing ext or default
     const baseName = path.basename(file, path.extname(file));
     const timestamped = `${Date.now()}_${baseName}${ensuredExt}`;
 
-    const typeSegment = kind; // 'generic' | 'profile' | 'banner' | 'meme'
+    // Memes go to memes/ directory (not user-uploads)
+    if (kind === 'meme') {
+      return `memes/${timestamped}`;
+    }
+
+    // Other uploads go to user-uploads/ with userId
+    const userId = params.userId;
+    if (!userId) throw new HttpException('userId required', HttpStatus.BAD_REQUEST);
+    
+    const typeSegment = kind; // 'generic' | 'profile' | 'banner'
     return `user-uploads/${userId}/${typeSegment}/${timestamped}`;
   }
 

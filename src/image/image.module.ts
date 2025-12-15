@@ -14,6 +14,6 @@ import { S3StorageService } from '../storage/s3-storage.service';
     RedisService,
     { provide: STORAGE_PROVIDER, useClass: S3StorageService },
   ],
-  exports: [ImageService, RedisService],
+  exports: [ImageService, RedisService, STORAGE_PROVIDER],
 })
 export class ImageModule {}

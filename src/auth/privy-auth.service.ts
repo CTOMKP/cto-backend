@@ -72,28 +72,194 @@ export class PrivyAuthService {
 
       // Debug: Log what we got
       this.logger.log(`Privy returned - Has user.wallet: ${!!user.wallet}, LinkedAccounts: ${user.linkedAccounts?.length || 0}`);
+      
+      // Track addresses we've already added to avoid duplicates
+      const addedAddresses = new Set<string>();
 
-      // Check for embedded wallet in user.wallet
+      // IMPORTANT: Privy stores wallets in linkedAccounts, NOT in user.wallet
+      // user.wallet is just a reference to the primary wallet, which is already in linkedAccounts
+      // So we should ONLY process linkedAccounts to avoid duplicates
+      
+      // However, if user.wallet exists and is NOT in linkedAccounts, add it
+      // (This is a fallback for edge cases)
       if (user.wallet?.address) {
-        this.logger.log(`Adding embedded wallet: ${user.wallet.address}`);
-        wallets.push({
-          id: 'embedded',
-          address: user.wallet.address,
-          chainType: user.wallet.chainType || 'ethereum',
-          walletClient: 'privy',
-          type: 'wallet'
-        });
+        const walletInLinkedAccounts = user.linkedAccounts?.some(
+          (acc: any) => acc.type === 'wallet' && 
+                       acc.address?.toLowerCase() === user.wallet.address.toLowerCase()
+        );
+        
+        if (!walletInLinkedAccounts) {
+          // Only add user.wallet if it's not already in linkedAccounts
+          const chainType = user.wallet.chainType || 'ethereum';
+          this.logger.log(`Adding user.wallet (not in linkedAccounts): ${user.wallet.address} (${chainType})`);
+          
+          // Map chain types to our blockchain enum
+          let blockchain: string;
+          if (chainType === 'aptos' || chainType === 'movement') {
+            blockchain = 'MOVEMENT';
+          } else if (chainType === 'ethereum') {
+            blockchain = 'ETHEREUM';
+          } else if (chainType === 'solana') {
+            blockchain = 'SOLANA';
+          } else {
+            blockchain = 'OTHER';
+          }
+
+          wallets.push({
+            id: 'embedded',
+            address: user.wallet.address,
+            chainType: chainType,
+            blockchain: blockchain,
+            walletClient: 'privy',
+            type: 'PRIVY_EMBEDDED'
+          });
+          
+          addedAddresses.add(user.wallet.address.toLowerCase());
+        } else {
+          this.logger.log(`Skipping user.wallet - already in linkedAccounts: ${user.wallet.address}`);
+        }
       }
 
-      // Check for wallets in linkedAccounts
       if (user.linkedAccounts) {
+        // Log all linked accounts to see what Privy returns
+        this.logger.log(`📋 All linkedAccounts: ${JSON.stringify(user.linkedAccounts.map((acc: any) => ({
+          type: acc.type,
+          address: acc.address,
+          chainType: acc.chainType,
+          connectorType: acc.connectorType,
+          walletClientType: acc.walletClientType,
+          walletClient: acc.walletClient
+        })))}`);
+        
+        // Filter for wallet accounts
+        // MetaMask appears as type === 'wallet' in linkedAccounts, but Privy dashboard shows it as "Linked account"
+        // So we check for both: type === 'wallet' OR (has address AND connectorType === 'injected')
         const linkedWallets = user.linkedAccounts.filter(
-          (account: any) => account.type === 'wallet' && account.address
+          (account: any) => {
+            // Include if it's a wallet type
+            if (account.type === 'wallet' && account.address) {
+              return true;
+            }
+            // Also include if it's an injected wallet (MetaMask, etc.) even if type isn't 'wallet'
+            if (account.connectorType === 'injected' && account.address) {
+              return true;
+            }
+            return false;
+          }
         );
+        
         linkedWallets.forEach((w: any) => {
-          this.logger.log(`Adding linked wallet: ${w.address} (${w.chainType})`);
+          const walletAddress = w.address?.toLowerCase();
+          
+          // Skip if we already added this address (avoid duplicates)
+          if (walletAddress && addedAddresses.has(walletAddress)) {
+            this.logger.log(`Skipping duplicate wallet: ${w.address}`);
+            return;
+          }
+          
+          // Log full wallet object to debug
+          this.logger.log(`🔍 Wallet object: ${JSON.stringify({
+            address: w.address,
+            chainType: w.chainType,
+            connectorType: w.connectorType,
+            walletClientType: w.walletClientType,
+            walletClient: w.walletClient,
+            type: w.type
+          })}`);
+          
+          const chainType = w.chainType || 'ethereum';
+          let blockchain: string;
+          
+          // Movement wallets are detected as chainType === 'aptos' (Aptos-compatible)
+          if (chainType === 'aptos' || chainType === 'movement') {
+            blockchain = 'MOVEMENT';
+          } else if (chainType === 'ethereum') {
+            blockchain = 'ETHEREUM';
+          } else if (chainType === 'solana') {
+            blockchain = 'SOLANA';
+          } else {
+            blockchain = 'OTHER';
+          }
+
+          // Determine wallet type based on connectorType and walletClientType
+          let walletType = 'PRIVY_EXTERNAL';
+          let walletClient = 'external'; // Default
+          
+          // Check connectorType first - this is the most reliable indicator
+          if (w.connectorType === 'embedded') {
+            // Embedded wallets are Privy's managed wallets
+            walletType = 'PRIVY_EMBEDDED';
+            walletClient = 'privy';
+          } else if (w.connectorType === 'injected') {
+            // Injected wallets are external browser extensions (MetaMask, Coinbase Wallet, etc.)
+            walletType = 'PRIVY_EXTERNAL';
+            // Try multiple fields to get the actual wallet client name
+            const clientName = w.walletClientType || w.walletClient || (w as any).walletClientName || '';
+            walletClient = clientName.toLowerCase();
+            
+            // Normalize common wallet names - check for MetaMask first
+            if (walletClient.includes('metamask') || (w as any).name?.toLowerCase().includes('metamask')) {
+              walletClient = 'metamask';
+            } else if (walletClient.includes('coinbase')) {
+              walletClient = 'coinbase_wallet';
+            } else if (walletClient.includes('phantom')) {
+              walletClient = 'phantom';
+            } else if (clientName) {
+              // Use the client name as-is if it exists
+              walletClient = clientName.toLowerCase();
+            } else {
+              // Default to metamask for injected wallets if we can't determine
+              walletClient = 'metamask';
+            }
+          } else {
+            // For other connector types, try to detect from walletClientType or walletClient
+            if (w.walletClientType) {
+              walletClient = w.walletClientType.toLowerCase();
+              // Check if it's MetaMask
+              if (walletClient.includes('metamask')) {
+                walletClient = 'metamask';
+                walletType = 'PRIVY_EXTERNAL';
+              } else if (walletClient.includes('coinbase')) {
+                walletClient = 'coinbase_wallet';
+                walletType = 'PRIVY_EXTERNAL';
+              } else if (walletClient.includes('phantom')) {
+                walletClient = 'phantom';
+                walletType = 'PRIVY_EXTERNAL';
+              }
+            } else if (w.walletClient) {
+              walletClient = w.walletClient.toLowerCase();
+              // Check if it's MetaMask
+              if (walletClient.includes('metamask')) {
+                walletClient = 'metamask';
+                walletType = 'PRIVY_EXTERNAL';
+              }
+            }
+            
+            // If still not identified and connectorType is missing, check if it matches known MetaMask address pattern
+            // MetaMask addresses are Ethereum addresses (0x...)
+            // But we can't reliably detect by address alone, so we'll default to embedded if no other info
+            if (walletClient === 'external' && !w.connectorType && chainType === 'ethereum') {
+              // If it's Ethereum and we don't know the connector type, assume it might be external
+              // But we need more info - log it for debugging
+              this.logger.warn(`⚠️ Unknown wallet type for ${w.address} - connectorType: ${w.connectorType}, walletClientType: ${w.walletClientType}`);
+            }
+          }
+
+          this.logger.log(`✅ Adding linked wallet: ${w.address} (${chainType} -> ${blockchain}, connectorType: ${w.connectorType}, walletType: ${walletType}, walletClient: ${walletClient})`);
+          
+          if (walletAddress) {
+            addedAddresses.add(walletAddress);
+          }
+          
+          wallets.push({
+            id: w.id,
+            address: w.address,
+            chainType: chainType,
+            blockchain: blockchain,
+            walletClient: walletClient,
+            type: walletType
+          });
         });
-        wallets.push(...linkedWallets);
       }
 
       this.logger.log(`✅ Total wallets found: ${wallets.length}`);

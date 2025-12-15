@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Request, Logger, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { PrivyAuthService } from './privy-auth.service';
 import { AuthService } from './auth.service';
@@ -71,7 +71,15 @@ export class PrivyAuthController {
    */
   @ApiOperation({ 
     summary: 'Sync user from Privy', 
-    description: 'Verify Privy token, create/update user in DB, sync all wallets, and return JWT token' 
+    description: `Verify Privy token, create/update user in DB, sync all wallets, and return JWT token.
+    
+**⚠️ IMPORTANT**: You cannot create a Privy user directly in Swagger. Privy authentication happens on the frontend.
+    
+**To test this endpoint**:
+1. Login via frontend app (connect wallet via Privy UI)
+2. Get Privy token from browser console: \`await window.privy.getAccessToken()\`
+3. Use that token in the \`privyToken\` field below
+4. The response will include a JWT token - use that for other protected endpoints` 
   })
   @ApiBody({
     schema: {
@@ -101,7 +109,8 @@ export class PrivyAuthController {
             walletAddress: { type: 'string', example: '0x1234...' },
             role: { type: 'string', example: 'USER' },
             privyUserId: { type: 'string', example: 'did:privy:...' },
-            walletsCount: { type: 'number', example: 3 }
+            walletsCount: { type: 'number', example: 3 },
+            avatarUrl: { type: 'string', nullable: true, example: 'https://example.com/avatar.png' }
           }
         },
         token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
@@ -192,15 +201,35 @@ export class PrivyAuthController {
 
       if (!user) {
         this.logger.log(`Creating NEW user in database...`);
-        // Create new user in our DB
-        user = await this.authService.register({
-          email,
-          password: `privy-${(privyUser as any).userId}`, // Placeholder password for Privy users
-        });
+        try {
+          // Create new user in our DB
+          user = await this.authService.register({
+            email,
+            password: `privy-${(privyUser as any).userId}`, // Placeholder password for Privy users
+          });
+          
+          this.logger.log(`✅ User created with ID: ${user.id}`);
+        } catch (registerError: any) {
+          // If email already exists (race condition or previous failed attempt), find the existing user
+          if (registerError.message?.includes('Email already in use') || 
+              (registerError instanceof BadRequestException && registerError.message?.includes('Email already in use'))) {
+            this.logger.warn(`Email already exists, finding existing user: ${email}`);
+            this.logToFile(`Email already exists, finding existing user: ${email}`);
+            user = await this.authService.findByEmail(email);
+            
+            if (!user) {
+              // Still can't find user, this is a real error
+              throw new BadRequestException(`Email ${email} already exists but user not found in database`);
+            }
+            
+            this.logger.log(`✅ Found existing user with ID: ${user.id}`);
+          } else {
+            // Re-throw other errors
+            throw registerError;
+          }
+        }
         
-        this.logger.log(`✅ User created with ID: ${user.id}`);
-        
-        // Store Privy user ID
+        // Store Privy user ID (for both new and existing users)
         this.logger.log(`Updating user with Privy fields...`);
         await this.authService.updateUser(user.id, {
           privyUserId: (privyUser as any).userId,
@@ -209,9 +238,9 @@ export class PrivyAuthController {
           lastLoginAt: new Date(),
         });
         
-        this.logger.log(`✅ Created new user from Privy: ${email} (ID: ${user.id})`);
+        this.logger.log(`✅ User synced from Privy: ${email} (ID: ${user.id})`);
         
-        // Verify user was actually created
+        // Verify user was actually created/found
         const verifyUser = await this.authService.getUserById(user.id);
         this.logger.log(`Verification - User in DB: ${!!verifyUser}, Email: ${verifyUser?.email}`);
       } else {
@@ -231,13 +260,13 @@ export class PrivyAuthController {
       if (userWallets && (userWallets as any).length > 0) {
         this.logToFile(`Found ${(userWallets as any).length} wallets from Privy API`);
         for (const wallet of (userWallets as any)) {
-          this.logToFile(`Syncing wallet: ${(wallet as any).address} (${(wallet as any).chainType})`);
+          this.logToFile(`Syncing wallet: ${(wallet as any).address} (${(wallet as any).chainType}, client: ${(wallet as any).walletClient}, type: ${(wallet as any).type})`);
           await this.authService.syncPrivyWallet(user.id, {
             privyWalletId: (wallet as any).id,
             address: (wallet as any).address,
             blockchain: this.mapChainType((wallet as any).chainType),
-            type: (wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL',
-            walletClient: (wallet as any).walletClient || 'privy',
+            type: (wallet as any).type || ((wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL'),
+            walletClient: (wallet as any).walletClient || 'external', // Use walletClient from getUserWallets, default to 'external' not 'privy'
             isPrimary: (userWallets as any)[0].id === (wallet as any).id,
           });
         }
@@ -287,13 +316,13 @@ export class PrivyAuthController {
               
               // Sync the retry wallets
               for (const wallet of (retryWallets as any)) {
-                this.logToFile(`Syncing retry wallet: ${(wallet as any).address} (${(wallet as any).chainType})`);
+                this.logToFile(`Syncing retry wallet: ${(wallet as any).address} (${(wallet as any).chainType}, client: ${(wallet as any).walletClient}, type: ${(wallet as any).type})`);
                 await this.authService.syncPrivyWallet(user.id, {
                   privyWalletId: (wallet as any).id,
                   address: (wallet as any).address,
                   blockchain: this.mapChainType((wallet as any).chainType),
-                  type: (wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL',
-                  walletClient: (wallet as any).walletClient || 'privy',
+                  type: (wallet as any).type || ((wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL'),
+                  walletClient: (wallet as any).walletClient || 'external', // Use walletClient from getUserWallets, default to 'external' not 'privy'
                   isPrimary: (retryWallets as any)[0].id === (wallet as any).id,
                 });
               }
@@ -324,6 +353,9 @@ export class PrivyAuthController {
       const allUserWallets = await this.aptosWalletService.getUserWallets(user.id);
       this.logToFile(`Step 7: Retrieved ${allUserWallets?.length || 0} total wallets from database`);
 
+      // Refresh user data to get latest avatarUrl
+      const updatedUser = await this.authService.getUserById(user.id);
+      
       const response = {
         success: true,
         user: {
@@ -333,6 +365,7 @@ export class PrivyAuthController {
           role: user.role,
           privyUserId: (privyUser as any).userId,
           walletsCount: allUserWallets?.length || 0,
+          avatarUrl: (updatedUser as any).avatarUrl || null,
         },
         token: jwtToken.access_token,
         wallets: allUserWallets?.map(w => ({
@@ -384,39 +417,80 @@ export class PrivyAuthController {
       'arbitrum': 'ETHEREUM',
       'optimism': 'ETHEREUM',
       'bsc': 'BSC',
-      'aptos': 'APTOS',
+      'aptos': 'MOVEMENT', // Movement wallets are detected as 'aptos' chainType (Aptos-compatible)
+      'movement': 'MOVEMENT',
     };
     return mapping[chainType?.toLowerCase()] || 'UNKNOWN';
   }
 
   /**
    * Get current Privy user info (protected route)
+   * Uses JWT token from /sync endpoint to get user's Privy details
    */
   @ApiOperation({ 
     summary: 'Get current user info', 
-    description: 'Get Privy user details and wallets (requires Privy token)' 
+    description: 'Get Privy user details and wallets (requires JWT token from /sync endpoint)' 
   })
   @ApiBearerAuth('JWT-auth')
   @ApiResponse({ status: 200, description: 'User info retrieved' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @Get('me')
-  @UseGuards(PrivyAuthGuard)
-  async getMe(@Request() req) {
-    const privyUserId = req.user.userId;
-    const userDetails = await this.privyAuthService.getUserById(privyUserId);
+  @UseGuards(JwtAuthGuard)
+  async getMe(@Request() req: any) {
+    // Get user from JWT token (set by JwtAuthGuard)
+    const userId = req.user.userId;
+    const user = await this.authService.getUserById(userId);
+    
+    if (!user || !user.privyUserId) {
+      throw new UnauthorizedException('User not found or no Privy ID');
+    }
+    
+    // Get Privy user details using stored Privy user ID
+    const userDetails = await this.privyAuthService.getUserById(user.privyUserId);
+    const wallets = await this.privyAuthService.getUserWallets(user.privyUserId);
     
     return {
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        privyUserId: user.privyUserId,
+      },
       privyUser: userDetails,
-      wallets: await this.privyAuthService.getUserWallets(privyUserId),
+      wallets: wallets,
     };
   }
 
   /**
    * Verify Privy token (utility endpoint)
+   * ⚠️ This endpoint verifies PRIVY tokens, not JWT tokens!
+   * Use this to check if a Privy access token (from frontend) is still valid.
+   * JWT tokens are automatically verified by JWT guards on protected endpoints.
    */
   @ApiOperation({ 
     summary: 'Verify Privy token', 
-    description: 'Check if a Privy access token is valid' 
+    description: `Check if a Privy access token is valid.
+    
+**⚠️ CRITICAL**: This endpoint verifies **Privy tokens** (ES256 algorithm), NOT JWT tokens (HS256 algorithm)!
+
+**How to identify token types:**
+- **Privy Token** (ES256): Starts with \`eyJhbGciOiJFUzI1NiIs...\` (decodes to \`{"alg":"ES256"...}\`)
+  - Get from: Browser cookies (\`privy-token\`) or \`await window.privy.getAccessToken()\`
+  - Used for: \`/api/auth/privy/verify\`, \`/api/auth/privy/sync\`
+  
+- **JWT Token** (HS256): Starts with \`eyJhbGciOiJIUzI1NiIs...\` (decodes to \`{"alg":"HS256"...}\`)
+  - Get from: Response of \`/api/auth/privy/sync\` or \`/api/auth/login\`
+  - Used for: All other protected endpoints (\`/me\`, \`/wallets\`, etc.)
+  - ❌ **DO NOT** use JWT tokens with this endpoint - they will be rejected!
+
+**Example Privy Token** (from browser console):
+\`eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZjVwSjNHSVdKUFdXcU16VlN4OG5FeURzVVRhcVg4aGtTLUYtZ3hFVU0ifQ.eyJzaWQiOiJjbWh4NTZrem0wMGlpa3cwYzltYjdiYmprIiwiaXNzIjoicHJpdnkuaW8iLCJpYXQiOjE3NjMwMjA5OTksImF1ZCI6ImNtZ3Y3NzIxczAwczNsNzBjcGNpMmUyc2EiLCJzdWIiOiJkaWQ6cHJpdnk6Y21oeDU2bDExMDBpa2t3MGN5ZGF4NzdrMiIsImV4cCI6MTc2MzAyNDU5OX0...\`
+
+**Testing in Swagger:**
+1. Login via frontend (https://www.ctomarketplace.com)
+2. Open browser DevTools → Application → Cookies
+3. Copy the \`privy-token\` cookie value
+4. Paste it here (NOT the JWT token from /sync response)` 
   })
   @ApiBody({
     schema: {
@@ -424,14 +498,36 @@ export class PrivyAuthController {
       properties: {
         token: {
           type: 'string',
-          description: 'Privy access token to verify',
-          example: 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9...'
+          description: 'Privy access token (ES256) - Get from browser cookies or getAccessToken(). NOT JWT token!',
+          example: 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkxrZjVwSjNHSVdKUFdXcU16VlN4OG5FeURzVVRhcVg4aGtTLUYtZ3hFVU0ifQ...'
         }
       },
       required: ['token']
     }
   })
-  @ApiResponse({ status: 200, description: 'Token verification result' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Token verification result',
+    schema: {
+      type: 'object',
+      properties: {
+        valid: { type: 'boolean', example: true },
+        userId: { type: 'string', example: 'did:privy:cmhx...' },
+        claims: { type: 'object' }
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Invalid token',
+    schema: {
+      type: 'object',
+      properties: {
+        valid: { type: 'boolean', example: false },
+        error: { type: 'string', example: 'Invalid Privy authentication token' }
+      }
+    }
+  })
   @Post('verify')
   async verifyToken(@Body('token') token: string) {
     try {
@@ -475,9 +571,14 @@ export class PrivyAuthController {
    */
   @Post('create-aptos-wallet')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
     summary: 'Create Aptos wallet (Manual)', 
-    description: 'Create a server-generated Aptos wallet for payments on Aptos chain - called from user dashboard' 
+    description: `Create a server-generated Aptos wallet for payments on Aptos chain - called from user dashboard.
+
+**Authentication Required**: JWT token (from /sync response)
+
+**Note**: This endpoint is deprecated - Movement wallets are now created automatically via Privy.` 
   })
   @ApiResponse({ 
     status: 201, 
@@ -492,6 +593,7 @@ export class PrivyAuthController {
     }
   })
   @ApiResponse({ status: 400, description: 'User already has Aptos wallet' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
   @ApiResponse({ status: 500, description: 'Failed to create Aptos wallet' })
   async createAptosWalletManual(@Request() req: any) {
     try {
@@ -531,9 +633,19 @@ export class PrivyAuthController {
    */
   @Get('wallets')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
     summary: 'Get user wallets', 
-    description: 'Get all wallets for the authenticated user' 
+    description: `Get all wallets for the authenticated user.
+
+**Authentication Required**: JWT token (from /sync response)
+
+**Steps to test:**
+1. Call \`/api/auth/privy/sync\` with Privy token to get JWT token
+2. Click "Authorize" button at top of Swagger page
+3. Enter JWT token in format: \`Bearer <your-jwt-token>\` or just paste the token
+4. Click "Authorize" then "Close"
+5. Now execute this endpoint` 
   })
   @ApiResponse({ 
     status: 200, 
@@ -558,6 +670,7 @@ export class PrivyAuthController {
       }
     }
   })
+  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
   async getUserWallets(@Request() req: any) {
     try {
       const userId = req.user.userId;
@@ -591,9 +704,19 @@ export class PrivyAuthController {
    */
   @Post('sync-wallets')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
     summary: 'Sync user wallets from Privy', 
-    description: 'Manually sync all wallets from Privy API for the authenticated user' 
+    description: `Manually sync all wallets from Privy API for the authenticated user.
+
+**Authentication Required**: JWT token (from /sync response)
+
+**Steps to test:**
+1. Call \`/api/auth/privy/sync\` with Privy token to get JWT token
+2. Click "Authorize" button at top of Swagger page
+3. Enter JWT token in format: \`Bearer <your-jwt-token>\` or just paste the token
+4. Click "Authorize" then "Close"
+5. Now execute this endpoint` 
   })
   @ApiResponse({ 
     status: 200, 
@@ -607,6 +730,7 @@ export class PrivyAuthController {
       }
     }
   })
+  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
   async syncUserWallets(@Request() req: any) {
     try {
       const userId = req.user.userId;

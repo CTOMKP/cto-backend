@@ -1,7 +1,7 @@
 // cto-backend/src/storage/s3-storage.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, DeleteObjectCommand, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, DeleteObjectCommand, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { StorageProvider } from './storage.provider';
 
@@ -40,7 +40,15 @@ export class S3StorageService implements StorageProvider {
       ContentType: mimeType,
     });
     const url = await getSignedUrl(this.s3, cmd, { expiresIn: ttlSeconds });
-    this.logger.debug(`Presigned PUT: ${key} (ttl=${ttlSeconds}s)`);
+    
+    // Log which AWS credentials are being used (first few chars of access key)
+    const accessKeyId = this.config.get<string>('AWS_ACCESS_KEY_ID', '');
+    const accessKeyPreview = accessKeyId ? `${accessKeyId.substring(0, 8)}...` : 'NOT SET';
+    
+    this.logger.log(`Presigned PUT: ${key} → Bucket: ${this.bucket} (ttl=${ttlSeconds}s)`);
+    this.logger.log(`Using AWS Access Key: ${accessKeyPreview}`);
+    this.logger.log(`Presigned URL bucket check: ${url.includes(this.bucket) ? 'CORRECT' : 'MISMATCH'}`);
+    
     return url;
   }
 
@@ -55,13 +63,23 @@ export class S3StorageService implements StorageProvider {
   }
 
   async getPresignedDownloadUrl(key: string, filename: string, ttlSeconds = 900): Promise<string> {
+    // Sanitize filename: remove or replace invalid characters (keep spaces)
+    const sanitizedFilename = filename
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') // Replace invalid filename characters
+      .substring(0, 255); // Limit length
+    
+    // Encode filename for Content-Disposition header (RFC 5987)
+    // AWS S3 supports both filename and filename* formats
+    const encodedFilename = encodeURIComponent(sanitizedFilename);
+    const contentDisposition = `attachment; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`;
+    
     const cmd = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
-      ResponseContentDisposition: `attachment; filename="${filename}"`,
+      ResponseContentDisposition: contentDisposition,
     });
     const url = await getSignedUrl(this.s3, cmd, { expiresIn: ttlSeconds });
-    this.logger.debug(`Presigned DOWNLOAD: ${key} (ttl=${ttlSeconds}s)`);
+    this.logger.debug(`Presigned DOWNLOAD: ${key} -> ${sanitizedFilename} (ttl=${ttlSeconds}s)`);
     return url;
   }
 
@@ -80,5 +98,18 @@ export class S3StorageService implements StorageProvider {
   async deleteFile(key: string): Promise<void> {
     await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
     this.logger.log(`Deleted S3 object: ${key}`);
+  }
+
+  async fileExists(key: string): Promise<boolean> {
+    try {
+      await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      return true;
+    } catch (error: any) {
+      if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+        return false;
+      }
+      // Re-throw other errors (permissions, network, etc.)
+      throw error;
+    }
   }
 }

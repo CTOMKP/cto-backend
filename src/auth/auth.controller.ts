@@ -1,10 +1,11 @@
-import { Controller, Post, Get, UseGuards, Request, Body, HttpCode, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Put, UseGuards, Request, Body, HttpCode, HttpStatus, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 import { 
   LoginResponseDto, 
   RefreshTokenDto, 
@@ -62,7 +63,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('profile')
   async getProfile(@Request() req) {
-    return { id: req.user.userId, email: req.user.email };
+    const userId = req.user.sub || req.user.userId;
+    const user = await this.authService.getUserById(userId);
+    return { 
+      id: user.id, 
+      email: user.email,
+      avatarUrl: user.avatarUrl || null,
+      name: user.name || null,
+      bio: user.bio || null,
+    };
   }
 
   @ApiOperation({ summary: 'Logout user', description: 'Logout current authenticated user (token remains valid until expiration)' })
@@ -90,6 +99,38 @@ export class AuthController {
       return this.authService.refreshToken(user);
     } catch (error) {
       throw new UnauthorizedException('Invalid token');
+    }
+  }
+
+  @ApiOperation({ summary: 'Update user profile', description: 'Update authenticated user profile information (name, avatarUrl, bio)' })
+  @ApiBearerAuth('JWT-auth')
+  @ApiBody({ type: UpdateUserDto })
+  @ApiResponse({ status: 200, description: 'Profile updated successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - invalid or missing JWT token', type: ErrorResponseDto })
+  @ApiResponse({ status: 400, description: 'Invalid input data', type: ErrorResponseDto })
+  @UseGuards(JwtAuthGuard)
+  @Put('users/me')
+  @HttpCode(HttpStatus.OK)
+  async updateProfile(@Request() req, @Body() dto: UpdateUserDto) {
+    try {
+      const userId = req.user.sub || req.user.userId;
+      if (!userId) {
+        throw new UnauthorizedException('User ID not found in token');
+      }
+
+      const updatedUser = await this.authService.updateUser(Number(userId), dto);
+      const { passwordHash, ...safeUser } = updatedUser as any;
+
+      return {
+        success: true,
+        message: 'Profile updated successfully',
+        user: safeUser,
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to update profile: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 }

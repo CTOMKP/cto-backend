@@ -9,7 +9,7 @@ interface DuneQueryResult {
   };
 }
 
-interface MemecoinStats {
+export interface MemecoinStats {
   dailyTokensDeployed: number;  // Daily launched tokens
   dailyGraduates: number;        // Daily graduates
   topTokensLast7Days: number;    // Runners (market cap ≥ $500K)
@@ -23,15 +23,18 @@ export class DuneService {
   private readonly apiKey: string;
   private readonly baseUrl = 'https://api.dune.com/api/v1';
   
-  // Cache for stats (refresh every 10 minutes)
+  // Cache for stats (refresh every 60 minutes to reduce API calls and avoid rate limits)
   private statsCache: MemecoinStats | null = null;
   private lastFetchTime: number = 0;
-  private readonly CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in ms
+  private readonly CACHE_DURATION = 60 * 60 * 1000; // 60 minutes in ms (increased to reduce rate limit issues)
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('DUNE_API_KEY') || '';
     if (!this.apiKey) {
       this.logger.warn('⚠️  DUNE_API_KEY not configured - using fallback stats');
+      this.logger.warn('⚠️  Set DUNE_API_KEY in environment variables to fetch live data from Dune Analytics');
+    } else {
+      this.logger.log('✅ DUNE_API_KEY configured - will fetch live data from Dune Analytics');
     }
   }
 
@@ -43,15 +46,18 @@ export class DuneService {
     // Return cached data if still fresh
     const now = Date.now();
     if (this.statsCache && (now - this.lastFetchTime < this.CACHE_DURATION)) {
-      this.logger.debug('Returning cached stats');
+      const cacheAge = Math.round((now - this.lastFetchTime) / 1000 / 60); // Age in minutes
+      this.logger.debug(`Returning cached stats (${cacheAge} minutes old, valid for ${this.CACHE_DURATION / 1000 / 60} minutes)`);
       return this.statsCache;
     }
 
     // If no API key, return fallback stats
     if (!this.apiKey) {
+      this.logger.warn('⚠️  No DUNE_API_KEY - returning fallback stats');
       return this.getFallbackStats();
     }
 
+    this.logger.log(`🔄 Fetching fresh stats from Dune Analytics (timeframe: ${timeframe})`);
     try {
       // Fetch fresh data from Dune
       const stats = await this.fetchFromDune(timeframe);
@@ -60,44 +66,45 @@ export class DuneService {
       this.statsCache = stats;
       this.lastFetchTime = now;
       
+      this.logger.log(`✅ Successfully fetched stats: Launched=${stats.dailyTokensDeployed}, Graduated=${stats.dailyGraduates}, Runners=${stats.topTokensLast7Days}`);
       return stats;
     } catch (error) {
-      this.logger.error(`Failed to fetch Dune stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(`❌ Failed to fetch Dune stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (error instanceof Error && error.stack) {
+        this.logger.error(`Stack trace: ${error.stack}`);
+      }
       
-      // Return cached data if available, otherwise fallback
+      // Return cached data if available (even if stale), otherwise fallback
       if (this.statsCache) {
-        this.logger.warn('Using stale cached stats due to fetch error');
+        const cacheAge = Math.round((now - this.lastFetchTime) / 1000 / 60); // Age in minutes
+        this.logger.warn(`⚠️  Using stale cached stats (${cacheAge} minutes old) due to fetch error`);
         return this.statsCache;
       }
       
+      this.logger.warn('⚠️  No cache available - returning fallback stats');
+      this.logger.warn('⚠️  This usually means Dune API is rate limited. Stats will update once rate limit clears.');
       return this.getFallbackStats();
     }
   }
 
   /**
-   * Fetch data from Dune Analytics API
+   * Fetches memecoin statistics from Dune Analytics
+   * 
+   * Metrics:
+   * - Launched: Daily tokens deployed across all platforms (Query 4010816)
+   * - Graduated: Daily tokens that completed bonding curve (Query 5131612)
+   * - Runners: Tokens with market cap >= $500K (calculated as 10% of Graduates)
+   * 
    * Dashboard: https://dune.com/adam_tehc/memecoin-wars
    * 
-   * Query IDs (Client Provided):
-   * - 4010816: Daily Tokens Deployed - Solana Memecoin Launchpads ✅ DAILY DATA
+   * Query IDs:
+   * - 4010816: Daily Tokens Deployed - Solana Memecoin Launchpads
    *   URL: https://dune.com/queries/4010816/6752517
-   * - 5131612: Daily Graduates - Solana Memecoin Launch Pads ✅ DAILY DATA
+   * - 5131612: Daily Graduates - Solana Memecoin Launch Pads
    *   URL: https://dune.com/queries/5131612/8459254
    * 
-   * Note: Weekly data only available for "Launched" and "Market Share", NOT for "Graduated"
-   * Therefore, we use DAILY stats for both metrics for consistency.
-   * 
-   * Client Requirements:
-   * - Pump.fun launches ~10k memecoins DAILY
-   * - Daily stats should reflect this volume
-   * 
-   * Runners Definition (Client):
-   * - Runners = Tokens with market cap ≥ $500K (still active, not graduated)
-   * - Based on Pump.fun model: ~0.05%-0.1% of launched tokens
-   * - Approximately 0.08% of launched tokens
-   * 
-   * TODO: When Dune query for market cap data becomes available:
-   *   runners = count(tokens where market_cap_usd >= 500000)
+   * @param timeframe - Time period for stats (default: '7 days')
+   * @returns MemecoinStats object with current metrics
    */
   private async fetchFromDune(timeframe: string = '7 days'): Promise<MemecoinStats> {
     try {
@@ -113,19 +120,16 @@ export class DuneService {
       const launched = this.extractDailyCount(dailyDeployedData);
       const graduated = this.extractDailyCount(dailyGraduatesData);
       
-      // Client's Runners Logic:
-      // - Runners = tokens with market cap ≥ $500K
-      // - Approximate using 0.05%-0.1% range (avg ~0.08%)
-      // - Conservative estimate: 0.0008 (0.08% of launched)
-      const runnerRatio = 0.0008; // 0.08% - midpoint between 0.05% and 0.1%
-      const runners = Math.max(1, Math.round(launched * runnerRatio));
+      // Calculate Runners: 10% of Graduates (more stable than % of Launched)
+      // Rationale: Graduated tokens already proved demand, ~10% reach $500K+ market cap
+      const runners = Math.max(1, Math.round(graduated * 0.10));
       
-      this.logger.log(`📊 Daily Stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners.toLocaleString()} (${(runnerRatio * 100).toFixed(2)}%)`);
+      this.logger.log(`📊 Daily Stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners.toLocaleString()} (10% of graduates)`);
       
       return {
         dailyTokensDeployed: launched,
         dailyGraduates: graduated,
-        topTokensLast7Days: runners, // 0.05%-0.1% of launched (market cap ≥ $500K)
+        topTokensLast7Days: runners,
         lastUpdated: new Date().toISOString(),
         timeframe: timeframe,
       };
@@ -137,9 +141,14 @@ export class DuneService {
 
   /**
    * Execute a Dune query and get results
+   * Retries up to 2 times if query times out
    */
-  private async executeQuery(queryId: number): Promise<any> {
+  private async executeQuery(queryId: number, retryCount: number = 0): Promise<any> {
+    const maxRetries = 2;
+    
     try {
+      this.logger.debug(`Executing Dune query ${queryId} (attempt ${retryCount + 1}/${maxRetries + 1})`);
+      
       // Step 1: Execute the query
       const executeResponse = await fetch(`${this.baseUrl}/query/${queryId}/execute`, {
         method: 'POST',
@@ -149,18 +158,46 @@ export class DuneService {
       });
 
       if (!executeResponse.ok) {
+        const errorText = await executeResponse.text();
+        
+        // Handle payment required (402) - Dune plan needs upgrade
+        if (executeResponse.status === 402) {
+          this.logger.error(`💳 Payment Required (402) - Dune API plan needs upgrade. Visit https://dune.com/pricing`);
+          throw new Error('Payment Required - Dune API plan needs to be upgraded. Please upgrade at https://dune.com/pricing');
+        }
+        
+        // Handle rate limiting on initial execute
+        if (executeResponse.status === 429) {
+          const retryAfter = executeResponse.headers.get('Retry-After');
+          const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000; // Default 60s
+          
+          this.logger.warn(`⚠️  Rate limited (429) on query ${queryId} execute. Waiting ${waitTime / 1000}s...`);
+          
+          // Retry after waiting if we have retries left
+          if (retryCount < maxRetries) {
+            await this.sleep(waitTime);
+            return this.executeQuery(queryId, retryCount + 1);
+          }
+          
+          throw new Error('Too Many Requests - Rate limit exceeded. Please upgrade Dune plan or wait before retrying.');
+        }
+        
+        this.logger.error(`Dune API execute failed (${executeResponse.status}): ${errorText}`);
         throw new Error(`Dune API execute failed: ${executeResponse.statusText}`);
       }
 
       const executeData: DuneQueryResult = await executeResponse.json();
       const executionId = executeData.execution_id;
+      
+      this.logger.debug(`Query ${queryId} execution started, execution_id: ${executionId}`);
 
-      // Step 2: Poll for results (max 30 seconds)
+      // Step 2: Poll for results (max 90 seconds - Dune queries can take time)
       let attempts = 0;
-      const maxAttempts = 30;
+      const maxAttempts = 90; // Increased from 30 to 90 seconds
+      const pollInterval = 2000; // Poll every 2 seconds instead of 1
 
       while (attempts < maxAttempts) {
-        await this.sleep(1000); // Wait 1 second between polls
+        await this.sleep(pollInterval);
 
         const statusResponse = await fetch(`${this.baseUrl}/execution/${executionId}/results`, {
           headers: {
@@ -169,25 +206,79 @@ export class DuneService {
         });
 
         if (!statusResponse.ok) {
+          const errorText = await statusResponse.text();
+          
+          // Handle payment required (402) - Dune plan needs upgrade
+          if (statusResponse.status === 402) {
+            this.logger.error(`💳 Payment Required (402) - Dune API plan needs upgrade. Visit https://dune.com/pricing`);
+            throw new Error('Payment Required - Dune API plan needs to be upgraded. Please upgrade at https://dune.com/pricing');
+          }
+          
+          // Handle rate limiting (429) with exponential backoff
+          if (statusResponse.status === 429) {
+            const retryAfter = statusResponse.headers.get('Retry-After');
+            const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : Math.min(60000, 5000 * Math.pow(2, attempts)); // Max 60s, exponential backoff
+            
+            this.logger.warn(`⚠️  Rate limited (429) on query ${queryId}. Waiting ${waitTime / 1000}s before retry...`);
+            await this.sleep(waitTime);
+            continue; // Continue polling instead of throwing
+          }
+          
+          this.logger.error(`Dune API status check failed (${statusResponse.status}): ${errorText}`);
           throw new Error(`Dune API status check failed: ${statusResponse.statusText}`);
         }
 
         const statusData: DuneQueryResult = await statusResponse.json();
 
         if (statusData.state === 'QUERY_STATE_COMPLETED') {
+          this.logger.debug(`Query ${queryId} completed after ${attempts * (pollInterval / 1000)} seconds`);
           return statusData.result?.rows || [];
         }
 
         if (statusData.state === 'QUERY_STATE_FAILED') {
+          this.logger.error(`Query ${queryId} execution failed, state: ${statusData.state}`);
           throw new Error('Query execution failed');
+        }
+
+        // Log progress every 10 attempts (every 20 seconds)
+        if (attempts % 10 === 0 && attempts > 0) {
+          this.logger.debug(`Query ${queryId} still running... (${attempts * (pollInterval / 1000)}s elapsed, state: ${statusData.state})`);
         }
 
         attempts++;
       }
 
-      throw new Error('Query timeout - results not ready after 30 seconds');
+      this.logger.error(`Query ${queryId} timeout after ${maxAttempts * (pollInterval / 1000)} seconds`);
+      throw new Error(`Query timeout - results not ready after ${maxAttempts * (pollInterval / 1000)} seconds`);
     } catch (error) {
-      this.logger.error(`Execute query ${queryId} failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Execute query ${queryId} failed (attempt ${retryCount + 1}): ${errorMessage}`);
+      
+      // Don't retry on payment required - user needs to upgrade plan
+      const isPaymentRequired = errorMessage.includes('Payment Required') || errorMessage.includes('402');
+      if (isPaymentRequired) {
+        this.logger.error(`💳 Payment Required - Dune API plan needs upgrade. Using fallback stats. Visit https://dune.com/pricing`);
+        return []; // Return empty to trigger fallback
+      }
+      
+      // Retry on timeout or rate limit if we haven't exceeded max retries
+      const isRateLimit = errorMessage.includes('Too Many Requests') || errorMessage.includes('429');
+      const isTimeout = errorMessage.includes('timeout');
+      
+      if ((isTimeout || isRateLimit) && retryCount < maxRetries) {
+        // Exponential backoff: 10s, 20s, 40s
+        const waitTime = 10000 * Math.pow(2, retryCount);
+        this.logger.warn(`Retrying query ${queryId} in ${waitTime / 1000}s... (${retryCount + 1}/${maxRetries})`);
+        await this.sleep(waitTime);
+        return this.executeQuery(queryId, retryCount + 1);
+      }
+      
+      // If rate limited and no retries left, return empty array to trigger fallback
+      if (isRateLimit) {
+        this.logger.error(`⚠️  Rate limited on query ${queryId} - using fallback stats. Consider upgrading Dune plan or increasing cache duration.`);
+        return []; // Return empty to trigger fallback
+      }
+      
       throw error;
     }
   }
@@ -238,37 +329,24 @@ export class DuneService {
     return Number(count) || 10000;
   }
 
+
   /**
    * Fallback stats when Dune is unavailable
    * Using realistic pump.fun-style numbers based on client requirements
-   * 
-   * Client Requirements:
-   * - Pump.fun launches ~10k memecoins DAILY
-   * - Daily stats should reflect realistic platform activity
    */
   private getFallbackStats(): MemecoinStats {
-    // Generate realistic random variations around base values
-    const baseTokens = 9000;     // Daily base: ~9k tokens
-    const baseGraduates = 70;    // Daily base: ~70 graduates
+    const launched = 10000;
+    const graduated = 80;
+    const runners = Math.max(1, Math.round(graduated * 0.10)); // 10% of graduates
     
-    // Daily stats (as required by client)
-    const launched = baseTokens + Math.floor(Math.random() * 3000); // 9k-12k range
-    const graduated = baseGraduates + Math.floor(Math.random() * 40); // 70-110 range
-    
-    // Client's Runners Logic:
-    // - Runners = tokens with market cap ≥ $500K
-    // - Approximate using 0.05%-0.1% range (avg ~0.08%)
-    const runnerRatio = 0.0008; // 0.08% of launched
-    const runners = Math.max(1, Math.round(launched * runnerRatio));
-    
-    this.logger.warn(`⚠️  Using fallback stats: Launched=${launched.toLocaleString()}, Graduated=${graduated.toLocaleString()}, Runners=${runners}`);
+    this.logger.warn('⚠️  Using fallback stats (no Dune API key or cache available)');
     
     return {
       dailyTokensDeployed: launched,
       dailyGraduates: graduated,
-      topTokensLast7Days: runners, // 0.05%-0.1% of launched (market cap ≥ $500K)
+      topTokensLast7Days: runners,
       lastUpdated: new Date().toISOString(),
-      timeframe: '24 hours',
+      timeframe: 'fallback',
     };
   }
 

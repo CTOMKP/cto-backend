@@ -17,7 +17,7 @@ import { ImageService } from './image.service';
 import { ImageMetadata } from './types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { IsIn, IsNotEmpty, IsOptional, IsString, IsNumber } from 'class-validator';
-import { ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 class PresignUploadDto {
   @IsNotEmpty()
@@ -68,6 +68,7 @@ class EditImageDto {
   category?: string;
 }
 
+@ApiTags('images')
 @Controller('images')
 export class ImageController {
   constructor(private readonly imageService: ImageService) {}

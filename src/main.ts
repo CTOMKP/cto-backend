@@ -55,35 +55,54 @@ async function bootstrap() {
   app.setGlobalPrefix(`${apiPrefix}/${apiVersion}`);
 
   // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('CTOMarketplace API')
-    .setDescription('Premier platform for community-takenover crypto projects')
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter JWT token',
-        in: 'header',
+  // Allow enabling in production by setting ENABLE_SWAGGER=true
+  const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
+  if (enableSwagger) {
+    // Get API base URL from environment or use default
+    const apiBaseUrl = process.env.APP_URL || process.env.BACKEND_BASE_URL || 'https://api.ctomarketplace.com';
+    
+    const config = new DocumentBuilder()
+      .setTitle('CTO Marketplace API')
+      .setDescription(`
+        Complete CTO Marketplace Backend API with:
+        • **Token Vetting System** - Comprehensive token data fetching and risk assessment
+        • **n8n Integration** - Automated workflow for token vetting and monitoring
+        • **Token Image Service** - 3-tier fallback for token images (Jupiter → TrustWallet → Identicon)
+        • **Real-time Monitoring** - Token monitoring and alerts
+        
+        **Base URL**: ${apiBaseUrl}
+        
+        **Authentication**: Most endpoints require JWT Bearer token. Click "Authorize" button above to add your token.
+      `)
+      .setVersion('2.0')
+      .addServer(apiBaseUrl, 'Production API')
+      .addServer('http://localhost:3001', 'Local Development')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          name: 'JWT',
+          description: 'Enter JWT token',
+          in: 'header',
+        },
+        'JWT-auth',
+      )
+      .addTag('tokens', 'Token management and listing')
+      .addTag('vetting', 'Token vetting and risk assessment')
+      .addTag('monitoring', 'Token monitoring and alerts')
+      .addTag('users', 'User management')
+      .addTag('analytics', 'Analytics and reporting')
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup(`${apiPrefix}/docs`, app, document, {
+      swaggerOptions: {
+        persistAuthorization: true, // Keep auth token after page refresh
+        tagsSorter: 'alpha', // Sort tags alphabetically
+        operationsSorter: 'alpha', // Sort operations alphabetically
       },
-      'JWT-auth',
-    )
-    .addTag('auth', 'Authentication endpoints')
-    .addTag('tokens', 'Token management and listing')
-    .addTag('vetting', 'Token vetting and risk assessment')
-    .addTag('monitoring', 'Token monitoring and alerts')
-    .addTag('users', 'User management')
-    .addTag('analytics', 'Analytics and reporting')
-    .build();
-
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup(`${apiPrefix}/docs`, app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-    },
-  });
+    });
+  }
 
   const port = configService.get('PORT', 3001);
   await app.listen(port);
