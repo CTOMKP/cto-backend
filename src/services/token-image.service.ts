@@ -121,8 +121,3 @@ export class TokenImageService {
     return `https://api.dicebear.com/7.x/identicon/svg?seed=${seed}`;
   }
 }
-
-<<<<<<< HEAD
-
-=======
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)

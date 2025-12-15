@@ -62,13 +62,10 @@ export class N8nService {
     try {
       const webhookUrl = this.configService.get('N8N_AUTOMATION_X_URL');
       
-<<<<<<< HEAD
-=======
       if (!webhookUrl) {
         throw new Error('N8N_AUTOMATION_X_URL is not configured');
       }
 
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)
       this.logger.debug(`Triggering initial vetting for token: ${payload.contractAddress}`);
       this.logger.debug(`N8N Webhook URL: ${webhookUrl}`);
 
@@ -96,15 +93,6 @@ export class N8nService {
       
       return {
         success: true,
-<<<<<<< HEAD
-        vettingId: response.data.vettingId,
-        contractAddress: payload.contractAddress,
-        tokenInfo: response.data.tokenInfo,
-        vettingResults: response.data.vettingResults,
-        scannedAt: response.data.scannedAt,
-      };
-    } catch (error) {
-=======
         vettingId: response.data?.vettingId,
         contractAddress: payload.contractAddress,
         tokenInfo: response.data?.tokenInfo,
@@ -112,7 +100,6 @@ export class N8nService {
         scannedAt: response.data?.scannedAt,
       };
     } catch (error: any) {
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)
       this.logger.error(`Failed to trigger initial vetting for ${payload.contractAddress}:`, error.message);
       
       return {
@@ -143,13 +130,10 @@ export class N8nService {
     try {
       const webhookUrl = this.configService.get('N8N_AUTOMATION_Y_URL');
       
-<<<<<<< HEAD
-=======
       if (!webhookUrl) {
         throw new Error('N8N_AUTOMATION_Y_URL is not configured');
       }
 
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)
       this.logger.debug(`Triggering continuous monitoring for token: ${payload.contractAddress}`);
 
       const response: AxiosResponse = await firstValueFrom(
@@ -169,21 +153,12 @@ export class N8nService {
       
       return {
         success: true,
-<<<<<<< HEAD
-        monitoringId: response.data.monitoringId,
-        contractAddress: payload.contractAddress,
-        monitoringResults: response.data.monitoringResults,
-        scannedAt: response.data.scannedAt,
-      };
-    } catch (error) {
-=======
         monitoringId: response.data?.monitoringId,
         contractAddress: payload.contractAddress,
         monitoringResults: response.data?.monitoringResults,
         scannedAt: response.data?.scannedAt,
       };
     } catch (error: any) {
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)
       this.logger.error(`Failed to trigger continuous monitoring for ${payload.contractAddress}:`, error.message);
       
       return {
@@ -195,129 +170,12 @@ export class N8nService {
   }
 
   /**
-<<<<<<< HEAD
-   * Batch trigger vetting for multiple tokens
-   */
-  async batchTriggerVetting(tokens: Array<{ contractAddress: string; chain: string }>) {
-    this.logger.log(`Batch triggering vetting for ${tokens.length} tokens`);
-
-    const results = await Promise.allSettled(
-      tokens.map(token => 
-        this.triggerInitialVetting({
-          contractAddress: token.contractAddress,
-          chain: token.chain,
-        })
-      )
-    );
-
-    const successful = results.filter(result => result.status === 'fulfilled' && result.value.success).length;
-    const failed = results.length - successful;
-
-    this.logger.log(`Batch vetting completed: ${successful} successful, ${failed} failed`);
-
-    return {
-      total: tokens.length,
-      successful,
-      failed,
-      results: results.map((result, index) => ({
-        token: tokens[index],
-        result: result.status === 'fulfilled' ? result.value : { success: false, error: result.reason },
-      })),
-    };
-  }
-
-  /**
-   * Batch trigger monitoring for multiple tokens
-   */
-  async batchTriggerMonitoring(tokens: Array<{ contractAddress: string; chain: string }>) {
-    this.logger.log(`Batch triggering monitoring for ${tokens.length} tokens`);
-
-    const results = await Promise.allSettled(
-      tokens.map(token => 
-        this.triggerContinuousMonitoring({
-          contractAddress: token.contractAddress,
-          chain: token.chain,
-        })
-      )
-    );
-
-    const successful = results.filter(result => result.status === 'fulfilled' && result.value.success).length;
-    const failed = results.length - successful;
-
-    this.logger.log(`Batch monitoring completed: ${successful} successful, ${failed} failed`);
-
-    return {
-      total: tokens.length,
-      successful,
-      failed,
-      results: results.map((result, index) => ({
-        token: tokens[index],
-        result: result.status === 'fulfilled' ? result.value : { success: false, error: result.reason },
-      })),
-    };
-  }
-
-  /**
-   * Check N8N workflow status
-   */
-  async checkWorkflowStatus(workflowId: string) {
-    try {
-      const n8nBaseUrl = this.configService.get('N8N_BASE_URL');
-      const apiKey = this.configService.get('N8N_API_KEY');
-      
-      const response: AxiosResponse = await firstValueFrom(
-        this.httpService.get(`${n8nBaseUrl}/api/v1/workflows/${workflowId}`, {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-          },
-        })
-      );
-
-      return response.data;
-    } catch (error) {
-      this.logger.error(`Failed to check workflow status for ${workflowId}:`, error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Get N8N execution history
-   */
-  async getExecutionHistory(workflowId: string, limit: number = 10) {
-    try {
-      const n8nBaseUrl = this.configService.get('N8N_BASE_URL');
-      const apiKey = this.configService.get('N8N_API_KEY');
-      
-      const response: AxiosResponse = await firstValueFrom(
-        this.httpService.get(`${n8nBaseUrl}/api/v1/executions`, {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          params: {
-            workflowId,
-            limit,
-          },
-        })
-      );
-
-      return response.data;
-    } catch (error) {
-      this.logger.error(`Failed to get execution history for ${workflowId}:`, error.message);
-      return null;
-    }
-  }
-
-  /**
-=======
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)
    * Test N8N webhook connectivity
    */
   async testWebhookConnectivity() {
     try {
       const webhookUrl = this.configService.get('N8N_AUTOMATION_X_URL');
       
-<<<<<<< HEAD
-=======
       if (!webhookUrl) {
         return {
           success: false,
@@ -326,7 +184,6 @@ export class N8nService {
         };
       }
 
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)
       const response: AxiosResponse = await firstValueFrom(
         this.httpService.post(webhookUrl, {
           test: true,
@@ -344,11 +201,7 @@ export class N8nService {
         status: response.status,
         message: 'N8N webhook is accessible',
       };
-<<<<<<< HEAD
-    } catch (error) {
-=======
     } catch (error: any) {
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)
       this.logger.error('N8N webhook connectivity test failed:', error.message);
       
       return {
@@ -358,38 +211,4 @@ export class N8nService {
       };
     }
   }
-<<<<<<< HEAD
-
-  /**
-   * Get N8N system health
-   */
-  async getN8nHealth() {
-    try {
-      const n8nBaseUrl = this.configService.get('N8N_BASE_URL');
-      
-      const response: AxiosResponse = await firstValueFrom(
-        this.httpService.get(`${n8nBaseUrl}/healthz`, {
-          timeout: 5000,
-        })
-      );
-
-      return {
-        status: 'healthy',
-        response: response.data,
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
-      this.logger.error('N8N health check failed:', error.message);
-      
-      return {
-        status: 'unhealthy',
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      };
-    }
-  }
 }
-=======
-}
-
->>>>>>> 3778442 (feat: implement n8n token vetting system with cron workers)
