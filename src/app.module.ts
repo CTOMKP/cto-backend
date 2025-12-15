@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -7,7 +7,6 @@ import { HttpModule } from '@nestjs/axios';
 
 // Configuration
 import { DatabaseConfig } from './config/database.config';
-import { ThrottlerConfig } from './config/throttler.config';
 
 // Core modules
 import { AppController } from './app.controller';
@@ -56,7 +55,15 @@ import { CommonModule } from './common/common.module';
 
     // Rate limiting
     ThrottlerModule.forRootAsync({
-      useClass: ThrottlerConfig,
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            ttl: configService.get('RATE_LIMIT_TTL', 60) * 1000,
+            limit: configService.get('RATE_LIMIT_MAX', 100),
+          },
+        ],
+      }),
     }),
 
     // Scheduling
@@ -96,7 +103,6 @@ import { CommonModule } from './common/common.module';
     S3Service,
     TokenImageService,
     DatabaseConfig,
-    ThrottlerConfig,
   ],
 })
 export class AppModule {}
