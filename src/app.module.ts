@@ -1,108 +1,54 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { HttpModule } from '@nestjs/axios';
-
-// Configuration
-import { DatabaseConfig } from './config/database.config';
-
-// Core modules
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { TokensController } from './tokens.controller';
-import { AdminController } from './admin.controller';
-import { MemesController } from './controllers/memes.controller';
-
-// Services
-import { CronService } from './services/cron.service';
-import { ExternalApisService } from './services/external-apis.service';
-import { RiskScoringService } from './services/risk-scoring.service';
-import { N8nService } from './services/n8n.service';
-import { S3Service } from './services/s3.service';
-import { TokenImageService } from './services/token-image.service';
-
-// Database entities
-import { Token } from './entities/token.entity';
-import { VettingResult } from './entities/vetting-result.entity';
-import { MonitoringSnapshot } from './entities/monitoring-snapshot.entity';
-import { LpData } from './entities/lp-data.entity';
-import { Holder } from './entities/holder.entity';
-import { LaunchAnalysis } from './entities/launch-analysis.entity';
-import { BadgeHistory } from './entities/badge-history.entity';
-import { Alert } from './entities/alert.entity';
-import { HolderHistory } from './entities/holder-history.entity';
-import { User } from './entities/user.entity';
-import { Meme } from './entities/meme.entity';
-
-// Common modules
-import { CommonModule } from './common/common.module';
+import { ScanModule } from './scan/scan.module';
+import { ImageModule } from './image/image.module';
+import { AuthModule } from './auth/auth.module';
+import { HealthController } from './health/health.controller';
+import { PrismaModule } from './prisma/prisma.module';
+import { ListingModule } from './listing/listing.module';
+import { CircleModule } from './circle/circle.module';
+import { UserListingsModule } from './user-listings/user-listings.module';
+import { MemeModule } from './meme/meme.module';
+import { WaitlistModule } from './waitlist/waitlist.module';
+import { AssetsModule } from './assets/assets.module';
+import { DuneModule } from './dune/dune.module';
+import { PaymentModule } from './payment/payment.module';
+import { AdminModule } from './admin/admin.module';
+import { StatsModule } from './stats/stats.module';
+import { PfpModule } from './pfp/pfp.module';
+import { TokenVettingModule } from './services/token-vetting.module';
 
 @Module({
   imports: [
-    // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.local', '.env'],
-      cache: true,
+      envFilePath: [
+        `.env.${process.env.NODE_ENV}.local`,
+        `.env.${process.env.NODE_ENV}`,
+        '.env.local',
+        '.env',
+      ],
     }),
-
-    // Database
-    TypeOrmModule.forRootAsync({
-      useClass: DatabaseConfig,
-    }),
-
-    // Rate limiting
-    ThrottlerModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        throttlers: [
-          {
-            ttl: configService.get('RATE_LIMIT_TTL', 60) * 1000,
-            limit: configService.get('RATE_LIMIT_MAX', 100),
-          },
-        ],
-      }),
-    }),
-
-    // Scheduling
     ScheduleModule.forRoot(),
-
-    // HTTP client
-    HttpModule.register({
-      timeout: 30000,
-      maxRedirects: 5,
-    }),
-
-    // Common module
-    CommonModule,
-
-    // Entities
-    TypeOrmModule.forFeature([
-      Token,
-      VettingResult,
-      MonitoringSnapshot,
-      LpData,
-      Holder,
-      LaunchAnalysis,
-      BadgeHistory,
-      Alert,
-      HolderHistory,
-      User,
-      Meme,
-    ]),
+    PrismaModule,
+    ScanModule,
+    ImageModule,
+    AuthModule,
+    ListingModule,
+    CircleModule,
+    UserListingsModule,
+    MemeModule,
+    WaitlistModule,
+    AssetsModule,
+    DuneModule,
+    PaymentModule,
+    AdminModule,
+    StatsModule,
+    PfpModule,
+    TokenVettingModule,
   ],
-  controllers: [AppController, TokensController, AdminController, MemesController],
-  providers: [
-    AppService,
-    CronService,
-    ExternalApisService,
-    RiskScoringService,
-    N8nService,
-    S3Service,
-    TokenImageService,
-    DatabaseConfig,
-  ],
+  controllers: [HealthController],
+  providers: [],
 })
 export class AppModule {}
