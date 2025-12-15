@@ -15,11 +15,17 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   });
 
-  // Use Socket.IO adapter for WebSockets
-  app.useWebSocketAdapter(new IoAdapter(app));
-
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
+
+  // Use Socket.IO adapter for WebSockets
+  try {
+    app.useWebSocketAdapter(new IoAdapter(app));
+    logger.log('✅ WebSocket adapter (Socket.IO) configured');
+  } catch (error) {
+    logger.warn('⚠️ Failed to configure WebSocket adapter:', error);
+    // App can still run without WebSockets
+  }
 
   // Security middleware
   app.use(helmet());

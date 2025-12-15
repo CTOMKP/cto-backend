@@ -11,26 +11,42 @@ export class ListingGateway implements OnGatewayConnection, OnGatewayDisconnect 
   server: Server;
 
   handleConnection(client: any) {
-    this.connectedClients++;
-    this.logger.log(`✅ Client connected: ${client?.id ?? 'unknown'} (Total: ${this.connectedClients})`);
+    try {
+      this.connectedClients++;
+      this.logger.log(`✅ Client connected: ${client?.id ?? 'unknown'} (Total: ${this.connectedClients})`);
+    } catch (error) {
+      this.logger.warn('Error handling WebSocket connection:', error);
+    }
   }
 
   handleDisconnect(client: any) {
-    this.connectedClients--;
-    this.logger.log(`❌ Client disconnected: ${client?.id ?? 'unknown'} (Total: ${this.connectedClients})`);
+    try {
+      this.connectedClients--;
+      this.logger.log(`❌ Client disconnected: ${client?.id ?? 'unknown'} (Total: ${this.connectedClients})`);
+    } catch (error) {
+      this.logger.warn('Error handling WebSocket disconnection:', error);
+    }
   }
 
   emitNew(payload: any) {
-    if (this.connectedClients > 0) {
-      this.server.emit('listing.new', payload);
-      this.logger.debug(`🆕 Emitted new listing: ${payload.symbol || payload.contractAddress}`);
+    try {
+      if (this.server && this.connectedClients > 0) {
+        this.server.emit('listing.new', payload);
+        this.logger.debug(`🆕 Emitted new listing: ${payload.symbol || payload.contractAddress}`);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to emit new listing via WebSocket:', error);
     }
   }
 
   emitUpdate(payload: any) {
-    if (this.connectedClients > 0) {
-      this.server.emit('listing.update', payload);
-      this.logger.debug(`📊 Emitted update: ${payload.symbol || payload.contractAddress} - Price: $${payload.priceUsd}`);
+    try {
+      if (this.server && this.connectedClients > 0) {
+        this.server.emit('listing.update', payload);
+        this.logger.debug(`📊 Emitted update: ${payload.symbol || payload.contractAddress} - Price: $${payload.priceUsd}`);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to emit listing update via WebSocket:', error);
     }
   }
 }
