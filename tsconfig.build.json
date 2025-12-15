@@ -1,27 +1,24 @@
 {
   "extends": "./tsconfig.json",
+  "include": [
+    "src/main.ts",
+    "src/app.module.ts",
+    "src/app.controller.ts",
+    "src/app.service.ts",
+    "src/tokens.controller.ts",
+    "src/admin.controller.ts",
+    "src/controllers/**/*",
+    "src/services/**/*",
+    "src/entities/**/*",
+    "src/common/**/*",
+    "src/config/**/*"
+  ],
   "exclude": [
     "node_modules",
     "dist",
     "test",
     "**/*.spec.ts",
-    "**/*.test.ts",
-    "prisma/**/*",
-    "scripts/**/*",
-    "**/*.seed.ts",
-    "src/auth/**/*",
-    "src/circle/**/*",
-    "src/payment/**/*",
-    "src/listing/**/*",
-    "src/scan/**/*",
-    "src/meme/**/*",
-    "src/prisma/**/*",
-    "src/admin/**/*",
-    "src/waitlist/**/*",
-    "src/assets/**/*",
-    "src/dune/**/*",
-    "src/stats/**/*",
-    "src/pfp/**/*"
+    "**/*.test.ts"
   ]
 }
 
