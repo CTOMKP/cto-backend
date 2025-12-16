@@ -32,13 +32,16 @@ async function bootstrap() {
   app.use(compression());
 
   // CORS configuration
-  const corsOrigins = configService.get('CORS_ORIGIN', 'http://localhost:3000').split(',');
+  // Support both CORS_ORIGIN and CORS_ORIGINS for compatibility
+  const corsOrigin = configService.get('CORS_ORIGIN') || configService.get('CORS_ORIGINS') || 'http://localhost:3000';
+  const corsOrigins = corsOrigin.split(',').map(origin => origin.trim());
   app.enableCors({
     origin: corsOrigins,
     credentials: configService.get('CORS_CREDENTIALS', true),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
+  logger.log(`✅ CORS enabled for origins: ${corsOrigins.join(', ')}`);
 
   // Global validation pipe
   app.useGlobalPipes(
