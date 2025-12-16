@@ -1192,12 +1192,19 @@ export class RefreshWorker {
       const baseToken = (pair?.baseToken || {}) as { name?: string; symbol?: string; decimals?: number };
       const gmgnData = (combinedData?.gmgn as any) || {};
       
+      // Extract trading and holders data for age estimation
+      const tradingData = {
+        volume24h: Number(pair?.volume?.h24 || combinedData?.gmgn?.volume24h || 0),
+        liquidity: Number(pair?.liquidity?.usd || combinedData?.gmgn?.liquidity || 0),
+      };
+      const holdersData = {
+        count: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
+      };
+
       // Calculate token age - try multiple sources
       const creationTimestamp = 
         heliusData?.creationTimestamp ||           // Helius RPC (primary)
         pair?.pairCreatedAt ||                     // DexScreener pair creation
-        combinedData?.gmgn?.open_timestamp ||      // GMGN open timestamp
-        combinedData?.gmgn?.creation_timestamp ||  // GMGN creation timestamp
         null;
 
       let tokenAge = 0;
@@ -1216,9 +1223,9 @@ export class RefreshWorker {
             this.logger.debug(`📅 Using database createdAt for ${contractAddress} age: ${tokenAge} days`);
           } else {
             // Last resort: Estimate based on activity
-            const hasSignificantVolume = (trading?.volume24h || 0) > 50000;
-            const hasManyHolders = (holders?.count || 0) > 500;
-            const hasEstablishedLiquidity = (trading?.liquidity || 0) > 100000;
+            const hasSignificantVolume = tradingData.volume24h > 50000;
+            const hasManyHolders = holdersData.count > 500;
+            const hasEstablishedLiquidity = tradingData.liquidity > 100000;
             
             if (hasSignificantVolume || hasManyHolders || hasEstablishedLiquidity) {
               // Conservative estimate: assume minimum 7 days old for tokens with significant activity
@@ -1239,7 +1246,6 @@ export class RefreshWorker {
       this.logger.debug(`🔍 Age calculation for ${contractAddress}:`);
       this.logger.debug(`  - heliusData?.creationTimestamp: ${heliusData?.creationTimestamp || 'null'}`);
       this.logger.debug(`  - pair?.pairCreatedAt: ${pair?.pairCreatedAt || 'null'}`);
-      this.logger.debug(`  - combinedData?.gmgn?.open_timestamp: ${combinedData?.gmgn?.open_timestamp || 'null'}`);
       this.logger.debug(`  - Final tokenAge: ${tokenAge} days`);
 
       // ⚠️ AGE FILTER: Only vet tokens that are >= 14 days old (client requirement)
