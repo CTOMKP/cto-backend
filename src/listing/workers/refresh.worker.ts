@@ -37,11 +37,11 @@ export class RefreshWorker {
     private readonly metrics: MetricsService,
     private readonly gateway: ListingGateway,
     private readonly analyticsService: AnalyticsService,
-    private readonly n8nService?: N8nService,
-    private readonly externalApisService?: ExternalApisService,
-    private readonly tokenImageService?: TokenImageService,
-    private readonly configService?: ConfigService,
-    private readonly httpService?: HttpService,
+    private readonly n8nService: N8nService,
+    private readonly externalApisService: ExternalApisService,
+    private readonly tokenImageService: TokenImageService,
+    private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
   ) {}
 
   enqueue(contract: string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' }) {
@@ -97,11 +97,8 @@ export class RefreshWorker {
     timeZone: 'UTC',
   })
   async processExistingUnvettedTokens() {
-    if (!this.n8nService || !this.externalApisService || !this.tokenImageService || !this.configService || !this.httpService) {
-      this.logger.debug('Required services not available, skipping unvetted token processing');
-      return;
-    }
-
+    this.logger.debug('🔄 Starting processExistingUnvettedTokens cron job...');
+    
     try {
       const client = (this.repo as any)['prisma'] as any;
       // Get tokens that don't have a riskScore (unvetted)
@@ -1163,11 +1160,6 @@ export class RefreshWorker {
    * This is called asynchronously when a new listing is created
    */
   private async triggerN8nVettingForNewToken(contractAddress: string, chain: string) {
-    if (!this.n8nService || !this.externalApisService || !this.tokenImageService || !this.configService || !this.httpService) {
-      this.logger.debug('Required services not available, skipping n8n vetting');
-      return;
-    }
-
     try {
       this.logger.debug(`🔍 Fetching comprehensive data for n8n vetting: ${contractAddress} on ${chain}`);
       

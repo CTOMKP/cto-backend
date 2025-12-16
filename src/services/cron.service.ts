@@ -534,16 +534,25 @@ export class CronService {
     }
 
     try {
-      // Check if listing already exists and was scanned recently (within 24 hours)
+      // Check if listing already exists and was vetted recently (within 24 hours)
+      // Only skip if it was actually vetted (has riskScore) and scanned recently
       const existingListing = await this.prisma.listing.findUnique({
         where: { contractAddress },
       });
 
       if (existingListing) {
         const lastScannedAt = existingListing.lastScannedAt;
-        if (lastScannedAt && new Date(lastScannedAt) > new Date(Date.now() - 24 * 60 * 60 * 1000)) {
-          this.logger.debug(`Token ${contractAddress} was vetted recently, skipping`);
+        const hasRiskScore = existingListing.riskScore !== null;
+        
+        // Only skip if token was actually vetted (has riskScore) AND scanned recently
+        if (hasRiskScore && lastScannedAt && new Date(lastScannedAt) > new Date(Date.now() - 24 * 60 * 60 * 1000)) {
+          this.logger.debug(`Token ${contractAddress} was vetted recently (riskScore: ${existingListing.riskScore}), skipping`);
           return;
+        }
+        
+        // If token exists but wasn't vetted, log it and continue processing
+        if (!hasRiskScore) {
+          this.logger.debug(`Token ${contractAddress} exists but has no riskScore, will attempt vetting`);
         }
       }
 
