@@ -60,8 +60,13 @@ async function bootstrap() {
   );
 
   // Root-level health check endpoint (for Coolify/Railway health checks)
+  // This must be simple and fast - no dependencies on Redis/DB
   app.getHttpAdapter().get('/health', (req, res) => {
-    res.json({ status: 'OK', timestamp: new Date().toISOString() });
+    res.status(200).json({ 
+      status: 'OK', 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
   });
 
   // API prefix
