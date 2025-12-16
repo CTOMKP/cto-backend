@@ -551,6 +551,15 @@ export class CronService {
       this.logger.debug(`Fetching all data for ${contractAddress}...`);
       const tokenData = await this.fetchAllTokenData(contractAddress, chain);
 
+      // ⚠️ AGE FILTER: Only vet tokens that are >= 14 days old (client requirement)
+      const MIN_TOKEN_AGE_DAYS = 14;
+      if (tokenData.tokenAge < MIN_TOKEN_AGE_DAYS) {
+        this.logger.debug(`⏳ Skipping n8n vetting for ${contractAddress}: Token age is ${tokenData.tokenAge} days (minimum ${MIN_TOKEN_AGE_DAYS} days required)`);
+        return;
+      }
+
+      this.logger.log(`✅ Token ${contractAddress} is ${tokenData.tokenAge} days old (>= ${MIN_TOKEN_AGE_DAYS} days), proceeding with n8n vetting`);
+
       // Send complete payload to N8N Automation X for risk scoring
       // N8N only calculates risk scores and saves to DB (no data fetching)
       const vettingResult = await this.n8nService.triggerInitialVetting(tokenData);

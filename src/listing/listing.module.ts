@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { ListingController } from './listing.controller';
 import { ListingService } from './listing.service';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -11,9 +12,10 @@ import { MetricsService } from './services/metrics.service';
 import { ListingGateway } from './services/listing.gateway';
 import { AnalyticsService } from './services/analytics.service';
 import { TokenAnalysisService } from './services/token-analysis.service';
+import { TokenVettingModule } from '../services/token-vetting.module';
 
 @Module({
-  imports: [PrismaModule, ScanModule],
+  imports: [PrismaModule, ScanModule, TokenVettingModule, HttpModule],
   controllers: [ListingController],
   providers: [ListingService, ListingRepository, CacheService, RefreshWorker, RateLimiterGuard, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
   exports: [ListingService, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],

@@ -8,6 +8,12 @@ import { CacheService } from '../services/cache.service';
 import { MetricsService } from '../services/metrics.service';
 import { ListingGateway } from '../services/listing.gateway';
 import { AnalyticsService } from '../services/analytics.service';
+import { N8nService } from '../../services/n8n.service';
+import { ExternalApisService } from '../../services/external-apis.service';
+import { TokenImageService } from '../../services/token-image.service';
+import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 
 /*
   RefreshWorker
@@ -31,6 +37,11 @@ export class RefreshWorker {
     private readonly metrics: MetricsService,
     private readonly gateway: ListingGateway,
     private readonly analyticsService: AnalyticsService,
+    private readonly n8nService?: N8nService,
+    private readonly externalApisService?: ExternalApisService,
+    private readonly tokenImageService?: TokenImageService,
+    private readonly configService?: ConfigService,
+    private readonly httpService?: HttpService,
   ) {}
 
   enqueue(contract: string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' }) {
@@ -74,6 +85,60 @@ export class RefreshWorker {
       this.logger.log(`✅ Cleanup complete: Deleted ${deletedListings.count} old listings, ${deletedScans.count} old scans`);
     } catch (error) {
       this.logger.error('❌ Cleanup failed:', error);
+    }
+  }
+
+  /**
+   * Process existing unvetted tokens in batches
+   * Runs every 10 minutes to vet tokens that were added before n8n integration
+   */
+  @Cron('0 */10 * * * *', {
+    name: 'vet-existing-tokens',
+    timeZone: 'UTC',
+  })
+  async processExistingUnvettedTokens() {
+    if (!this.n8nService || !this.externalApisService || !this.tokenImageService || !this.configService || !this.httpService) {
+      this.logger.debug('Required services not available, skipping unvetted token processing');
+      return;
+    }
+
+    try {
+      const client = (this.repo as any)['prisma'] as any;
+      // Get tokens that don't have a riskScore (unvetted)
+      const unvettedTokens = await client.listing.findMany({
+        where: {
+          riskScore: null,
+          OR: [
+            { lastScannedAt: null },
+            { lastScannedAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }, // Older than 24 hours
+          ],
+        },
+        take: 10, // Process 10 at a time to avoid overwhelming n8n
+        orderBy: { createdAt: 'asc' }, // Process oldest first
+      });
+
+      if (unvettedTokens.length === 0) {
+        this.logger.debug('No unvetted tokens found');
+        return;
+      }
+
+      this.logger.log(`📋 Processing ${unvettedTokens.length} unvetted tokens through n8n...`);
+
+      for (const token of unvettedTokens) {
+        try {
+          // Age check is done inside triggerN8nVettingForNewToken
+          // It will skip tokens < 14 days old automatically
+          await this.triggerN8nVettingForNewToken(token.contractAddress, token.chain.toLowerCase());
+          // Add delay between tokens to respect rate limits
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+        } catch (error: any) {
+          this.logger.error(`Failed to process unvetted token ${token.contractAddress}: ${error.message}`);
+        }
+      }
+
+      this.logger.log(`✅ Completed processing ${unvettedTokens.length} unvetted tokens`);
+    } catch (error: any) {
+      this.logger.error(`Error processing unvetted tokens: ${error.message}`);
     }
   }
 
@@ -953,8 +1018,18 @@ export class RefreshWorker {
           updatedAt: after?.updatedAt ?? new Date().toISOString(),
           createdAt: after?.createdAt ?? new Date().toISOString(),
         } as any;
-        if (!before) deltas.new.push(payload);
-        else deltas.updated.push(payload);
+        if (!before) {
+          deltas.new.push(payload);
+          // Trigger n8n vetting for new tokens that don't have a riskScore yet
+          // Note: Age check (>= 14 days) is done inside triggerN8nVettingForNewToken
+          if (!after?.riskScore && this.n8nService && this.externalApisService) {
+            this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
+              this.logger.warn(`Failed to trigger n8n vetting for new token ${address}: ${error.message}`);
+            });
+          }
+        } else {
+          deltas.updated.push(payload);
+        }
         this.metrics.incCounter(`listing_ingested_total{chain="${chain}"}`, 1);
       } catch (e: any) {
         this.logger.debug(`Upsert merged failed: ${e.message}`);
@@ -1079,6 +1154,274 @@ export class RefreshWorker {
       this.stats.failures += failures;
       this.stats.lastDurationMs = Date.now() - started;
       this.logger.log(`Refresh cycle complete: refreshed=${refreshed}, apiCalls=${apiCalls}, failures=${failures}, durationMs=${this.stats.lastDurationMs}`);
+    }
+  }
+
+  /**
+   * Trigger n8n vetting for a new token with COMPLETE data
+   * Fetches data from DexScreener, Helius, Alchemy, and BearTree APIs
+   * This is called asynchronously when a new listing is created
+   */
+  private async triggerN8nVettingForNewToken(contractAddress: string, chain: string) {
+    if (!this.n8nService || !this.externalApisService || !this.tokenImageService || !this.configService || !this.httpService) {
+      this.logger.debug('Required services not available, skipping n8n vetting');
+      return;
+    }
+
+    try {
+      this.logger.debug(`🔍 Fetching comprehensive data for n8n vetting: ${contractAddress} on ${chain}`);
+      
+      // Fetch data from multiple sources in parallel (same as CronService.fetchAllTokenData)
+      const [dexScreenerData, combinedData, imageUrl] = await Promise.all([
+        this.externalApisService.fetchDexScreenerData(contractAddress, chain.toLowerCase()),
+        this.externalApisService.fetchCombinedTokenData(contractAddress, chain.toLowerCase()),
+        this.tokenImageService.fetchTokenImage(contractAddress, chain),
+      ]);
+
+      // Fetch Helius data (token metadata, holders, creation date)
+      const heliusData = await this.fetchHeliusData(contractAddress);
+      
+      // Fetch Alchemy data (if available)
+      const alchemyData = await this.fetchAlchemyData(contractAddress);
+      
+      // Fetch Helius BearTree data (developer info)
+      const bearTreeData = await this.fetchHeliusBearTreeData(contractAddress);
+
+      // Extract token info
+      const pair = dexScreenerData || combinedData?.dexScreener;
+      const baseToken = (pair?.baseToken || {}) as { name?: string; symbol?: string; decimals?: number };
+      const gmgnData = (combinedData?.gmgn as any) || {};
+      
+      // Calculate token age
+      const creationTimestamp = heliusData?.creationTimestamp || pair?.pairCreatedAt;
+      const tokenAge = creationTimestamp 
+        ? Math.floor((Date.now() - (creationTimestamp * 1000)) / (1000 * 60 * 60 * 24))
+        : 0;
+
+      // ⚠️ AGE FILTER: Only vet tokens that are >= 14 days old (client requirement)
+      const MIN_TOKEN_AGE_DAYS = 14;
+      if (tokenAge < MIN_TOKEN_AGE_DAYS) {
+        this.logger.debug(`⏳ Skipping n8n vetting for ${contractAddress}: Token age is ${tokenAge} days (minimum ${MIN_TOKEN_AGE_DAYS} days required)`);
+        return;
+      }
+
+      this.logger.log(`✅ Token ${contractAddress} is ${tokenAge} days old (>= ${MIN_TOKEN_AGE_DAYS} days), proceeding with n8n vetting`);
+
+      // Build COMPLETE payload with all required data for n8n risk scoring
+      const payload = {
+        contractAddress,
+        chain: chain.toLowerCase(),
+        tokenInfo: {
+          name: baseToken.name || gmgnData?.name || 'Unknown',
+          symbol: baseToken.symbol || gmgnData?.symbol || 'UNKNOWN',
+          image: imageUrl, // Token image from TokenImageService
+          decimals: baseToken.decimals || gmgnData?.decimals || 6,
+          description: gmgnData?.description || null,
+          websites: combinedData?.gmgn?.socials?.website ? [combinedData.gmgn.socials.website] : [],
+          socials: [
+            combinedData?.gmgn?.socials?.twitter,
+            combinedData?.gmgn?.socials?.telegram,
+          ].filter(Boolean),
+        },
+        security: {
+          isMintable: heliusData?.isMintable ?? alchemyData?.isMintable ?? false,
+          isFreezable: heliusData?.isFreezable ?? alchemyData?.isFreezable ?? false,
+          lpLockPercentage: (pair?.liquidity as any)?.lockedPercentage || bearTreeData?.lpLockPercentage || 0,
+          totalSupply: heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0,
+          circulatingSupply: heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0,
+          lpLocks: bearTreeData?.lpLocks || [],
+        },
+        holders: {
+          count: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
+          topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || []).slice(0, 10).map((h: any) => ({
+            address: h.address || h.id,
+            balance: Number(h.balance || 0),
+            percentage: Number(h.percentage || 0),
+          })),
+        },
+        developer: {
+          creatorAddress: bearTreeData?.creatorAddress || combinedData?.gmgn?.creator?.address || null,
+          creatorBalance: Number(bearTreeData?.creatorBalance || combinedData?.gmgn?.creator?.balance || 0),
+          creatorStatus: bearTreeData?.creatorStatus || combinedData?.gmgn?.creator?.status || 'unknown',
+          top10HolderRate: Number(bearTreeData?.top10HolderRate || gmgnData?.top10HolderRate || 0),
+          twitterCreateTokenCount: bearTreeData?.twitterCreateTokenCount || 0,
+        },
+        trading: {
+          price: Number(pair?.priceUsd || combinedData?.gmgn?.price || 0),
+          priceChange1m: Number(pair?.priceChange?.m5 || 0), // DexScreener provides m5 (5min), using as 1m approximation
+          priceChange5m: Number(pair?.priceChange?.m5 || 0),
+          priceChange1h: Number(pair?.priceChange?.h1 || 0),
+          priceChange24h: Number(pair?.priceChange?.h24 || 0),
+          volume24h: Number(pair?.volume?.h24 || combinedData?.gmgn?.volume24h || 0),
+          buys24h: Number(pair?.txns?.h24?.buys || 0),
+          sells24h: Number(pair?.txns?.h24?.sells || 0),
+          liquidity: Number(pair?.liquidity?.usd || combinedData?.gmgn?.liquidity || 0),
+          fdv: Number(pair?.fdv || combinedData?.gmgn?.marketCap || 0),
+          marketCap: Number(pair?.marketCap || pair?.fdv || combinedData?.gmgn?.marketCap || 0),
+          holderCount: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
+        },
+        tokenAge: Math.max(0, tokenAge),
+        topTraders: (gmgnData?.topTraders || []) as any[],
+      };
+
+      // Send COMPLETE payload to n8n for vetting
+      this.logger.log(`📤 Sending complete data payload to n8n for ${contractAddress}`);
+      const result = await this.n8nService.triggerInitialVetting(payload);
+      
+      if (result.success) {
+        this.logger.log(`✅ Successfully triggered n8n vetting for new token: ${contractAddress}`);
+      } else {
+        this.logger.warn(`⚠️ Failed to trigger n8n vetting for ${contractAddress}: ${result.error}`);
+      }
+    } catch (error: any) {
+      this.logger.error(`❌ Error triggering n8n vetting for ${contractAddress}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Fetch data from Helius RPC API
+   */
+  private async fetchHeliusData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1a00b566-9c85-4b19-b219-d3875fbcb8d3');
+      const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+
+      const [assetResponse, holdersResponse] = await Promise.allSettled([
+        firstValueFrom(
+          this.httpService.post(heliusUrl, {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getAsset',
+            params: { id: contractAddress },
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+          })
+        ),
+        firstValueFrom(
+          this.httpService.post(heliusUrl, {
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'getTokenLargestAccounts',
+            params: [contractAddress, { commitment: 'finalized' }],
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+          })
+        ),
+      ]);
+
+      const assetData = assetResponse.status === 'fulfilled' ? assetResponse.value.data : null;
+      const holdersData = holdersResponse.status === 'fulfilled' ? holdersResponse.value.data : null;
+
+      const asset = assetData?.result;
+      const holders = holdersData?.result?.value || [];
+
+      const totalSupply = asset?.token_info?.supply || 0;
+      const topHolders = holders.slice(0, 10).map((h: any) => {
+        const balance = Number(h.uiAmount || 0);
+        const percentage = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
+        return {
+          address: h.address,
+          balance,
+          percentage,
+        };
+      });
+
+      return {
+        isMintable: asset?.token_info?.supply_authority !== null,
+        isFreezable: asset?.token_info?.freeze_authority !== null,
+        totalSupply: Number(asset?.token_info?.supply || 0),
+        circulatingSupply: Number(asset?.token_info?.supply || 0),
+        holderCount: holders.length,
+        topHolders,
+        creationTimestamp: asset?.content?.metadata?.created_at || null,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Helius API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch data from Alchemy API
+   */
+  private async fetchAlchemyData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const alchemyApiKey = this.configService.get('ALCHEMY_API_KEY', 'bSSmYhMZK2oYWgB2aMzA_');
+      const alchemyUrl = `https://solana-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
+
+      const response = await firstValueFrom(
+        this.httpService.post(alchemyUrl, {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getAccountInfo',
+          params: [
+            contractAddress,
+            { encoding: 'jsonParsed' },
+          ],
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+
+      const data = response.data;
+      const accountInfo = data?.result?.value?.data?.parsed?.info;
+
+      if (!accountInfo) return null;
+
+      return {
+        isMintable: accountInfo.mintAuthority !== null,
+        isFreezable: accountInfo.freezeAuthority !== null,
+        totalSupply: Number(accountInfo.supply || 0),
+      };
+    } catch (error: any) {
+      this.logger.warn(`Alchemy API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch data from Helius BearTree API
+   */
+  private async fetchHeliusBearTreeData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '99b6e8db-d86a-4d3d-a5ee-88afa8015074');
+      const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
+
+      const response = await firstValueFrom(
+        this.httpService.post(bearTreeUrl, {
+          mintAccounts: [contractAddress],
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+
+      const data = response.data;
+      const tokenData = data?.[0];
+
+      if (!tokenData) return null;
+
+      return {
+        creatorAddress: tokenData?.onChainMetadata?.metadata?.updateAuthority || null,
+        creatorBalance: 0,
+        creatorStatus: 'unknown',
+        top10HolderRate: 0,
+        twitterCreateTokenCount: 0,
+        lpLockPercentage: 0,
+        lpLocks: [],
+      };
+    } catch (error: any) {
+      this.logger.warn(`Helius BearTree API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
     }
   }
 }
