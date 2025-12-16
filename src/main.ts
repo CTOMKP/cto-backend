@@ -68,7 +68,20 @@ async function bootstrap() {
     res.status(200).json({ 
       status: 'OK', 
       timestamp: new Date().toISOString(),
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      version: '1.0.0', // Replace with actual app version if available
+    });
+  });
+  
+  // Also add health check at /api/v1/health for consistency
+  app.getHttpAdapter().get('/api/v1/health', (req, res) => {
+    res.status(200).json({ 
+      status: 'OK', 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      version: '1.0.0',
     });
   });
 
