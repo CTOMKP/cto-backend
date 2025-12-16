@@ -1192,11 +1192,55 @@ export class RefreshWorker {
       const baseToken = (pair?.baseToken || {}) as { name?: string; symbol?: string; decimals?: number };
       const gmgnData = (combinedData?.gmgn as any) || {};
       
-      // Calculate token age
-      const creationTimestamp = heliusData?.creationTimestamp || pair?.pairCreatedAt;
-      const tokenAge = creationTimestamp 
-        ? Math.floor((Date.now() - (creationTimestamp * 1000)) / (1000 * 60 * 60 * 24))
-        : 0;
+      // Calculate token age - try multiple sources
+      const creationTimestamp = 
+        heliusData?.creationTimestamp ||           // Helius RPC (primary)
+        pair?.pairCreatedAt ||                     // DexScreener pair creation
+        combinedData?.gmgn?.open_timestamp ||      // GMGN open timestamp
+        combinedData?.gmgn?.creation_timestamp ||  // GMGN creation timestamp
+        null;
+
+      let tokenAge = 0;
+
+      if (creationTimestamp) {
+        // Calculate age from timestamp
+        tokenAge = Math.floor((Date.now() - (creationTimestamp * 1000)) / (1000 * 60 * 60 * 24));
+        this.logger.debug(`📅 Token ${contractAddress} age calculated from timestamp: ${tokenAge} days`);
+      } else {
+        // Fallback: Try to get age from existing listing in database
+        try {
+          const existingListing = await this.repo.findOne(contractAddress);
+          if (existingListing?.createdAt) {
+            const dbAge = Math.floor((Date.now() - new Date(existingListing.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+            tokenAge = Math.max(0, dbAge);
+            this.logger.debug(`📅 Using database createdAt for ${contractAddress} age: ${tokenAge} days`);
+          } else {
+            // Last resort: Estimate based on activity
+            const hasSignificantVolume = (trading?.volume24h || 0) > 50000;
+            const hasManyHolders = (holders?.count || 0) > 500;
+            const hasEstablishedLiquidity = (trading?.liquidity || 0) > 100000;
+            
+            if (hasSignificantVolume || hasManyHolders || hasEstablishedLiquidity) {
+              // Conservative estimate: assume minimum 7 days old for tokens with significant activity
+              tokenAge = 7;
+              this.logger.debug(`⚠️ No timestamp for ${contractAddress}, estimating minimum age: 7 days (based on activity)`);
+            } else {
+              // Very new token with no activity - likely < 1 day
+              tokenAge = 0;
+              this.logger.debug(`⚠️ No timestamp for ${contractAddress}, no significant activity - age: 0 days`);
+            }
+          }
+        } catch (error) {
+          this.logger.debug(`⚠️ Could not fetch existing listing for age calculation: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Log age calculation details for debugging
+      this.logger.debug(`🔍 Age calculation for ${contractAddress}:`);
+      this.logger.debug(`  - heliusData?.creationTimestamp: ${heliusData?.creationTimestamp || 'null'}`);
+      this.logger.debug(`  - pair?.pairCreatedAt: ${pair?.pairCreatedAt || 'null'}`);
+      this.logger.debug(`  - combinedData?.gmgn?.open_timestamp: ${combinedData?.gmgn?.open_timestamp || 'null'}`);
+      this.logger.debug(`  - Final tokenAge: ${tokenAge} days`);
 
       // ⚠️ AGE FILTER: Only vet tokens that are >= 14 days old (client requirement)
       const MIN_TOKEN_AGE_DAYS = 14;
