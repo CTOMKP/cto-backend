@@ -218,6 +218,9 @@ export class ListingRepository {
       // Preserve existing community score from database (set by voting system) or set to null
       const existingCommunityScore = existing?.communityScore ?? null;
 
+      // Convert 'none' tier to null for database consistency
+      const tierValue = (tier === 'none' || tier === null || tier === undefined) ? null : tier;
+
       const listing = await (tx as any).listing.upsert({
         where: { contractAddress },
         create: {
@@ -227,7 +230,7 @@ export class ListingRepository {
           name,
           summary: scan?.summary ?? summary ?? null,
           riskScore: riskScore ?? null,
-          tier: tier ?? null,
+          tier: tierValue,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : null,
           // Community score is based on user votes - preserve existing or set to null
@@ -239,7 +242,7 @@ export class ListingRepository {
           name,
           summary: scan?.summary ?? summary ?? null,
           riskScore: riskScore ?? null,
-          tier: tier ?? null,
+          tier: tierValue,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : (undefined as any),
           // Community score is based on user votes - preserve existing value
@@ -313,6 +316,9 @@ export class ListingRepository {
       topHolders,
     };
 
+    // Convert 'none' tier to null for database consistency
+    const tierValue = vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier;
+
     return client.listing.upsert({
       where: { contractAddress },
       create: {
@@ -325,7 +331,7 @@ export class ListingRepository {
         lastScannedAt: new Date(),
         metadata,
         riskScore: vettingResults.overallScore,
-        tier: vettingResults.eligibleTier,
+        tier: tierValue,
         summary: `Risk Level: ${vettingResults.riskLevel}. ${vettingResults.allFlags[0] || 'Vetted'}`,
       },
       update: {
@@ -336,7 +342,7 @@ export class ListingRepository {
         lastScannedAt: new Date(),
         metadata,
         riskScore: vettingResults.overallScore,
-        tier: vettingResults.eligibleTier,
+        tier: tierValue,
         summary: `Risk Level: ${vettingResults.riskLevel}. ${vettingResults.allFlags[0] || 'Vetted'}`,
       },
     });
