@@ -378,8 +378,8 @@ export class CronService implements OnModuleInit {
           isMintable: heliusData?.isMintable ?? alchemyData?.isMintable ?? false,
           isFreezable: heliusData?.isFreezable ?? alchemyData?.isFreezable ?? false,
           lpLockPercentage: (pair?.liquidity as any)?.lockedPercentage || bearTreeData?.lpLockPercentage || 0,
-          totalSupply: heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0,
-          circulatingSupply: heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0,
+          totalSupply: Number(heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0),
+          circulatingSupply: Number(heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0),
           lpLocks: bearTreeData?.lpLocks || [],
         },
         holders: {
@@ -605,48 +605,101 @@ export class CronService implements OnModuleInit {
       this.logger.debug(`Fetching all data for ${contractAddress}...`);
       const tokenData = await this.fetchAllTokenData(contractAddress, chain);
 
-      // ⚠️ AGE FILTER: Temporarily set to 2 days for testing n8n flow (normally 14 days)
+      // ⚠️ AGE FILTER: Temporarily set to 2 days for testing (normally 14 days)
       const MIN_TOKEN_AGE_DAYS = 2;
       if (tokenData.tokenAge < MIN_TOKEN_AGE_DAYS) {
-        this.logger.debug(`⏳ Skipping n8n vetting for ${contractAddress}: Token age is ${tokenData.tokenAge} days (minimum ${MIN_TOKEN_AGE_DAYS} days required)`);
+        this.logger.debug(`⏳ Skipping vetting for ${contractAddress}: Token age is ${tokenData.tokenAge} days (minimum ${MIN_TOKEN_AGE_DAYS} days required)`);
         return;
       }
 
-      this.logger.log(`✅ Token ${contractAddress} is ${tokenData.tokenAge} days old (>= ${MIN_TOKEN_AGE_DAYS} days), proceeding with n8n vetting`);
+      this.logger.log(`✅ Token ${contractAddress} is ${tokenData.tokenAge} days old (>= ${MIN_TOKEN_AGE_DAYS} days), proceeding with vetting`);
 
-      // Send complete payload to N8N Automation X for risk scoring
-      // N8N only calculates risk scores and saves to DB (no data fetching)
-      const vettingResult = await this.n8nService.triggerInitialVetting(tokenData);
+      const useBackendRiskScoring = this.configService.get('USE_BACKEND_RISK_SCORING', 'true') === 'true';
 
-      if (vettingResult.success) {
-        this.logger.log(`Successfully sent listing ${contractAddress} to N8N Automation X for vetting`);
-
-        // Update or create listing in DB with initial vetting results
-        await this.prisma.listing.upsert({
-          where: { contractAddress },
-          update: {
-            name: vettingResult.tokenInfo?.name,
-            symbol: vettingResult.tokenInfo?.symbol,
-            riskScore: vettingResult.vettingResults?.overallScore,
-            tier: vettingResult.vettingResults?.riskLevel,
-            summary: vettingResult.vettingResults?.summary,
-            lastScannedAt: new Date(),
-            metadata: vettingResult.vettingResults, // Store full vetting results in metadata
+      if (useBackendRiskScoring) {
+        // Use backend risk scoring
+        this.logger.log(`⚙️ Calculating risk score in backend for ${contractAddress}`);
+        
+        const vettingData: TokenVettingData = {
+          contractAddress: tokenData.contractAddress,
+          chain: tokenData.chain,
+          tokenInfo: tokenData.tokenInfo,
+          security: {
+            ...tokenData.security,
+            totalSupply: Number(tokenData.security.totalSupply || 0),
+            circulatingSupply: Number(tokenData.security.circulatingSupply || 0),
           },
-          create: {
-            contractAddress,
-            chain: this.mapChainToPrismaEnum(chain),
-            name: vettingResult.tokenInfo?.name,
-            symbol: vettingResult.tokenInfo?.symbol,
-            riskScore: vettingResult.vettingResults?.overallScore,
-            tier: vettingResult.vettingResults?.riskLevel,
-            summary: vettingResult.vettingResults?.summary,
-            lastScannedAt: new Date(),
-            metadata: vettingResult.vettingResults, // Store full vetting results in metadata
+          holders: tokenData.holders,
+          developer: tokenData.developer,
+          trading: tokenData.trading,
+          tokenAge: tokenData.tokenAge,
+        };
+
+        const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
+
+        await this.listingRepository.saveVettingResults({
+          contractAddress,
+          chain: this.mapChainToPrismaEnum(chain),
+          name: vettingData.tokenInfo.name,
+          symbol: vettingData.tokenInfo.symbol,
+          holders: vettingData.holders.count,
+          age: `${vettingData.tokenAge} days`,
+          imageUrl: vettingData.tokenInfo.image,
+          tokenAge: vettingData.tokenAge,
+          vettingResults,
+          launchAnalysis: {
+            creatorAddress: vettingData.developer.creatorAddress,
+            creatorBalance: vettingData.developer.creatorBalance,
+            creatorStatus: vettingData.developer.creatorStatus,
+            creatorTokenCount: vettingData.developer.twitterCreateTokenCount,
+            top10HolderRate: vettingData.developer.top10HolderRate,
           },
+          lpData: {
+            lpLockPercentage: vettingData.security.lpLockPercentage,
+            lpBurned: vettingData.security.lpLocks?.some((lock: any) => lock.tag === 'Burned') || false,
+            lpLocked: vettingData.security.lpLockPercentage > 0,
+            totalLiquidityUsd: vettingData.trading.liquidity,
+            lockDetails: vettingData.security.lpLocks || [],
+          },
+          topHolders: vettingData.holders.topHolders,
         });
+
+        this.logger.log(`✅ Successfully calculated and saved risk score for ${contractAddress}: ${vettingResults.overallScore} (${vettingResults.riskLevel})`);
       } else {
-        this.logger.error(`Failed to send listing ${contractAddress} to N8N:`, vettingResult.error);
+        // Use n8n for risk scoring
+        this.logger.log(`📤 Sending complete data payload to n8n for ${contractAddress}`);
+        const vettingResult = await this.n8nService.triggerInitialVetting(tokenData);
+
+        if (vettingResult.success) {
+          this.logger.log(`Successfully sent listing ${contractAddress} to N8N Automation X for vetting`);
+
+          // Update or create listing in DB with initial vetting results
+          await this.prisma.listing.upsert({
+            where: { contractAddress },
+            update: {
+              name: vettingResult.tokenInfo?.name,
+              symbol: vettingResult.tokenInfo?.symbol,
+              riskScore: vettingResult.vettingResults?.overallScore,
+              tier: vettingResult.vettingResults?.riskLevel,
+              summary: vettingResult.vettingResults?.summary,
+              lastScannedAt: new Date(),
+              metadata: vettingResult.vettingResults, // Store full vetting results in metadata
+            },
+            create: {
+              contractAddress,
+              chain: this.mapChainToPrismaEnum(chain),
+              name: vettingResult.tokenInfo?.name,
+              symbol: vettingResult.tokenInfo?.symbol,
+              riskScore: vettingResult.vettingResults?.overallScore,
+              tier: vettingResult.vettingResults?.riskLevel,
+              summary: vettingResult.vettingResults?.summary,
+              lastScannedAt: new Date(),
+              metadata: vettingResult.vettingResults, // Store full vetting results in metadata
+            },
+          });
+        } else {
+          this.logger.error(`Failed to send listing ${contractAddress} to N8N:`, vettingResult.error);
+        }
       }
     } catch (error: any) {
       this.logger.error(`Failed to process new token ${contractAddress}:`, error);
@@ -804,15 +857,18 @@ export class CronService implements OnModuleInit {
         return { success: false, error: 'Backend risk scoring is disabled' };
       }
 
-      // Fetch all listings with risk scores
+      // Fetch all listings that have been scanned (have lastScannedAt)
+      // This includes tokens with and without risk scores, so we can:
+      // 1. Calculate risk scores for tokens that don't have them
+      // 2. Recalculate risk scores for tokens that do have them (to use new algorithm)
       const whereClause: any = {
-        riskScore: { not: null },
+        lastScannedAt: { not: null },
       };
 
       const totalCount = await (this.prisma as any).listing.count({ where: whereClause });
       const maxProcess = limit > 0 ? Math.min(limit, totalCount) : totalCount;
 
-      this.logger.log(`📊 Found ${totalCount} tokens with risk scores. Processing ${maxProcess} tokens...`);
+      this.logger.log(`📊 Found ${totalCount} tokens that have been scanned. Processing ${maxProcess} tokens...`);
 
       let processed = 0;
       let updated = 0;
