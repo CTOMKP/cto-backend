@@ -145,6 +145,12 @@ export class ListingRepository {
     // NOTE: Community score is now based on user votes, not automatic calculation
     // Preserve existing community score from database (set by voting system) or set to null
     const existingCommunityScore = existing?.communityScore ?? null;
+    
+    // CRITICAL: Preserve tier and riskScore when updating market metadata
+    // These fields are set by vetting/risk scoring and should NOT be overwritten by market updates
+    const existingTier = existing?.tier ?? null;
+    const existingRiskScore = existing?.riskScore ?? null;
+    const existingSummary = existing?.summary ?? null;
 
     return client.listing.upsert({
       where: { contractAddress },
@@ -167,6 +173,10 @@ export class ListingRepository {
         metadata: nextMeta,
         // Community score is based on user votes - preserve existing or set to null
         communityScore: existingCommunityScore,
+        // Tier and riskScore will be null for new listings (set by vetting process)
+        tier: null,
+        riskScore: null,
+        summary: null,
       },
       update: {
         chain,
@@ -186,6 +196,10 @@ export class ListingRepository {
         metadata: nextMeta,
         // Community score is based on user votes - preserve existing value
         communityScore: existingCommunityScore,
+        // CRITICAL: Preserve tier and riskScore - do NOT overwrite with null
+        tier: existingTier,
+        riskScore: existingRiskScore,
+        summary: existingSummary,
       },
     });
   }
