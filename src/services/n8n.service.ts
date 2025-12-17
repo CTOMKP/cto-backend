@@ -86,37 +86,53 @@ export class N8nService {
       
       // Send complete pre-fetched data payload - N8N only calculates risk scores
       this.logger.debug(`📡 Sending HTTP POST request to n8n...`);
-      const response: AxiosResponse = await firstValueFrom(
-        this.httpService.post(webhookUrl, {
-          contractAddress: payload.contractAddress,
-          chain: payload.chain,
-          tokenInfo: payload.tokenInfo,
-          security: payload.security,
-          holders: payload.holders,
-          developer: payload.developer,
-          trading: payload.trading,
-          tokenAge: payload.tokenAge,
-          topTraders: payload.topTraders || [],
-        }, {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          timeout: 300000, // 5 minutes timeout for vetting process
-        })
-      );
-
-      const duration = Date.now() - startTime;
-      this.logger.log(`✅ Initial vetting completed for ${payload.contractAddress}: ${response.status} ${response.statusText} (took ${duration}ms)`);
-      this.logger.debug(`Response data: ${JSON.stringify(response.data).substring(0, 200)}...`);
-      
-      return {
-        success: true,
-        vettingId: response.data?.vettingId,
+      this.logger.debug(`🔗 Full webhook URL: ${webhookUrl}`);
+      this.logger.debug(`📋 Payload keys: ${Object.keys({
         contractAddress: payload.contractAddress,
-        tokenInfo: response.data?.tokenInfo,
-        vettingResults: response.data?.vettingResults,
-        scannedAt: response.data?.scannedAt,
-      };
+        chain: payload.chain,
+        tokenInfo: payload.tokenInfo,
+        security: payload.security,
+        holders: payload.holders,
+        developer: payload.developer,
+      }).join(', ')}`);
+      
+      try {
+        const response: AxiosResponse = await firstValueFrom(
+          this.httpService.post(webhookUrl, {
+            contractAddress: payload.contractAddress,
+            chain: payload.chain,
+            tokenInfo: payload.tokenInfo,
+            security: payload.security,
+            holders: payload.holders,
+            developer: payload.developer,
+            trading: payload.trading,
+            tokenAge: payload.tokenAge,
+            topTraders: payload.topTraders || [],
+          }, {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            timeout: 30000, // Temporarily reduced to 30 seconds for testing
+            validateStatus: (status) => status < 500, // Accept any status < 500
+          })
+        );
+
+        const duration = Date.now() - startTime;
+        this.logger.log(`✅ Initial vetting completed for ${payload.contractAddress}: ${response.status} ${response.statusText} (took ${duration}ms)`);
+        this.logger.debug(`Response data: ${JSON.stringify(response.data).substring(0, 200)}...`);
+        
+        return {
+          success: true,
+          vettingId: response.data?.vettingId,
+          contractAddress: payload.contractAddress,
+          tokenInfo: response.data?.tokenInfo,
+          vettingResults: response.data?.vettingResults,
+          scannedAt: response.data?.scannedAt,
+        };
+      } catch (httpError: any) {
+        // Re-throw to be caught by outer catch block
+        throw httpError;
+      }
     } catch (error: any) {
       let errorMessage: string;
       
