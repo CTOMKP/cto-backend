@@ -97,8 +97,17 @@ export class N8nService {
       }).join(', ')}`);
       
       try {
+        // For internal Coolify communication, use HTTP to avoid SSL/TLS issues
+        // Traefik handles SSL termination at the edge, so internal services can use HTTP
+        // If URL is HTTPS, convert to HTTP for internal communication
+        let requestUrl = webhookUrl;
+        if (webhookUrl.startsWith('https://')) {
+          requestUrl = webhookUrl.replace('https://', 'http://');
+          this.logger.debug(`🔄 Converted HTTPS to HTTP for internal communication: ${requestUrl}`);
+        }
+        
         const response: AxiosResponse = await firstValueFrom(
-          this.httpService.post(webhookUrl, {
+          this.httpService.post(requestUrl, {
             contractAddress: payload.contractAddress,
             chain: payload.chain,
             tokenInfo: payload.tokenInfo,
