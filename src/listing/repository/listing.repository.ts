@@ -69,31 +69,12 @@ export class ListingRepository {
       return hours;
     };
 
-    const computeCommunityScore = (i: any, m: any, t: any) => {
-      const holders = Number(i?.holders ?? m?.holders ?? t?.holder_count ?? 0);
-      const tx1h = (m?.txns?.h1?.buys ?? 0) + (m?.txns?.h1?.sells ?? 0);
-      const tx24h = (m?.txns?.h24?.buys ?? 0) + (m?.txns?.h24?.sells ?? 0);
-      const change24h = Number(i?.change24h ?? m?.priceChange?.h24 ?? 0);
-      const liquidity = Number(i?.liquidityUsd ?? m?.liquidityUsd ?? 0);
-      const ageStr = i?.age ?? t?.age_display_short ?? t?.age_display ?? null;
-      const ageHours = parseAgeToHours(ageStr);
-      const risk = Number(i?.riskScore ?? 0);
+    // NOTE: Community score is now based on user votes, not automatic calculation
+    // The automatic calculation has been removed. Community score will be set by the voting system.
+    // For now, we preserve existing community scores from the database, but don't compute new ones.
 
-      // Community Score: 0-100, HIGHER = BETTER (like academic grading)
-      // Formula: Holders (30%) + Transactions (25%) + Price changes (15%) + Liquidity (15%) + Age (5%) + Safety bonus (10%)
-      const holdersScore = clamp(holders / 1000, 0, 1) * 30;      // up to 30
-      const txScore = clamp(tx24h / 1000, 0, 1) * 25;             // up to 25
-      const changeScore = clamp(Math.max(0, change24h) / 100, 0, 1) * 15; // up to 15 for positive moves
-      const liqScore = clamp(liquidity / 1_000_000, 0, 1) * 15;    // up to 15
-      const ageScore = ageHours >= 24 ? 5 : 0;                     // small bonus for >1d
-      const safetyBonus = clamp((100 - risk) / 100, 0, 1) * 10;    // up to 10 based on inverse risk
-
-      const total = holdersScore + txScore + changeScore + liqScore + ageScore + safetyBonus;
-      return Math.round(clamp(total, 0, 100) * 100) / 100; // 2 decimals
-    };
-
-
-    // Fallback to metadata.market fields when top-level values are null and compute communityScore
+    // Fallback to metadata.market fields when top-level values are null
+    // Community score is preserved from database (user votes) or set to null
     const enriched = items.map((i: any) => {
       const m = (i?.metadata as any)?.market ?? {};
       const t = (i?.metadata as any)?.token ?? {};
@@ -112,12 +93,11 @@ export class ListingRepository {
         marketCap: i?.marketCap ?? m?.fdv ?? m?.marketCap ?? null,
         holders: i?.holders ?? m?.holders ?? t?.holder_count ?? null,
         age: i?.age ?? t?.age_display_short ?? t?.age_display ?? null,
+        // Community score is based on user votes - preserve existing value or set to null
         communityScore: i?.communityScore ?? null,
         logoUrl: (i as any)?.logoUrl ?? m?.logoUrl ?? null,
       };
-      if (merged.communityScore === null || merged.communityScore === undefined) {
-        merged.communityScore = computeCommunityScore(merged, m, t);
-      }
+      // No automatic calculation - community score comes from user votes
       return merged;
     });
 
@@ -155,52 +135,9 @@ export class ListingRepository {
     const prevMeta = (existing?.metadata ?? {}) as any;
     const nextMeta = { ...prevMeta, market: { ...(prevMeta.market ?? {}), ...(market ?? {}) } };
 
-    // Compute communityScore using available data (market + token metadata + existing listing fields)
-    const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-    const parseAgeToHours = (age: string | null | undefined): number => {
-      if (!age || typeof age !== 'string') return 0;
-      let hours = 0;
-      const dayMatch = age.match(/(\d+)\s*d/i);
-      const hourMatch = age.match(/(\d+)\s*h/i);
-      const minMatch = age.match(/(\d+)\s*m/i);
-      if (dayMatch) hours += Number(dayMatch[1]) * 24;
-      if (hourMatch) hours += Number(hourMatch[1]);
-      if (minMatch) hours += Number(minMatch[1]) / 60;
-      return hours;
-    };
-    const computeCommunityScore = (i: any, m: any, t: any) => {
-      const holders = Number(i?.holders ?? m?.holders ?? t?.holder_count ?? 0);
-      const tx24h = (m?.txns?.h24?.buys ?? 0) + (m?.txns?.h24?.sells ?? 0);
-      const change24h = Number(i?.change24h ?? m?.priceChange?.h24 ?? 0);
-      const liquidity = Number(i?.liquidityUsd ?? m?.liquidityUsd ?? 0);
-      const ageStr = i?.age ?? t?.age_display_short ?? t?.age_display ?? null;
-      const ageHours = parseAgeToHours(ageStr);
-      const risk = Number(i?.riskScore ?? 0);
-
-      const holdersScore = clamp(holders / 1000, 0, 1) * 30;
-      const txScore = clamp(tx24h / 1000, 0, 1) * 25;
-      const changeScore = clamp(Math.max(0, change24h) / 100, 0, 1) * 15;
-      const liqScore = clamp(liquidity / 1_000_000, 0, 1) * 15;
-      const ageScore = ageHours >= 24 ? 5 : 0;
-      const safetyBonus = clamp((100 - risk) / 100, 0, 1) * 10;
-
-      const total = holdersScore + txScore + changeScore + liqScore + ageScore + safetyBonus;
-      return Math.round(clamp(total, 0, 100) * 100) / 100;
-    };
-
-    const m = (nextMeta as any)?.market ?? {};
-    const t = (nextMeta as any)?.token ?? {};
-    const computedCommunityScore = computeCommunityScore(
-      {
-        holders: existing?.holders ?? null,
-        change24h,
-        liquidityUsd,
-        riskScore: existing?.riskScore ?? null,
-        age: existing?.age ?? (t?.age_display_short ?? t?.age_display ?? null),
-      },
-      m,
-      t,
-    );
+    // NOTE: Community score is now based on user votes, not automatic calculation
+    // Preserve existing community score from database (set by voting system) or set to null
+    const existingCommunityScore = existing?.communityScore ?? null;
 
     return client.listing.upsert({
       where: { contractAddress },
@@ -221,7 +158,8 @@ export class ListingRepository {
         txCount24h,
         holders,
         metadata: nextMeta,
-        communityScore: computedCommunityScore,
+        // Community score is based on user votes - preserve existing or set to null
+        communityScore: existingCommunityScore,
       },
       update: {
         chain,
@@ -239,7 +177,8 @@ export class ListingRepository {
         txCount24h,
         holders,
         metadata: nextMeta,
-        communityScore: computedCommunityScore,
+        // Community score is based on user votes - preserve existing value
+        communityScore: existingCommunityScore,
       },
     });
   }
@@ -268,52 +207,9 @@ export class ListingRepository {
       const prevMeta = (existing?.metadata ?? {}) as any;
       const nextMeta = { ...prevMeta, token: token ?? prevMeta.token ?? null };
 
-      // Recompute communityScore when riskScore/token are updated (uses existing market + new risk)
-      const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-      const parseAgeToHours = (age: string | null | undefined): number => {
-        if (!age || typeof age !== 'string') return 0;
-        let hours = 0;
-        const dayMatch = age.match(/(\d+)\s*d/i);
-        const hourMatch = age.match(/(\d+)\s*h/i);
-        const minMatch = age.match(/(\d+)\s*m/i);
-        if (dayMatch) hours += Number(dayMatch[1]) * 24;
-        if (hourMatch) hours += Number(hourMatch[1]);
-        if (minMatch) hours += Number(minMatch[1]) / 60;
-        return hours;
-      };
-      const computeCommunityScore = (i: any, m: any, t: any) => {
-        const holders = Number(i?.holders ?? t?.holder_count ?? 0);
-        const tx24h = (m?.txns?.h24?.buys ?? 0) + (m?.txns?.h24?.sells ?? 0);
-        const change24h = Number(i?.change24h ?? m?.priceChange?.h24 ?? 0);
-        const liquidity = Number(i?.liquidityUsd ?? m?.liquidityUsd ?? 0);
-        const ageStr = i?.age ?? t?.age_display_short ?? t?.age_display ?? null;
-        const ageHours = parseAgeToHours(ageStr);
-        const risk = Number(i?.riskScore ?? 0);
-
-        const holdersScore = clamp(holders / 1000, 0, 1) * 30;
-        const txScore = clamp(tx24h / 1000, 0, 1) * 25;
-        const changeScore = clamp(Math.max(0, change24h) / 100, 0, 1) * 15;
-        const liqScore = clamp(liquidity / 1_000_000, 0, 1) * 15;
-        const ageScore = ageHours >= 24 ? 5 : 0;
-        const safetyBonus = clamp((100 - risk) / 100, 0, 1) * 10;
-
-        const total = holdersScore + txScore + changeScore + liqScore + ageScore + safetyBonus;
-        return Math.round(clamp(total, 0, 100) * 100) / 100;
-      };
-
-      const m = (nextMeta as any)?.market ?? {};
-      const t = (nextMeta as any)?.token ?? {};
-      const computedCommunityScore = computeCommunityScore(
-        {
-          holders: existing?.holders ?? null,
-          change24h: existing?.change24h ?? null,
-          liquidityUsd: existing?.liquidityUsd ?? null,
-          riskScore: riskScore ?? existing?.riskScore ?? null,
-          age: existing?.age ?? (t?.age_display_short ?? t?.age_display ?? null),
-        },
-        m,
-        t,
-      );
+      // NOTE: Community score is now based on user votes, not automatic calculation
+      // Preserve existing community score from database (set by voting system) or set to null
+      const existingCommunityScore = existing?.communityScore ?? null;
 
       const listing = await (tx as any).listing.upsert({
         where: { contractAddress },
@@ -327,7 +223,8 @@ export class ListingRepository {
           tier: tier ?? null,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : null,
-          communityScore: computedCommunityScore,
+          // Community score is based on user votes - preserve existing or set to null
+          communityScore: existingCommunityScore,
         },
         update: {
           chain,
@@ -338,7 +235,8 @@ export class ListingRepository {
           tier: tier ?? null,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : (undefined as any),
-          communityScore: computedCommunityScore,
+          // Community score is based on user votes - preserve existing value
+          communityScore: existingCommunityScore,
         },
       });
 
