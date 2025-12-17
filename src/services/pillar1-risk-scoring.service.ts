@@ -512,7 +512,16 @@ export class Pillar1RiskScoringService {
       return 'sprout';
     }
 
-    // Seed: Basic eligibility
+    // Seed: Basic eligibility - relaxed requirements for tokens with good risk scores
+    // If score is high (>= 70), allow lower liquidity/LP lock requirements
+    if (score >= 70) {
+      // High score tokens: require age >= 14, but relax liquidity and LP lock
+      if (age >= 14 && liquidityUSD >= 5000 && lpLockPercentage >= 50) {
+        return 'seed';
+      }
+    }
+    
+    // Standard Seed tier requirements
     if (age >= 14 && liquidityUSD >= 10000 && lpLockPercentage >= 80 && score >= 50) {
       return 'seed';
     }

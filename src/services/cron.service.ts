@@ -1104,6 +1104,9 @@ export class CronService implements OnModuleInit {
         topHolders: tokenVettingData.holders.topHolders,
       });
 
+      // Log tier assignment for debugging
+      this.logger.debug(`🎯 Tier assigned for ${contractAddress}: ${vettingResults.eligibleTier} (score: ${vettingResults.overallScore}, age: ${tokenVettingData.tokenAge} days, liquidity: $${tokenVettingData.trading.liquidity}, LP lock: ${tokenVettingData.security.lpLockPercentage}%)`);
+
       return {
         success: true,
         newScore: vettingResults.overallScore,
