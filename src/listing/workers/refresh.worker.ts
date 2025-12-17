@@ -94,25 +94,22 @@ export class RefreshWorker {
    * Process existing unvetted tokens in batches
    * Runs every 10 minutes to vet tokens that were added before n8n integration
    */
-  @Cron('0 */10 * * * *', {
+  @Cron('0 */5 * * * *', {
     name: 'vet-existing-tokens',
     timeZone: 'UTC',
   })
   async processExistingUnvettedTokens() {
-    this.logger.debug('🔄 Starting processExistingUnvettedTokens cron job...');
+    this.logger.log('🔄 Starting processExistingUnvettedTokens cron job...');
     
     try {
       const client = (this.repo as any)['prisma'] as any;
-      // Get tokens that don't have a riskScore (unvetted)
+      // Get tokens that don't have a riskScore (unvetted) - more aggressive query
       const unvettedTokens = await client.listing.findMany({
         where: {
           riskScore: null,
-          OR: [
-            { lastScannedAt: null },
-            { lastScannedAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }, // Older than 24 hours
-          ],
+          chain: 'SOLANA', // Only process SOLANA tokens for now
         },
-        take: 10, // Process 10 at a time to avoid overwhelming n8n
+        take: 20, // Process 20 at a time (increased from 10)
         orderBy: { createdAt: 'asc' }, // Process oldest first
       });
 
@@ -121,17 +118,19 @@ export class RefreshWorker {
         return;
       }
 
-      this.logger.log(`📋 Processing ${unvettedTokens.length} unvetted tokens through n8n...`);
+      this.logger.log(`📋 Processing ${unvettedTokens.length} unvetted tokens with backend risk scoring...`);
 
       for (const token of unvettedTokens) {
         try {
           // Age check is done inside triggerN8nVettingForNewToken
           // It will skip tokens < 2 days old automatically (temporarily lowered for testing)
+          this.logger.log(`🔄 Triggering vetting for token ${token.contractAddress} (chain: ${token.chain})`);
           await this.triggerN8nVettingForNewToken(token.contractAddress, token.chain.toLowerCase());
           // Add delay between tokens to respect rate limits
-          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+          await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay (reduced from 2)
         } catch (error: any) {
-          this.logger.error(`Failed to process unvetted token ${token.contractAddress}: ${error.message}`);
+          this.logger.error(`❌ Failed to process unvetted token ${token.contractAddress}: ${error.message}`);
+          this.logger.error(`Stack: ${error.stack}`);
         }
       }
 
@@ -1126,6 +1125,22 @@ export class RefreshWorker {
             continue;
           }
 
+          // Check if token already exists and has a risk score
+          const existing = await this.repo.findOne(address);
+          
+          // If token exists but has no risk score, trigger vetting with new backend risk scoring
+          if (existing && !existing.riskScore && chain === 'SOLANA') {
+            this.logger.log(`🔄 Token ${address} exists but has no risk score - triggering vetting with backend risk scoring`);
+            try {
+              // Trigger vetting using new backend risk scoring (non-blocking)
+              this.triggerN8nVettingForNewToken(address, chain.toLowerCase()).catch((error) => {
+                this.logger.warn(`Failed to trigger vetting for existing token ${address}: ${error.message}`);
+              });
+            } catch (error: any) {
+              this.logger.warn(`Error triggering vetting for ${address}: ${error.message}`);
+            }
+          }
+          
           const result = await this.scanService.scanToken(address, undefined, chain);
           apiCalls += 1;
           const { listing: updated } = await this.repo.persistScanAndUpsertListing({

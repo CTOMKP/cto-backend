@@ -85,6 +85,11 @@ export class Pillar1RiskScoringService {
   /**
    * Calculate comprehensive risk score for a token
    * EXACT implementation of n8n workflow algorithm
+   * 
+   * RISK SCORE LOGIC: Higher score = Safer token (0-100 scale)
+   * - 70-100: Low Risk (safe)
+   * - 50-69: Medium Risk
+   * - 0-49: High Risk
    */
   calculateRiskScore(data: TokenVettingData): VettingResults {
     this.logger.debug(`Calculating risk score for token: ${data.contractAddress}`);
@@ -105,50 +110,51 @@ export class Pillar1RiskScoringService {
       ...technical.flags,
     ];
 
-    // Check data sufficiency
+    // Check data completeness (for flags only - we always calculate scores now)
     const missingCriticalData: string[] = [];
     if (distribution.score === null) missingCriticalData.push('Distribution');
     if (liquidity.score === null) missingCriticalData.push('Liquidity');
     if (technical.score === null) missingCriticalData.push('Technical');
 
-    const dataSufficient = missingCriticalData.length === 0;
+    // Always calculate overall score (missing data is penalized, not blocking)
+    // Use 0 as fallback for null scores (heavily penalized)
+    const distributionScore = distribution.score ?? 0;
+    const liquidityScore = liquidity.score ?? 0;
+    const technicalScore = technical.score ?? 0;
+    const devAbandonmentScore = devAbandonment.score ?? 0;
 
-    // Calculate weighted overall score (only if sufficient data)
-    let overallScore: number | null = null;
+    // Distribution: 25%, Liquidity: 35%, Dev: 20%, Technical: 20%
+    const overallScore = Math.round(
+      (distributionScore * 0.25) +
+      (liquidityScore * 0.35) +
+      (devAbandonmentScore * 0.20) +
+      (technicalScore * 0.20)
+    );
+
+    // Determine risk level
     let riskLevel: 'low' | 'medium' | 'high' | 'insufficient_data' = 'insufficient_data';
-
-    if (dataSufficient) {
-      // Distribution: 25%, Liquidity: 35%, Dev: 20%, Technical: 20%
-      overallScore = Math.round(
-        (distribution.score * 0.25) +
-        (liquidity.score * 0.35) +
-        (devAbandonment.score * 0.20) +
-        (technical.score * 0.20)
-      );
-
-      // Determine risk level
-      if (overallScore >= 70) {
-        riskLevel = 'low';
-      } else if (overallScore >= 50) {
-        riskLevel = 'medium';
-      } else {
-        riskLevel = 'high';
-      }
+    if (overallScore >= 70) {
+      riskLevel = 'low';
+    } else if (overallScore >= 50) {
+      riskLevel = 'medium';
     } else {
+      riskLevel = 'high';
+    }
+
+    // Add warning flags for missing data
+    if (missingCriticalData.length > 0) {
       allFlags.push(
-        `🚫 CANNOT CALCULATE: Missing critical data (${missingCriticalData.join(', ')}) - Risk score cannot be determined`
+        `⚠️ PARTIAL DATA: Missing ${missingCriticalData.join(', ')} data - score penalized but calculated`
       );
     }
 
-    // Determine eligible tier
-    const eligibleTier = overallScore !== null
-      ? this.determineEligibleTier(
-          overallScore,
-          tokenAge,
-          security.lpLockPercentage || 0,
-          trading.liquidity || 0
-        )
-      : 'none';
+    // Determine eligible tier (always calculate, even with partial data)
+    const eligibleTier = this.determineEligibleTier(
+      overallScore,
+      tokenAge,
+      security.lpLockPercentage || 0,
+      trading.liquidity || 0
+    );
 
     return {
       componentScores: {
@@ -161,7 +167,7 @@ export class Pillar1RiskScoringService {
       riskLevel,
       eligibleTier,
       allFlags,
-      dataSufficient,
+      dataSufficient: missingCriticalData.length === 0,
       missingData: missingCriticalData,
       calculatedAt: new Date().toISOString(),
     };
@@ -178,10 +184,29 @@ export class Pillar1RiskScoringService {
     let score = 100;
     const flags: string[] = [];
 
+    // If topHolders data is missing, apply penalty but still calculate based on holder count
     if (!holders || !holders.topHolders || holders.topHolders.length === 0) {
+      score -= 5; // Base penalty for missing topHolders data
+      flags.push('⚠️ Missing holder distribution data - penalized -5 points');
+      
+      // Fallback: Use holder count for basic analysis
+      const holderCount = holders?.count || 0;
+      if (holderCount === 0) {
+        score -= 15; // Additional penalty if no holder count either
+        flags.push('⚠️ No holder count data available - additional -15 penalty');
+      } else if (tokenAge >= 30 && holderCount < 100) {
+        score -= 20;
+        flags.push(`Low holder count: ${holderCount} after ${tokenAge} days`);
+      } else if (tokenAge >= 60 && holderCount < 250) {
+        score -= 10;
+        flags.push(`Limited growth: ${holderCount} holders after ${tokenAge} days`);
+      } else if (holderCount > 1000) {
+        flags.push(`Strong holder base: ${holderCount} holders (partial data)`);
+      }
+      
       return {
-        score: null,
-        flags: ['⚠️ INSUFFICIENT DATA: Holder distribution data not available - cannot calculate distribution score'],
+        score: Math.min(100, Math.max(0, score)),
+        flags,
       };
     }
 
@@ -276,10 +301,9 @@ export class Pillar1RiskScoringService {
       score -= 60;
       flags.push(`Only ${lpLockPercentage}% LP locked - CRITICAL RISK`);
     } else {
-      return {
-        score: null,
-        flags: ['⚠️ INSUFFICIENT DATA: LP lock data not available - cannot calculate liquidity score'],
-      };
+      // Missing LP lock data - apply penalty but still calculate based on liquidity amount
+      score -= 5; // Base penalty for missing LP lock data
+      flags.push('⚠️ Missing LP lock data - penalized -5 points');
     }
 
     // Bonus for burned LP
@@ -290,8 +314,12 @@ export class Pillar1RiskScoringService {
 
     // Liquidity amount analysis
     const liquidityUSD = trading?.liquidity || 0;
-
-    if (liquidityUSD < 10000 && tokenAge > 14) {
+    
+    // Additional penalty if liquidity data is also missing
+    if (lpLockPercentage === 0 && liquidityUSD === 0) {
+      score -= 10; // Additional penalty if no liquidity data either
+      flags.push('⚠️ No liquidity data available - additional -10 penalty');
+    } else if (liquidityUSD < 10000 && tokenAge > 14) {
       score -= 15;
       flags.push(`Low liquidity: $${liquidityUSD.toLocaleString()} (<$10k minimum)`);
     } else if (liquidityUSD >= 50000) {
@@ -382,17 +410,39 @@ export class Pillar1RiskScoringService {
     const flags: string[] = [];
 
     if (!security) {
+      // Missing security data - apply heavy penalty (assume worst case)
+      score -= 10; // Base penalty for missing security data
+      score -= 20; // Additional penalty for unknown security status (assumed risky)
+      flags.push('⚠️ Missing security data - penalized -30 points (assumed risky)');
       return {
-        score: null,
-        flags: ['⚠️ INSUFFICIENT DATA: Security data not available - cannot calculate technical score'],
+        score: Math.min(100, Math.max(0, score)),
+        flags,
       };
     }
 
     // Check if we have at least mint/freeze authority data
     if (security.isMintable === undefined && security.isFreezable === undefined) {
+      // Missing authority data - apply penalty (assume worst case)
+      score -= 10; // Base penalty for missing authority data
+      score -= 20; // Additional penalty for unknown status (assumed authorities are active = risky)
+      flags.push('⚠️ Missing mint/freeze authority data - penalized -30 points (assumed risky)');
+      
+      // Still check other security factors if available
+      const totalSupply = security.totalSupply || 0;
+      const circulatingSupply = security.circulatingSupply || 0;
+      if (totalSupply > 0 && circulatingSupply > 0) {
+        const circulatingPercentage = (circulatingSupply / totalSupply) * 100;
+        if (circulatingPercentage < 80) {
+          score -= 15;
+          flags.push(`Only ${circulatingPercentage.toFixed(0)}% circulating (locked supply risk)`);
+        } else if (circulatingPercentage >= 95) {
+          flags.push(`${circulatingPercentage.toFixed(0)}% circulating (good supply distribution)`);
+        }
+      }
+      
       return {
-        score: null,
-        flags: ['⚠️ INSUFFICIENT DATA: Mint/Freeze authority data not available - cannot calculate technical score'],
+        score: Math.min(100, Math.max(0, score)),
+        flags,
       };
     }
 
@@ -470,4 +520,3 @@ export class Pillar1RiskScoringService {
     return 'none';
   }
 }
-
