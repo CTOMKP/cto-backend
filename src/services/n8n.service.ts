@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { AxiosResponse } from 'axios';
+import * as https from 'https';
 
 export interface N8nWebhookPayload {
   contractAddress: string;
@@ -97,17 +98,14 @@ export class N8nService {
       }).join(', ')}`);
       
       try {
-        // For internal Coolify communication, use HTTP to avoid SSL/TLS issues
-        // Traefik handles SSL termination at the edge, so internal services can use HTTP
-        // If URL is HTTPS, convert to HTTP for internal communication
-        let requestUrl = webhookUrl;
-        if (webhookUrl.startsWith('https://')) {
-          requestUrl = webhookUrl.replace('https://', 'http://');
-          this.logger.debug(`🔄 Converted HTTPS to HTTP for internal communication: ${requestUrl}`);
-        }
+        // For internal Coolify communication, create an HTTPS agent that doesn't verify certificates
+        // This is safe for internal service-to-service communication
+        const httpsAgent = new https.Agent({
+          rejectUnauthorized: false, // Allow self-signed or internal certificates
+        });
         
         const response: AxiosResponse = await firstValueFrom(
-          this.httpService.post(requestUrl, {
+          this.httpService.post(webhookUrl, {
             contractAddress: payload.contractAddress,
             chain: payload.chain,
             tokenInfo: payload.tokenInfo,
@@ -121,8 +119,9 @@ export class N8nService {
             headers: {
               'Content-Type': 'application/json',
             },
-            timeout: 30000, // Temporarily reduced to 30 seconds for testing
+            timeout: 30000, // 30 seconds timeout
             validateStatus: (status) => status < 500, // Accept any status < 500
+            httpsAgent: httpsAgent, // Use custom HTTPS agent for internal communication
           })
         );
 
