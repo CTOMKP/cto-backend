@@ -124,7 +124,7 @@ export class RefreshWorker {
       for (const token of unvettedTokens) {
         try {
           // Age check is done inside triggerN8nVettingForNewToken
-          // It will skip tokens < 14 days old automatically
+          // It will skip tokens < 2 days old automatically (temporarily lowered for testing)
           await this.triggerN8nVettingForNewToken(token.contractAddress, token.chain.toLowerCase());
           // Add delay between tokens to respect rate limits
           await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
@@ -1018,7 +1018,7 @@ export class RefreshWorker {
         if (!before) {
           deltas.new.push(payload);
           // Trigger n8n vetting for new tokens that don't have a riskScore yet
-          // Note: Age check (>= 14 days) is done inside triggerN8nVettingForNewToken
+          // Note: Age check (>= 2 days, temporarily lowered for testing) is done inside triggerN8nVettingForNewToken
           if (!after?.riskScore && this.n8nService && this.externalApisService) {
             this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
               this.logger.warn(`Failed to trigger n8n vetting for new token ${address}: ${error.message}`);
@@ -1246,8 +1246,8 @@ export class RefreshWorker {
       this.logger.debug(`  - pair?.pairCreatedAt: ${pair?.pairCreatedAt || 'null'}`);
       this.logger.debug(`  - Final tokenAge: ${tokenAge} days`);
 
-      // ⚠️ AGE FILTER: Only vet tokens that are >= 14 days old (client requirement)
-      const MIN_TOKEN_AGE_DAYS = 14;
+      // ⚠️ AGE FILTER: Temporarily set to 2 days for testing n8n flow (normally 14 days)
+      const MIN_TOKEN_AGE_DAYS = 2;
       if (tokenAge < MIN_TOKEN_AGE_DAYS) {
         this.logger.debug(`⏳ Skipping n8n vetting for ${contractAddress}: Token age is ${tokenAge} days (minimum ${MIN_TOKEN_AGE_DAYS} days required)`);
         return;

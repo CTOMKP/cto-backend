@@ -42,7 +42,15 @@ export class N8nService {
   constructor(
     private configService: ConfigService,
     private httpService: HttpService,
-  ) {}
+  ) {
+    // Log n8n configuration at startup
+    const webhookUrl = this.configService.get('N8N_AUTOMATION_X_URL');
+    if (webhookUrl) {
+      this.logger.log(`✅ N8N webhook URL configured: ${webhookUrl}`);
+    } else {
+      this.logger.warn(`⚠️ N8N_AUTOMATION_X_URL is not configured - n8n vetting will be disabled`);
+    }
+  }
 
   /**
    * Trigger Automation X (Initial Vetting) via N8N webhook
@@ -70,10 +78,14 @@ export class N8nService {
     }
 
     try {
-      this.logger.debug(`Triggering initial vetting for token: ${payload.contractAddress}`);
-      this.logger.debug(`N8N Webhook URL: ${webhookUrl}`);
+      this.logger.log(`🚀 Starting n8n vetting for token: ${payload.contractAddress}`);
+      this.logger.log(`📍 N8N Webhook URL: ${webhookUrl}`);
+      this.logger.debug(`📦 Payload size: ${JSON.stringify(payload).length} bytes`);
 
+      const startTime = Date.now();
+      
       // Send complete pre-fetched data payload - N8N only calculates risk scores
+      this.logger.debug(`📡 Sending HTTP POST request to n8n...`);
       const response: AxiosResponse = await firstValueFrom(
         this.httpService.post(webhookUrl, {
           contractAddress: payload.contractAddress,
@@ -93,7 +105,8 @@ export class N8nService {
         })
       );
 
-      this.logger.log(`✅ Initial vetting completed for ${payload.contractAddress}: ${response.status} ${response.statusText}`);
+      const duration = Date.now() - startTime;
+      this.logger.log(`✅ Initial vetting completed for ${payload.contractAddress}: ${response.status} ${response.statusText} (took ${duration}ms)`);
       this.logger.debug(`Response data: ${JSON.stringify(response.data).substring(0, 200)}...`);
       
       return {
@@ -105,12 +118,31 @@ export class N8nService {
         scannedAt: response.data?.scannedAt,
       };
     } catch (error: any) {
-      const errorMessage = error.response 
-        ? `HTTP ${error.response.status}: ${error.response.statusText} - ${JSON.stringify(error.response.data).substring(0, 200)}`
-        : error.message;
+      let errorMessage: string;
+      
+      if (error.isAxiosError) {
+        if (error.code === 'ECONNREFUSED') {
+          errorMessage = `Connection refused - n8n server may be down or unreachable at ${webhookUrl}`;
+        } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+          errorMessage = `Request timeout - n8n server did not respond within 5 minutes`;
+        } else if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
+          errorMessage = `DNS resolution failed - cannot resolve hostname for ${webhookUrl}`;
+        } else if (error.response) {
+          errorMessage = `HTTP ${error.response.status}: ${error.response.statusText} - ${JSON.stringify(error.response.data).substring(0, 200)}`;
+        } else {
+          errorMessage = `Network error: ${error.code || 'UNKNOWN'} - ${error.message}`;
+        }
+      } else {
+        errorMessage = error.message || String(error);
+      }
       
       this.logger.error(`❌ Failed to trigger initial vetting for ${payload.contractAddress}: ${errorMessage}`);
-      this.logger.debug(`Error details: ${error.code || 'N/A'}, URL: ${webhookUrl}`);
+      this.logger.error(`🔍 Error code: ${error.code || 'N/A'}, Error type: ${error.constructor?.name || 'Unknown'}`);
+      this.logger.error(`📍 Target URL: ${webhookUrl}`);
+      
+      if (error.stack) {
+        this.logger.debug(`Stack trace: ${error.stack.substring(0, 500)}`);
+      }
       
       return {
         success: false,

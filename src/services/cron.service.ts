@@ -565,8 +565,8 @@ export class CronService {
       this.logger.debug(`Fetching all data for ${contractAddress}...`);
       const tokenData = await this.fetchAllTokenData(contractAddress, chain);
 
-      // ⚠️ AGE FILTER: Only vet tokens that are >= 14 days old (client requirement)
-      const MIN_TOKEN_AGE_DAYS = 14;
+      // ⚠️ AGE FILTER: Temporarily set to 2 days for testing n8n flow (normally 14 days)
+      const MIN_TOKEN_AGE_DAYS = 2;
       if (tokenData.tokenAge < MIN_TOKEN_AGE_DAYS) {
         this.logger.debug(`⏳ Skipping n8n vetting for ${contractAddress}: Token age is ${tokenData.tokenAge} days (minimum ${MIN_TOKEN_AGE_DAYS} days required)`);
         return;
