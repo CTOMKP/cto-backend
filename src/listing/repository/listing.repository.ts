@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListingQueryDto } from '../dto/listing-query.dto';
+import { Chain } from '@prisma/client';
 
 @Injectable()
 export class ListingRepository {
@@ -354,7 +355,7 @@ export class ListingRepository {
    */
   async saveVettingResults(params: {
     contractAddress: string;
-    chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
+    chain: Chain;
     name: string;
     symbol: string;
     holders: number;
