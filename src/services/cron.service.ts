@@ -881,7 +881,7 @@ export class CronService implements OnModuleInit {
       const chain = listing.chain?.toLowerCase() || 'solana';
 
       // Extract data from metadata (if available from previous vetting)
-      const vettingResults = metadata?.vettingResults || {};
+      const existingVettingResults = metadata?.vettingResults || {};
       const launchAnalysis = metadata?.launchAnalysis || {};
       const lpData = metadata?.lpData || {};
       const topHolders = metadata?.topHolders || [];
@@ -892,7 +892,7 @@ export class CronService implements OnModuleInit {
 
       // Check if we have sufficient data in metadata
       const hasCompleteData = 
-        vettingResults.componentScores &&
+        existingVettingResults.componentScores &&
         launchAnalysis.creatorAddress !== undefined &&
         lpData.lpLockPercentage !== undefined &&
         topHolders.length > 0;
@@ -984,8 +984,8 @@ export class CronService implements OnModuleInit {
             isMintable: heliusData?.isMintable ?? alchemyData?.isMintable ?? false,
             isFreezable: heliusData?.isFreezable ?? alchemyData?.isFreezable ?? false,
             lpLockPercentage: (pair?.liquidity as any)?.lockedPercentage || bearTreeData?.lpLockPercentage || lpData.lpLockPercentage || 0,
-            totalSupply: heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0,
-            circulatingSupply: heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0,
+            totalSupply: Number(heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0),
+            circulatingSupply: Number(heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0),
             lpLocks: bearTreeData?.lpLocks || lpData.lockDetails || [],
           },
           holders: {
@@ -1074,150 +1074,4 @@ export class CronService implements OnModuleInit {
     return null;
   }
 
-  /**
-   * Fetch data from Helius RPC API (same as RefreshWorker)
-   */
-  private async fetchHeliusData(contractAddress: string) {
-    if (!this.httpService || !this.configService) return null;
-    
-    try {
-      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1a00b566-9c85-4b19-b219-d3875fbcb8d3');
-      const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
-
-      const [assetResponse, holdersResponse] = await Promise.allSettled([
-        firstValueFrom(
-          this.httpService.post(heliusUrl, {
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'getAsset',
-            params: { id: contractAddress },
-          }, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 15000,
-          })
-        ),
-        firstValueFrom(
-          this.httpService.post(heliusUrl, {
-            jsonrpc: '2.0',
-            id: 2,
-            method: 'getTokenLargestAccounts',
-            params: [contractAddress, { commitment: 'finalized' }],
-          }, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 15000,
-          })
-        ),
-      ]);
-
-      const assetData = assetResponse.status === 'fulfilled' ? assetResponse.value.data : null;
-      const holdersData = holdersResponse.status === 'fulfilled' ? holdersResponse.value.data : null;
-
-      const asset = assetData?.result;
-      const holders = holdersData?.result?.value || [];
-
-      const totalSupply = asset?.token_info?.supply || 0;
-      const topHolders = holders.slice(0, 10).map((h: any) => {
-        const balance = Number(h.uiAmount || 0);
-        const percentage = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
-        return {
-          address: h.address,
-          balance,
-          percentage,
-        };
-      });
-
-      return {
-        isMintable: asset?.token_info?.supply_authority !== null,
-        isFreezable: asset?.token_info?.freeze_authority !== null,
-        totalSupply: Number(asset?.token_info?.supply || 0),
-        circulatingSupply: Number(asset?.token_info?.supply || 0),
-        holderCount: holders.length,
-        topHolders,
-        creationTimestamp: asset?.content?.metadata?.created_at || null,
-      };
-    } catch (error: any) {
-      this.logger.warn(`Helius API fetch failed for ${contractAddress}: ${error.message}`);
-      return null;
-    }
-  }
-
-  /**
-   * Fetch data from Alchemy API (same as RefreshWorker)
-   */
-  private async fetchAlchemyData(contractAddress: string) {
-    if (!this.httpService || !this.configService) return null;
-    
-    try {
-      const alchemyApiKey = this.configService.get('ALCHEMY_API_KEY', 'bSSmYhMZK2oYWgB2aMzA_');
-      const alchemyUrl = `https://solana-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
-
-      const response = await firstValueFrom(
-        this.httpService.post(alchemyUrl, {
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getAccountInfo',
-          params: [
-            contractAddress,
-            { encoding: 'jsonParsed' },
-          ],
-        }, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 15000,
-        })
-      );
-
-      const data = response.data;
-      const accountInfo = data?.result?.value?.data?.parsed?.info;
-
-      if (!accountInfo) return null;
-
-      return {
-        isMintable: accountInfo.mintAuthority !== null,
-        isFreezable: accountInfo.freezeAuthority !== null,
-        totalSupply: Number(accountInfo.supply || 0),
-      };
-    } catch (error: any) {
-      this.logger.warn(`Alchemy API fetch failed for ${contractAddress}: ${error.message}`);
-      return null;
-    }
-  }
-
-  /**
-   * Fetch data from Helius BearTree API (same as RefreshWorker)
-   */
-  private async fetchHeliusBearTreeData(contractAddress: string) {
-    if (!this.httpService || !this.configService) return null;
-    
-    try {
-      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '99b6e8db-d86a-4d3d-a5ee-88afa8015074');
-      const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
-
-      const response = await firstValueFrom(
-        this.httpService.post(bearTreeUrl, {
-          mintAccounts: [contractAddress],
-        }, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 15000,
-        })
-      );
-
-      const data = response.data;
-      const tokenData = data?.[0];
-
-      if (!tokenData) return null;
-
-      return {
-        creatorAddress: tokenData.creatorAddress || null,
-        creatorBalance: tokenData.creatorBalance || 0,
-        creatorStatus: tokenData.creatorStatus || 'unknown',
-        top10HolderRate: tokenData.top10HolderRate || 0,
-        twitterCreateTokenCount: tokenData.twitterCreateTokenCount || 0,
-        lpLockPercentage: tokenData.lpLockPercentage || 0,
-        lpLocks: tokenData.lpLocks || [],
-      };
-    } catch (error: any) {
-      this.logger.warn(`Helius BearTree API fetch failed for ${contractAddress}: ${error.message}`);
-      return null;
-    }
-  }
 }

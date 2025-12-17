@@ -1277,8 +1277,8 @@ export class RefreshWorker {
           isMintable: heliusData?.isMintable ?? alchemyData?.isMintable ?? false,
           isFreezable: heliusData?.isFreezable ?? alchemyData?.isFreezable ?? false,
           lpLockPercentage: (pair?.liquidity as any)?.lockedPercentage || bearTreeData?.lpLockPercentage || 0,
-          totalSupply: heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0,
-          circulatingSupply: heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0,
+          totalSupply: Number(heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0),
+          circulatingSupply: Number(heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0),
           lpLocks: bearTreeData?.lpLocks || [],
         },
         holders: {
