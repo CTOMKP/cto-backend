@@ -309,8 +309,13 @@ export class CronService {
       
       // Calculate token age
       const creationTimestamp = heliusData?.creationTimestamp || pair?.pairCreatedAt;
-      const tokenAge = creationTimestamp 
-        ? Math.floor((Date.now() - (creationTimestamp * 1000)) / (1000 * 60 * 60 * 24))
+      // Determine if timestamp is in seconds or milliseconds
+      // Timestamps > 1e12 are in milliseconds, < 1e12 are in seconds
+      const timestampMs = creationTimestamp 
+        ? (creationTimestamp > 1e12 ? creationTimestamp : creationTimestamp * 1000)
+        : null;
+      const tokenAge = timestampMs 
+        ? Math.floor((Date.now() - timestampMs) / (1000 * 60 * 60 * 24))
         : 0;
 
       // Build complete payload

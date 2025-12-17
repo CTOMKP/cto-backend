@@ -89,7 +89,8 @@ export class N8nService {
         })
       );
 
-      this.logger.log(`Initial vetting completed for ${payload.contractAddress}: ${response.status}`);
+      this.logger.log(`✅ Initial vetting completed for ${payload.contractAddress}: ${response.status} ${response.statusText}`);
+      this.logger.debug(`Response data: ${JSON.stringify(response.data).substring(0, 200)}...`);
       
       return {
         success: true,
@@ -100,12 +101,17 @@ export class N8nService {
         scannedAt: response.data?.scannedAt,
       };
     } catch (error: any) {
-      this.logger.error(`Failed to trigger initial vetting for ${payload.contractAddress}:`, error.message);
+      const errorMessage = error.response 
+        ? `HTTP ${error.response.status}: ${error.response.statusText} - ${JSON.stringify(error.response.data).substring(0, 200)}`
+        : error.message;
+      
+      this.logger.error(`❌ Failed to trigger initial vetting for ${payload.contractAddress}: ${errorMessage}`);
+      this.logger.debug(`Error details: ${error.code || 'N/A'}, URL: ${webhookUrl}`);
       
       return {
         success: false,
         contractAddress: payload.contractAddress,
-        error: error.message,
+        error: errorMessage,
       };
     }
   }

@@ -1202,8 +1202,14 @@ export class RefreshWorker {
       let tokenAge = 0;
 
       if (creationTimestamp) {
+        // Determine if timestamp is in seconds or milliseconds
+        // Timestamps > 1e12 are in milliseconds, < 1e12 are in seconds
+        const timestampMs = creationTimestamp > 1e12 
+          ? creationTimestamp  // Already in milliseconds
+          : creationTimestamp * 1000; // Convert seconds to milliseconds
+        
         // Calculate age from timestamp
-        tokenAge = Math.floor((Date.now() - (creationTimestamp * 1000)) / (1000 * 60 * 60 * 24));
+        tokenAge = Math.floor((Date.now() - timestampMs) / (1000 * 60 * 60 * 24));
         this.logger.debug(`📅 Token ${contractAddress} age calculated from timestamp: ${tokenAge} days`);
       } else {
         // Fallback: Try to get age from existing listing in database
