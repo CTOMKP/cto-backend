@@ -59,13 +59,17 @@ export class N8nService {
     tokenAge?: number;
     topTraders?: any[];
   }): Promise<N8nWebhookResponse> {
-    try {
-      const webhookUrl = this.configService.get('N8N_AUTOMATION_X_URL');
-      
-      if (!webhookUrl) {
-        throw new Error('N8N_AUTOMATION_X_URL is not configured');
-      }
+    const webhookUrl = this.configService.get('N8N_AUTOMATION_X_URL');
+    
+    if (!webhookUrl) {
+      return {
+        success: false,
+        contractAddress: payload.contractAddress,
+        error: 'N8N_AUTOMATION_X_URL is not configured',
+      };
+    }
 
+    try {
       this.logger.debug(`Triggering initial vetting for token: ${payload.contractAddress}`);
       this.logger.debug(`N8N Webhook URL: ${webhookUrl}`);
 
