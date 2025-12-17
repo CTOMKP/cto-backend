@@ -11,6 +11,7 @@ import { AnalyticsService } from '../services/analytics.service';
 import { N8nService } from '../../services/n8n.service';
 import { ExternalApisService } from '../../services/external-apis.service';
 import { TokenImageService } from '../../services/token-image.service';
+import { Pillar1RiskScoringService, TokenVettingData } from '../../services/pillar1-risk-scoring.service';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -40,6 +41,7 @@ export class RefreshWorker {
     private readonly n8nService: N8nService,
     private readonly externalApisService: ExternalApisService,
     private readonly tokenImageService: TokenImageService,
+    private readonly pillar1RiskScoringService: Pillar1RiskScoringService,
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
   ) {}
@@ -1312,17 +1314,72 @@ export class RefreshWorker {
         topTraders: (gmgnData?.topTraders || []) as any[],
       };
 
-      // Send COMPLETE payload to n8n for vetting
-      this.logger.log(`📤 Sending complete data payload to n8n for ${contractAddress}`);
-      const result = await this.n8nService.triggerInitialVetting(payload);
+      // Feature flag: Use backend risk scoring if enabled (fallback while n8n connectivity is fixed)
+      const useBackendRiskScoring = this.configService.get('USE_BACKEND_RISK_SCORING', 'true') === 'true';
       
-      if (result.success) {
-        this.logger.log(`✅ Successfully triggered n8n vetting for new token: ${contractAddress}`);
+      if (useBackendRiskScoring) {
+        // Calculate risk score directly in backend (matches n8n algorithm exactly)
+        this.logger.log(`🧮 Calculating risk score in backend for ${contractAddress}`);
+        
+        try {
+          const vettingData: TokenVettingData = {
+            contractAddress: payload.contractAddress,
+            chain: payload.chain,
+            tokenInfo: payload.tokenInfo,
+            security: payload.security,
+            holders: payload.holders,
+            developer: payload.developer,
+            trading: payload.trading,
+            tokenAge: payload.tokenAge,
+          };
+
+          const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
+
+          // Save to database (matching n8n workflow format)
+          await this.repo.saveVettingResults({
+            contractAddress,
+            chain: chain.toUpperCase() as any,
+            name: payload.tokenInfo.name,
+            symbol: payload.tokenInfo.symbol,
+            holders: payload.holders.count,
+            age: `${payload.tokenAge} days`,
+            imageUrl: payload.tokenInfo.image,
+            tokenAge: payload.tokenAge,
+            vettingResults,
+            launchAnalysis: {
+              creatorAddress: payload.developer.creatorAddress,
+              creatorBalance: payload.developer.creatorBalance,
+              creatorStatus: payload.developer.creatorStatus,
+              creatorTokenCount: payload.developer.twitterCreateTokenCount,
+              top10HolderRate: payload.developer.top10HolderRate,
+            },
+            lpData: {
+              lpLockPercentage: payload.security.lpLockPercentage,
+              lpBurned: payload.security.lpLocks?.some((lock: any) => lock.tag === 'Burned') || false,
+              lpLocked: payload.security.lpLockPercentage > 0,
+              totalLiquidityUsd: payload.trading.liquidity,
+              lockDetails: payload.security.lpLocks || [],
+            },
+            topHolders: payload.holders.topHolders,
+          });
+
+          this.logger.log(`✅ Successfully calculated and saved risk score for ${contractAddress}: ${vettingResults.overallScore} (${vettingResults.riskLevel})`);
+        } catch (error: any) {
+          this.logger.error(`❌ Error calculating risk score in backend for ${contractAddress}: ${error.message}`);
+        }
       } else {
-        this.logger.warn(`⚠️ Failed to trigger n8n vetting for ${contractAddress}: ${result.error}`);
+        // Use n8n webhook (original flow)
+        this.logger.log(`📤 Sending complete data payload to n8n for ${contractAddress}`);
+        const result = await this.n8nService.triggerInitialVetting(payload);
+        
+        if (result.success) {
+          this.logger.log(`✅ Successfully triggered n8n vetting for new token: ${contractAddress}`);
+        } else {
+          this.logger.warn(`⚠️ Failed to trigger n8n vetting for ${contractAddress}: ${result.error}`);
+        }
       }
     } catch (error: any) {
-      this.logger.error(`❌ Error triggering n8n vetting for ${contractAddress}: ${error.message}`);
+      this.logger.error(`❌ Error triggering vetting for ${contractAddress}: ${error.message}`);
     }
   }
 

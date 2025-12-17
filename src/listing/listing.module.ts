@@ -18,6 +18,6 @@ import { TokenVettingModule } from '../services/token-vetting.module';
   imports: [PrismaModule, ScanModule, TokenVettingModule, HttpModule],
   controllers: [ListingController],
   providers: [ListingService, ListingRepository, CacheService, RefreshWorker, RateLimiterGuard, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
-  exports: [ListingService, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
+  exports: [ListingService, ListingRepository, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
 })
 export class ListingModule {}

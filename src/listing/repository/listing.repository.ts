@@ -348,4 +348,91 @@ export class ListingRepository {
   async updateChain(contractAddress: string, chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN') {
     return (this.prisma as any).listing.update({ where: { contractAddress }, data: { chain } });
   }
+
+  /**
+   * Save vetting results to database (matches n8n workflow format)
+   */
+  async saveVettingResults(params: {
+    contractAddress: string;
+    chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
+    name: string;
+    symbol: string;
+    holders: number;
+    age: string;
+    imageUrl: string;
+    tokenAge: number;
+    vettingResults: any;
+    launchAnalysis: any;
+    lpData: any;
+    topHolders: Array<{ address: string; balance: number; percentage: number }>;
+  }) {
+    const {
+      contractAddress,
+      chain,
+      name,
+      symbol,
+      holders,
+      age,
+      imageUrl,
+      tokenAge,
+      vettingResults,
+      launchAnalysis,
+      lpData,
+      topHolders,
+    } = params;
+
+    const client = this.prisma as any;
+    const existing = await client.listing.findUnique({ where: { contractAddress } });
+    const prevMeta = (existing?.metadata ?? {}) as any;
+
+    // Build metadata matching n8n workflow format
+    const metadata = {
+      ...prevMeta,
+      imageUrl,
+      tokenAge,
+      vettingResults: {
+        overallScore: vettingResults.overallScore,
+        riskLevel: vettingResults.riskLevel,
+        eligibleTier: vettingResults.eligibleTier,
+        componentScores: {
+          distribution: vettingResults.componentScores.distribution.score,
+          liquidity: vettingResults.componentScores.liquidity.score,
+          devAbandonment: vettingResults.componentScores.devAbandonment.score,
+          technical: vettingResults.componentScores.technical.score,
+        },
+        flags: vettingResults.allFlags,
+      },
+      launchAnalysis,
+      lpData,
+      topHolders,
+    };
+
+    return client.listing.upsert({
+      where: { contractAddress },
+      create: {
+        contractAddress,
+        chain,
+        name,
+        symbol,
+        holders,
+        age,
+        lastScannedAt: new Date(),
+        metadata,
+        riskScore: vettingResults.overallScore,
+        tier: vettingResults.eligibleTier,
+        summary: `Risk Level: ${vettingResults.riskLevel}. ${vettingResults.allFlags[0] || 'Vetted'}`,
+      },
+      update: {
+        name,
+        symbol,
+        holders,
+        age,
+        lastScannedAt: new Date(),
+        metadata,
+        riskScore: vettingResults.overallScore,
+        tier: vettingResults.eligibleTier,
+        summary: `Risk Level: ${vettingResults.riskLevel}. ${vettingResults.allFlags[0] || 'Vetted'}`,
+      },
+    });
+  }
 }

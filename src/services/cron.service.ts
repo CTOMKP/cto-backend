@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -7,12 +7,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ExternalApisService } from './external-apis.service';
 import { N8nService } from './n8n.service';
 import { TokenImageService } from './token-image.service';
+import { Pillar1RiskScoringService, TokenVettingData } from './pillar1-risk-scoring.service';
 import { TokenValidatorUtil } from '../utils/token-validator.util';
 import { Chain, Listing } from '@prisma/client';
+import { ListingRepository } from '../listing/repository/listing.repository';
 
 @Injectable()
-export class CronService {
+export class CronService implements OnModuleInit {
   private readonly logger = new Logger(CronService.name);
+  private recalculationTriggered = false;
 
   constructor(
     private configService: ConfigService,
@@ -20,8 +23,45 @@ export class CronService {
     private externalApisService: ExternalApisService,
     private n8nService: N8nService,
     private tokenImageService: TokenImageService,
+    private pillar1RiskScoringService: Pillar1RiskScoringService,
+    private listingRepository: ListingRepository,
     private httpService: HttpService,
   ) {}
+
+  /**
+   * Lifecycle hook: Runs automatically when module is initialized
+   * Triggers risk score recalculation for existing tokens on first startup
+   */
+  async onModuleInit() {
+    // Wait a bit for database connections to be ready
+    await this.delay(5000);
+
+    const useBackendRiskScoring = this.configService.get('USE_BACKEND_RISK_SCORING', 'true') === 'true';
+    const autoRecalculate = this.configService.get('AUTO_RECALCULATE_RISK_SCORES', 'true') === 'true';
+
+    if (useBackendRiskScoring && autoRecalculate && !this.recalculationTriggered) {
+      this.logger.log('🚀 Application started - Auto-triggering risk score recalculation for existing tokens...');
+      
+      // Run in background (don't block startup)
+      this.recalculateRiskScoresForExistingTokens(10, 0)
+        .then((result) => {
+          if (result.success) {
+            this.logger.log(`✅ Auto-recalculation completed: ${result.processed} processed, ${result.updated} updated, ${result.failed} failed`);
+          } else {
+            this.logger.warn(`⚠️ Auto-recalculation failed: ${result.error}`);
+          }
+        })
+        .catch((error) => {
+          this.logger.error(`❌ Auto-recalculation error: ${error.message}`);
+        });
+
+      this.recalculationTriggered = true;
+    } else if (!useBackendRiskScoring) {
+      this.logger.log('ℹ️ Backend risk scoring is disabled - skipping auto-recalculation');
+    } else if (!autoRecalculate) {
+      this.logger.log('ℹ️ Auto-recalculation is disabled (set AUTO_RECALCULATE_RISK_SCORES=true to enable)');
+    }
+  }
 
   /**
    * Map chain string to Prisma Chain enum
@@ -743,6 +783,441 @@ export class CronService {
     } catch (error: any) {
       this.logger.error('Manual token monitoring failed:', error);
       return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Recalculate risk scores for existing tokens using the new Pillar 1 algorithm
+   * This ensures all tokens have consistent risk scores calculated with the same algorithm
+   * 
+   * @param batchSize Number of tokens to process per batch
+   * @param limit Maximum number of tokens to process (0 = all)
+   */
+  async recalculateRiskScoresForExistingTokens(batchSize: number = 10, limit: number = 0) {
+    this.logger.log(`🔄 Starting risk score recalculation for existing tokens (batch: ${batchSize}, limit: ${limit || 'all'})`);
+
+    try {
+      const useBackendRiskScoring = this.configService.get('USE_BACKEND_RISK_SCORING', 'true') === 'true';
+      
+      if (!useBackendRiskScoring) {
+        this.logger.warn('⚠️ Backend risk scoring is disabled. Enable USE_BACKEND_RISK_SCORING=true to recalculate scores.');
+        return { success: false, error: 'Backend risk scoring is disabled' };
+      }
+
+      // Fetch all listings with risk scores
+      const whereClause: any = {
+        riskScore: { not: null },
+      };
+
+      const totalCount = await (this.prisma as any).listing.count({ where: whereClause });
+      const maxProcess = limit > 0 ? Math.min(limit, totalCount) : totalCount;
+
+      this.logger.log(`📊 Found ${totalCount} tokens with risk scores. Processing ${maxProcess} tokens...`);
+
+      let processed = 0;
+      let updated = 0;
+      let failed = 0;
+
+      // Process in batches
+      for (let offset = 0; offset < maxProcess; offset += batchSize) {
+        const batch = await (this.prisma as any).listing.findMany({
+          where: whereClause,
+          take: batchSize,
+          skip: offset,
+          orderBy: { updatedAt: 'desc' },
+        });
+
+        if (batch.length === 0) break;
+
+        this.logger.log(`📦 Processing batch ${Math.floor(offset / batchSize) + 1} (${batch.length} tokens)...`);
+
+        for (const listing of batch) {
+          try {
+            processed++;
+            const result = await this.recalculateRiskScoreForToken(listing);
+            
+            if (result.success) {
+              updated++;
+              this.logger.debug(`✅ Recalculated risk score for ${listing.contractAddress}: ${result.newScore} (was ${listing.riskScore})`);
+            } else {
+              failed++;
+              this.logger.warn(`⚠️ Failed to recalculate for ${listing.contractAddress}: ${result.error}`);
+            }
+
+            // Small delay to avoid rate limiting
+            await this.delay(100);
+          } catch (error: any) {
+            failed++;
+            this.logger.error(`❌ Error recalculating risk score for ${listing.contractAddress}: ${error.message}`);
+          }
+        }
+
+        // Log progress
+        this.logger.log(`📈 Progress: ${processed}/${maxProcess} processed, ${updated} updated, ${failed} failed`);
+      }
+
+      this.logger.log(`✅ Risk score recalculation completed: ${processed} processed, ${updated} updated, ${failed} failed`);
+
+      return {
+        success: true,
+        processed,
+        updated,
+        failed,
+        total: totalCount,
+      };
+    } catch (error: any) {
+      this.logger.error(`❌ Risk score recalculation failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Recalculate risk score for a single token
+   */
+  private async recalculateRiskScoreForToken(listing: any): Promise<{ success: boolean; newScore?: number | null; error?: string }> {
+    try {
+      const metadata = (listing.metadata || {}) as any;
+      const contractAddress = listing.contractAddress;
+      const chain = listing.chain?.toLowerCase() || 'solana';
+
+      // Extract data from metadata (if available from previous vetting)
+      const vettingResults = metadata?.vettingResults || {};
+      const launchAnalysis = metadata?.launchAnalysis || {};
+      const lpData = metadata?.lpData || {};
+      const topHolders = metadata?.topHolders || [];
+
+      // Try to reconstruct TokenVettingData from metadata
+      // If data is incomplete, fetch from external APIs
+      let tokenVettingData: TokenVettingData;
+
+      // Check if we have sufficient data in metadata
+      const hasCompleteData = 
+        vettingResults.componentScores &&
+        launchAnalysis.creatorAddress !== undefined &&
+        lpData.lpLockPercentage !== undefined &&
+        topHolders.length > 0;
+
+      if (hasCompleteData) {
+        // Reconstruct from metadata
+        tokenVettingData = {
+          contractAddress,
+          chain,
+          tokenInfo: {
+            name: listing.name || 'Unknown',
+            symbol: listing.symbol || 'UNKNOWN',
+            image: metadata?.imageUrl || '',
+            decimals: 6,
+          },
+          security: {
+            isMintable: metadata?.mintAuthDisabled === false ? false : true, // Inverted logic
+            isFreezable: false, // Default assumption
+            lpLockPercentage: lpData.lpLockPercentage || 0,
+            totalSupply: 0,
+            circulatingSupply: 0,
+            lpLocks: lpData.lockDetails || [],
+          },
+          holders: {
+            count: listing.holders || 0,
+            topHolders: topHolders.map((h: any) => ({
+              address: h.address || '',
+              balance: h.balance || 0,
+              percentage: h.percentage || 0,
+            })),
+          },
+          developer: {
+            creatorAddress: launchAnalysis.creatorAddress || null,
+            creatorBalance: launchAnalysis.creatorBalance || 0,
+            creatorStatus: launchAnalysis.creatorStatus || 'unknown',
+            top10HolderRate: launchAnalysis.top10HolderRate || 0,
+            twitterCreateTokenCount: launchAnalysis.creatorTokenCount || 0,
+          },
+          trading: {
+            price: listing.priceUsd || 0,
+            priceChange24h: listing.change24h || 0,
+            volume24h: listing.volume24h || 0,
+            buys24h: 0,
+            sells24h: 0,
+            liquidity: listing.liquidityUsd || lpData.totalLiquidityUsd || 0,
+            fdv: listing.marketCap || 0,
+            holderCount: listing.holders || 0,
+          },
+          tokenAge: metadata?.tokenAge || this.parseAgeToDays(listing.age) || 0,
+        };
+      } else {
+        // Fetch fresh data from external APIs (same as RefreshWorker does)
+        this.logger.debug(`📡 Fetching fresh data for ${contractAddress} (metadata incomplete)`);
+        
+        const [dexScreenerData, combinedData, imageUrl] = await Promise.all([
+          this.externalApisService.fetchDexScreenerData(contractAddress, chain),
+          this.externalApisService.fetchCombinedTokenData(contractAddress, chain),
+          this.tokenImageService.fetchTokenImage(contractAddress, chain),
+        ]);
+
+        const heliusData = await this.fetchHeliusData(contractAddress);
+        const alchemyData = await this.fetchAlchemyData(contractAddress);
+        const bearTreeData = await this.fetchHeliusBearTreeData(contractAddress);
+
+        const pair = dexScreenerData || combinedData?.dexScreener;
+        const baseToken = (pair?.baseToken || {}) as { name?: string; symbol?: string; decimals?: number };
+        const gmgnData = (combinedData?.gmgn as any) || {};
+
+        // Calculate token age
+        const creationTimestamp = heliusData?.creationTimestamp || pair?.pairCreatedAt || null;
+        let tokenAge = 0;
+        if (creationTimestamp) {
+          const timestampMs = creationTimestamp > 1e12 ? creationTimestamp : creationTimestamp * 1000;
+          tokenAge = Math.floor((Date.now() - timestampMs) / (1000 * 60 * 60 * 24));
+        } else {
+          tokenAge = this.parseAgeToDays(listing.age) || 0;
+        }
+
+        tokenVettingData = {
+          contractAddress,
+          chain,
+          tokenInfo: {
+            name: baseToken.name || listing.name || 'Unknown',
+            symbol: baseToken.symbol || listing.symbol || 'UNKNOWN',
+            image: imageUrl,
+            decimals: baseToken.decimals || 6,
+          },
+          security: {
+            isMintable: heliusData?.isMintable ?? alchemyData?.isMintable ?? false,
+            isFreezable: heliusData?.isFreezable ?? alchemyData?.isFreezable ?? false,
+            lpLockPercentage: (pair?.liquidity as any)?.lockedPercentage || bearTreeData?.lpLockPercentage || lpData.lpLockPercentage || 0,
+            totalSupply: heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0,
+            circulatingSupply: heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0,
+            lpLocks: bearTreeData?.lpLocks || lpData.lockDetails || [],
+          },
+          holders: {
+            count: heliusData?.holderCount || listing.holders || combinedData?.gmgn?.holders || 0,
+            topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || topHolders || []).slice(0, 10).map((h: any) => ({
+              address: h.address || h.id || '',
+              balance: Number(h.balance || 0),
+              percentage: Number(h.percentage || 0),
+            })),
+          },
+          developer: {
+            creatorAddress: bearTreeData?.creatorAddress || launchAnalysis.creatorAddress || combinedData?.gmgn?.creator?.address || null,
+            creatorBalance: Number(bearTreeData?.creatorBalance || launchAnalysis.creatorBalance || combinedData?.gmgn?.creator?.balance || 0),
+            creatorStatus: bearTreeData?.creatorStatus || launchAnalysis.creatorStatus || combinedData?.gmgn?.creator?.status || 'unknown',
+            top10HolderRate: Number(bearTreeData?.top10HolderRate || launchAnalysis.top10HolderRate || gmgnData?.top10HolderRate || 0),
+            twitterCreateTokenCount: bearTreeData?.twitterCreateTokenCount || launchAnalysis.creatorTokenCount || 0,
+          },
+          trading: {
+            price: Number(pair?.priceUsd || listing.priceUsd || combinedData?.gmgn?.price || 0),
+            priceChange24h: Number(pair?.priceChange?.h24 || listing.change24h || 0),
+            volume24h: Number(pair?.volume?.h24 || listing.volume24h || combinedData?.gmgn?.volume24h || 0),
+            buys24h: Number(pair?.txns?.h24?.buys || 0),
+            sells24h: Number(pair?.txns?.h24?.sells || 0),
+            liquidity: Number(pair?.liquidity?.usd || listing.liquidityUsd || combinedData?.gmgn?.liquidity || 0),
+            fdv: Number(pair?.fdv || listing.marketCap || combinedData?.gmgn?.marketCap || 0),
+            holderCount: heliusData?.holderCount || listing.holders || combinedData?.gmgn?.holders || 0,
+          },
+          tokenAge: Math.max(0, tokenAge),
+        };
+      }
+
+      // Calculate new risk score
+      const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(tokenVettingData);
+
+      // Save to database
+      await this.listingRepository.saveVettingResults({
+        contractAddress,
+        chain: chain.toUpperCase() as any,
+        name: tokenVettingData.tokenInfo.name,
+        symbol: tokenVettingData.tokenInfo.symbol,
+        holders: tokenVettingData.holders.count,
+        age: `${tokenVettingData.tokenAge} days`,
+        imageUrl: tokenVettingData.tokenInfo.image,
+        tokenAge: tokenVettingData.tokenAge,
+        vettingResults,
+        launchAnalysis: {
+          creatorAddress: tokenVettingData.developer.creatorAddress,
+          creatorBalance: tokenVettingData.developer.creatorBalance,
+          creatorStatus: tokenVettingData.developer.creatorStatus,
+          creatorTokenCount: tokenVettingData.developer.twitterCreateTokenCount,
+          top10HolderRate: tokenVettingData.developer.top10HolderRate,
+        },
+        lpData: {
+          lpLockPercentage: tokenVettingData.security.lpLockPercentage,
+          lpBurned: tokenVettingData.security.lpLocks?.some((lock: any) => lock.tag === 'Burned') || false,
+          lpLocked: tokenVettingData.security.lpLockPercentage > 0,
+          totalLiquidityUsd: tokenVettingData.trading.liquidity,
+          lockDetails: tokenVettingData.security.lpLocks || [],
+        },
+        topHolders: tokenVettingData.holders.topHolders,
+      });
+
+      return {
+        success: true,
+        newScore: vettingResults.overallScore,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Parse age string (e.g., "14 days", "2d", "30 days") to number of days
+   */
+  private parseAgeToDays(age: string | null | undefined): number | null {
+    if (!age || typeof age !== 'string') return null;
+    
+    const dayMatch = age.match(/(\d+)\s*d/i);
+    if (dayMatch) {
+      return parseInt(dayMatch[1], 10);
+    }
+    
+    return null;
+  }
+
+  /**
+   * Fetch data from Helius RPC API (same as RefreshWorker)
+   */
+  private async fetchHeliusData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1a00b566-9c85-4b19-b219-d3875fbcb8d3');
+      const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+
+      const [assetResponse, holdersResponse] = await Promise.allSettled([
+        firstValueFrom(
+          this.httpService.post(heliusUrl, {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getAsset',
+            params: { id: contractAddress },
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+          })
+        ),
+        firstValueFrom(
+          this.httpService.post(heliusUrl, {
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'getTokenLargestAccounts',
+            params: [contractAddress, { commitment: 'finalized' }],
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+          })
+        ),
+      ]);
+
+      const assetData = assetResponse.status === 'fulfilled' ? assetResponse.value.data : null;
+      const holdersData = holdersResponse.status === 'fulfilled' ? holdersResponse.value.data : null;
+
+      const asset = assetData?.result;
+      const holders = holdersData?.result?.value || [];
+
+      const totalSupply = asset?.token_info?.supply || 0;
+      const topHolders = holders.slice(0, 10).map((h: any) => {
+        const balance = Number(h.uiAmount || 0);
+        const percentage = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
+        return {
+          address: h.address,
+          balance,
+          percentage,
+        };
+      });
+
+      return {
+        isMintable: asset?.token_info?.supply_authority !== null,
+        isFreezable: asset?.token_info?.freeze_authority !== null,
+        totalSupply: Number(asset?.token_info?.supply || 0),
+        circulatingSupply: Number(asset?.token_info?.supply || 0),
+        holderCount: holders.length,
+        topHolders,
+        creationTimestamp: asset?.content?.metadata?.created_at || null,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Helius API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch data from Alchemy API (same as RefreshWorker)
+   */
+  private async fetchAlchemyData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const alchemyApiKey = this.configService.get('ALCHEMY_API_KEY', 'bSSmYhMZK2oYWgB2aMzA_');
+      const alchemyUrl = `https://solana-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
+
+      const response = await firstValueFrom(
+        this.httpService.post(alchemyUrl, {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getAccountInfo',
+          params: [
+            contractAddress,
+            { encoding: 'jsonParsed' },
+          ],
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+
+      const data = response.data;
+      const accountInfo = data?.result?.value?.data?.parsed?.info;
+
+      if (!accountInfo) return null;
+
+      return {
+        isMintable: accountInfo.mintAuthority !== null,
+        isFreezable: accountInfo.freezeAuthority !== null,
+        totalSupply: Number(accountInfo.supply || 0),
+      };
+    } catch (error: any) {
+      this.logger.warn(`Alchemy API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch data from Helius BearTree API (same as RefreshWorker)
+   */
+  private async fetchHeliusBearTreeData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '99b6e8db-d86a-4d3d-a5ee-88afa8015074');
+      const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
+
+      const response = await firstValueFrom(
+        this.httpService.post(bearTreeUrl, {
+          mintAccounts: [contractAddress],
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+
+      const data = response.data;
+      const tokenData = data?.[0];
+
+      if (!tokenData) return null;
+
+      return {
+        creatorAddress: tokenData.creatorAddress || null,
+        creatorBalance: tokenData.creatorBalance || 0,
+        creatorStatus: tokenData.creatorStatus || 'unknown',
+        top10HolderRate: tokenData.top10HolderRate || 0,
+        twitterCreateTokenCount: tokenData.twitterCreateTokenCount || 0,
+        lpLockPercentage: tokenData.lpLockPercentage || 0,
+        lpLocks: tokenData.lpLocks || [],
+      };
+    } catch (error: any) {
+      this.logger.warn(`Helius BearTree API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
     }
   }
 }
