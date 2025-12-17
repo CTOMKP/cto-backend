@@ -80,6 +80,11 @@ export class ListingRepository {
       const t = (i?.metadata as any)?.token ?? {};
       const tx1h = (m?.txns?.h1?.buys ?? 0) + (m?.txns?.h1?.sells ?? 0);
       const tx24h = (m?.txns?.h24?.buys ?? 0) + (m?.txns?.h24?.sells ?? 0);
+      
+      // Normalize tier to lowercase for consistency (old scan service returns "Seed", new returns "seed")
+      const rawTier = i?.tier;
+      const normalizedTier = rawTier ? String(rawTier).trim().toLowerCase() : null;
+      
       const merged: any = {
         ...i,
         priceUsd: i?.priceUsd ?? m?.priceUsd ?? null,
@@ -95,6 +100,8 @@ export class ListingRepository {
         age: i?.age ?? t?.age_display_short ?? t?.age_display ?? null,
         // Community score is based on user votes - preserve existing value or set to null
         communityScore: i?.communityScore ?? null,
+        // Tier: normalize to lowercase for frontend consistency
+        tier: normalizedTier,
         logoUrl: (i as any)?.logoUrl ?? m?.logoUrl ?? null,
       };
       // No automatic calculation - community score comes from user votes
