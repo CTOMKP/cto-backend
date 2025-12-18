@@ -149,10 +149,13 @@ export class Pillar1RiskScoringService {
     }
 
     // Determine eligible tier (always calculate, even with partial data)
+    // Calculate LP lock duration in months from lpLocks array
+    const lpLockMonths = this.calculateLPLockMonths(security.lpLocks || []);
     const eligibleTier = this.determineEligibleTier(
       overallScore,
       tokenAge,
       security.lpLockPercentage || 0,
+      lpLockMonths,
       trading.liquidity || 0
     );
 
@@ -487,45 +490,108 @@ export class Pillar1RiskScoringService {
   }
 
   /**
-   * ELIGIBLE TIER DETERMINATION (EXACT CTO MARKETPLACE TIERS)
+   * Calculate LP lock duration in months from lpLocks array
    */
-  private determineEligibleTier(
-    score: number,
-    age: number,
-    lpLockPercentage: number,
-    liquidityUSD: number
-  ): 'stellar' | 'bloom' | 'sprout' | 'seed' | 'none' {
-    if (score < 50) return 'none';
-
-    // Stellar: Highest tier - established community tokens
-    if (age >= 60 && liquidityUSD >= 100000 && lpLockPercentage >= 99 && score >= 70) {
-      return 'stellar';
-    }
-
-    // Bloom: Strong performing tokens
-    if (age >= 30 && liquidityUSD >= 50000 && lpLockPercentage >= 90 && score >= 65) {
-      return 'bloom';
-    }
-
-    // Sprout: Growing community tokens
-    if (age >= 21 && liquidityUSD >= 20000 && lpLockPercentage >= 90 && score >= 60) {
-      return 'sprout';
-    }
-
-    // Seed: Basic eligibility - relaxed requirements for tokens with good risk scores
-    // If score is high (>= 70), allow lower liquidity/LP lock requirements
-    if (score >= 70) {
-      // High score tokens: require age >= 14, but relax liquidity and LP lock
-      if (age >= 14 && liquidityUSD >= 5000 && lpLockPercentage >= 50) {
-        return 'seed';
+  private calculateLPLockMonths(lpLocks: Array<{ tag?: string; [key: string]: any }>): number {
+    if (!lpLocks || lpLocks.length === 0) return 0;
+    
+    // Check if any LP is burned (permanent lock)
+    const burnedLP = lpLocks.find((lock: any) => lock.tag === 'Burned');
+    if (burnedLP) return 999; // Burned = permanent lock
+    
+    // Try to extract lock duration from lock data
+    let maxLockMonths = 0;
+    for (const lock of lpLocks) {
+      // Check various possible fields for lock duration
+      const durationMs = lock.duration || lock.durationMs || lock.lockDuration || lock.unlockTime;
+      if (durationMs) {
+        // Convert milliseconds to months (approximate: 30 days per month)
+        const months = Math.floor((durationMs - Date.now()) / (1000 * 60 * 60 * 24 * 30));
+        if (months > maxLockMonths) maxLockMonths = months;
+      }
+      
+      // Check for unlockTime timestamp
+      const unlockTime = lock.unlockTime || lock.unlockTimestamp;
+      if (unlockTime) {
+        const months = Math.floor((unlockTime - Date.now()) / (1000 * 60 * 60 * 24 * 30));
+        if (months > maxLockMonths) maxLockMonths = months;
       }
     }
     
-    // Standard Seed tier requirements
-    if (age >= 14 && liquidityUSD >= 10000 && lpLockPercentage >= 80 && score >= 50) {
+    return maxLockMonths;
+  }
+
+  /**
+   * ELIGIBLE TIER DETERMINATION (EXACT CTO MARKETPLACE TIERS - Official Documentation)
+   * 
+   * Official Requirements:
+   * - Seed: 14-21 days, $10k-$20k LP, 6-12 months lock, score <70
+   * - Sprout: >21 days (21-30), $20k-$50k LP, 12-18 months lock, score <50
+   * - Bloom: >30 days (30-60), $50k-$100k LP, 24-36 months lock, score <50
+   * - Stellar: >60 days (60-90), $100k-$200k LP, 24-36 months lock, score <30
+   * 
+   * Note: Score logic - LOWER score = SAFER (risk score), but our implementation uses HIGHER = SAFER (safety score)
+   * So we invert: score <70 means safetyScore >30, score <50 means safetyScore >50, score <30 means safetyScore >70
+   */
+  private determineEligibleTier(
+    score: number, // Safety score: higher = safer (0-100)
+    age: number, // Age in days
+    lpLockPercentage: number, // LP lock percentage (0-100)
+    lpLockMonths: number, // LP lock duration in months
+    liquidityUSD: number // Liquidity in USD
+  ): 'stellar' | 'bloom' | 'sprout' | 'seed' | 'none' {
+    // Log tier evaluation for debugging
+    console.log(`🔍 Tier evaluation: score=${score}, age=${age} days, liquidity=$${liquidityUSD}, LP lock=${lpLockPercentage}%, LP lock months=${lpLockMonths}`);
+    
+    // Check LP lock requirements (use months if available, otherwise use percentage as proxy)
+    // If we have lock months, use that; otherwise estimate from percentage
+    // High percentage (>90%) likely means longer lock, low percentage likely means shorter/no lock
+    const effectiveLockMonths = lpLockMonths > 0 ? lpLockMonths : (lpLockPercentage >= 90 ? 12 : lpLockPercentage >= 50 ? 6 : 0);
+    const hasBurnedLP = lpLockMonths >= 999; // Burned LP = permanent lock
+    
+    // Check tiers from highest to lowest (Stellar -> Bloom -> Sprout -> Seed)
+    // This ensures tokens get the highest tier they qualify for
+    
+    // Stellar Tier: Elite tier for top CTO projects
+    // Age: >=60 days, LP: >=$100k, Lock: >=24 months or burned, Score: >=70 (risk score <30)
+    if (age >= 60 && liquidityUSD >= 100000 && 
+        (effectiveLockMonths >= 24 || hasBurnedLP) && score >= 70) {
+      console.log(`✅ Tier: stellar (age ${age} >= 60 days, liquidity $${liquidityUSD} >= $100k, LP lock ${effectiveLockMonths} months >= 24, score ${score} >= 70)`);
+      return 'stellar';
+    }
+
+    // Bloom Tier: Premium tier for mature CTO projects
+    // Age: >=30 days, LP: >=$50k, Lock: >=24 months, Score: >=50 (risk score <50)
+    if (age >= 30 && liquidityUSD >= 50000 && 
+        effectiveLockMonths >= 24 && score >= 50) {
+      console.log(`✅ Tier: bloom (age ${age} >= 30 days, liquidity $${liquidityUSD} >= $50k, LP lock ${effectiveLockMonths} months >= 24, score ${score} >= 50)`);
+      return 'bloom';
+    }
+
+    // Sprout Tier: Mid-level tier for growing CTO projects
+    // Age: >=21 days, LP: >=$20k, Lock: >=12 months, Score: >=50 (risk score <50)
+    if (age >= 21 && liquidityUSD >= 20000 && 
+        effectiveLockMonths >= 12 && score >= 50) {
+      console.log(`✅ Tier: sprout (age ${age} >= 21 days, liquidity $${liquidityUSD} >= $20k, LP lock ${effectiveLockMonths} months >= 12, score ${score} >= 50)`);
+      return 'sprout';
+    }
+
+    // Seed Tier: Entry-level tier for new CTO projects
+    // Age: >=14 days, LP: >=$10k, Lock: >=6 months, Score: >=30 (risk score <70)
+    if (age >= 14 && liquidityUSD >= 10000 && 
+        effectiveLockMonths >= 6 && score >= 30) {
+      console.log(`✅ Tier: seed (age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock ${effectiveLockMonths} months >= 6, score ${score} >= 30)`);
       return 'seed';
     }
 
+    // Log why tier wasn't assigned (check what's missing for Seed tier as minimum)
+    const missingReqs: string[] = [];
+    if (age < 14) missingReqs.push(`age ${age} < 14 days (minimum for Seed)`);
+    if (liquidityUSD < 10000) missingReqs.push(`liquidity $${liquidityUSD} < $10k (minimum for Seed)`);
+    if (effectiveLockMonths < 6) missingReqs.push(`LP lock ${effectiveLockMonths} months < 6 months (minimum for Seed)`);
+    if (score < 30) missingReqs.push(`score ${score} < 30 (minimum for Seed tier, risk score >70)`);
+    
+    console.log(`❌ Tier: none (missing requirements: ${missingReqs.join(', ')})`);
     return 'none';
   }
 }

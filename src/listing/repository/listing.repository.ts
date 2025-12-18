@@ -146,11 +146,12 @@ export class ListingRepository {
     // Preserve existing community score from database (set by voting system) or set to null
     const existingCommunityScore = existing?.communityScore ?? null;
     
-    // CRITICAL: Preserve tier and riskScore when updating market metadata
+    // CRITICAL: Preserve tier, riskScore, age, and summary when updating market metadata
     // These fields are set by vetting/risk scoring and should NOT be overwritten by market updates
     const existingTier = existing?.tier ?? null;
     const existingRiskScore = existing?.riskScore ?? null;
     const existingSummary = existing?.summary ?? null;
+    const existingAge = existing?.age ?? null; // Preserve actual token age
 
     return client.listing.upsert({
       where: { contractAddress },
@@ -196,10 +197,11 @@ export class ListingRepository {
         metadata: nextMeta,
         // Community score is based on user votes - preserve existing value
         communityScore: existingCommunityScore,
-        // CRITICAL: Preserve tier and riskScore - do NOT overwrite with null
+        // CRITICAL: Preserve tier, riskScore, age, and summary - do NOT overwrite with null
         tier: existingTier,
         riskScore: existingRiskScore,
         summary: existingSummary,
+        age: existingAge, // Preserve actual token age (not time since last update)
       },
     });
   }
