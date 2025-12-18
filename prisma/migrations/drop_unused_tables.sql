@@ -79,9 +79,8 @@ DROP TABLE IF EXISTS "folder" CASCADE;
 -- The lowercase "user" table is from n8n and should be dropped if it exists
 DROP TABLE IF EXISTS "user" CASCADE;
 
--- Drop "tokens" table if it's from n8n (not the token listings)
--- Note: Be careful - if this is used by CTO, don't drop it
--- Check first: SELECT * FROM tokens LIMIT 1;
--- If it's n8n-related, drop it:
--- DROP TABLE IF EXISTS "tokens" CASCADE;
+-- Drop "tokens" table - this was from n8n testing/workflows
+-- The backend now uses "Listing" table exclusively
+-- Any tokens in this table will be re-discovered by the backend's token discovery system
+DROP TABLE IF EXISTS "tokens" CASCADE;
 
