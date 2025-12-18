@@ -577,10 +577,28 @@ export class Pillar1RiskScoringService {
     }
 
     // Seed Tier: Entry-level tier for new CTO projects
-    // Age: >=14 days, LP: >=$10k, Lock: >=6 months, Score: >=30 (risk score <70)
+    // PRIMARY LOGIC: Risk score already accounts for missing data via penalties
+    // If score is high enough, trust the score rather than requiring all raw data fields
+    
+    // Standard Seed tier: Age >=14, LP >=$10k, Lock >=6 months, Score >=30
     if (age >= 14 && liquidityUSD >= 10000 && 
         effectiveLockMonths >= 6 && score >= 30) {
       console.log(`✅ Tier: seed (age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock ${effectiveLockMonths} months >= 6, score ${score} >= 30)`);
+      return 'seed';
+    }
+
+    // SCORE-BASED FALLBACK: Trust the risk score for tokens with high scores
+    // If score >=50 (medium risk), the token is relatively safe despite missing LP lock data
+    // The risk score calculation already penalized missing LP lock (-5 points), so trust the score
+    if (age >= 14 && liquidityUSD >= 10000 && score >= 50 && effectiveLockMonths === 0) {
+      console.log(`✅ Tier: seed (score-based: score ${score} >= 50 indicates safety despite missing LP lock data, age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k)`);
+      return 'seed';
+    }
+    
+    // For very high scores (>=70), be even more lenient - trust the score completely
+    // These tokens have proven safety through other metrics (distribution, technical, etc.)
+    if (age >= 14 && liquidityUSD >= 10000 && score >= 70) {
+      console.log(`✅ Tier: seed (high-score override: score ${score} >= 70 indicates high safety, age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock requirement waived)`);
       return 'seed';
     }
 
@@ -588,7 +606,8 @@ export class Pillar1RiskScoringService {
     const missingReqs: string[] = [];
     if (age < 14) missingReqs.push(`age ${age} < 14 days (minimum for Seed)`);
     if (liquidityUSD < 10000) missingReqs.push(`liquidity $${liquidityUSD} < $10k (minimum for Seed)`);
-    if (effectiveLockMonths < 6) missingReqs.push(`LP lock ${effectiveLockMonths} months < 6 months (minimum for Seed)`);
+    // LP lock requirement is waived for high scores (>=50) since risk score already penalizes missing data
+    if (effectiveLockMonths < 6 && score < 50) missingReqs.push(`LP lock ${effectiveLockMonths} months < 6 months (waived if score >=50, as risk score already accounts for missing LP lock)`);
     if (score < 30) missingReqs.push(`score ${score} < 30 (minimum for Seed tier, risk score >70)`);
     
     console.log(`❌ Tier: none (missing requirements: ${missingReqs.join(', ')})`);
