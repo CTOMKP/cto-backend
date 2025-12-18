@@ -1,9 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { RedisService } from '../image/redis.service';
 
 @ApiTags('Health')
 @Controller()
 export class HealthController {
+  constructor(private readonly redisService: RedisService) {}
+
   @Get('health')
   @ApiOperation({
     summary: 'Application health check',
@@ -19,17 +22,31 @@ export class HealthController {
         timestamp: { type: 'string', format: 'date-time' },
         uptime: { type: 'number', description: 'Application uptime in seconds' },
         environment: { type: 'string', example: 'development' },
-        version: { type: 'string', example: '1.0.0' }
+        version: { type: 'string', example: '1.0.0' },
+        redis: { 
+          type: 'object',
+          properties: {
+            connected: { type: 'boolean' },
+            url: { type: 'string', nullable: true }
+          }
+        }
       }
     }
   })
   async healthCheck() {
+    const redisStatus = await this.redisService.isRedisAvailable();
+    const redisUrl = process.env.REDIS_URL ? 'configured' : null;
+
     return {
       status: 'OK',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       environment: process.env.NODE_ENV || 'development',
-      version: '1.0.0'
+      version: '1.0.0',
+      redis: {
+        connected: redisStatus,
+        url: redisUrl
+      }
     };
   }
 }
