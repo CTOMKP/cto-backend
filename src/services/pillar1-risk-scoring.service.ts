@@ -609,17 +609,23 @@ export class Pillar1RiskScoringService {
     // SCORE-BASED FALLBACK: Trust the risk score for tokens with high scores
     // If score >=50 (medium risk), the token is relatively safe despite missing LP lock data
     // The risk score calculation already penalized missing LP lock (-5 points), so trust the score
-    if (age >= 14 && liquidityUSD >= 10000 && score >= 50 && effectiveLockMonths === 0) {
-      console.log(`✅ Tier: seed (score-based: score ${score} >= 50 indicates safety despite missing LP lock data, age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k)`);
+    // BUT: Only apply this if token doesn't qualify for higher tiers (check age/liquidity first)
+    // This prevents tokens that should be Bloom/Sprout from getting Seed
+    if (age >= 14 && age < 21 && liquidityUSD >= 10000 && score >= 50 && effectiveLockMonths === 0) {
+      // Age 14-20 days: Seed tier only
+      console.log(`✅ Tier: seed (score-based: score ${score} >= 50 indicates safety despite missing LP lock data, age ${age} days [14-20], liquidity $${liquidityUSD} >= $10k)`);
       return 'seed';
     }
     
-    // For very high scores (>=70), be even more lenient - trust the score completely
-    // These tokens have proven safety through other metrics (distribution, technical, etc.)
-    if (age >= 14 && liquidityUSD >= 10000 && score >= 70) {
-      console.log(`✅ Tier: seed (high-score override: score ${score} >= 70 indicates high safety, age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock requirement waived)`);
+    if (age >= 14 && age < 21 && liquidityUSD >= 10000 && score >= 70 && effectiveLockMonths === 0) {
+      // Age 14-20 days with high score: Seed tier only
+      console.log(`✅ Tier: seed (high-score: score ${score} >= 70, age ${age} days [14-20], liquidity $${liquidityUSD} >= $10k, LP lock waived)`);
       return 'seed';
     }
+    
+    // For tokens 21+ days with high scores but missing LP lock, they should get Sprout/Bloom/Stellar based on age/liquidity
+    // This is handled by the score-based fallbacks above for each tier
+    // Only use Seed as final fallback for tokens 14-20 days old
 
     // Log why tier wasn't assigned (check what's missing for Seed tier as minimum)
     const missingReqs: string[] = [];
