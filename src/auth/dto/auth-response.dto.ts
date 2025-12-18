@@ -15,6 +15,51 @@ export class UserResponseDto {
     format: 'email'
   })
   email: string;
+
+  @ApiProperty({
+    description: 'User name',
+    example: 'John Doe',
+    type: 'string',
+    nullable: true
+  })
+  name?: string | null;
+
+  @ApiProperty({
+    description: 'User avatar URL',
+    example: 'https://example.com/avatar.jpg',
+    type: 'string',
+    nullable: true
+  })
+  avatarUrl?: string | null;
+
+  @ApiProperty({
+    description: 'User bio',
+    example: 'Crypto enthusiast',
+    type: 'string',
+    nullable: true
+  })
+  bio?: string | null;
+
+  @ApiProperty({
+    description: 'Account registration date (ISO string)',
+    example: '2025-01-01T12:00:00.000Z',
+    type: 'string'
+  })
+  createdAt: string;
+
+  @ApiProperty({
+    description: 'Account age in days',
+    example: 45,
+    type: 'number'
+  })
+  accountAgeDays: number;
+
+  @ApiProperty({
+    description: 'Account age formatted string (e.g., "45 days", "2 months", "1 year")',
+    example: '45 days',
+    type: 'string'
+  })
+  accountAge: string;
 }
 
 export class LoginResponseDto {

@@ -56,7 +56,7 @@ export class AuthController {
     return this.authService.loginOrCreateGoogle(body.email, body.providerId);
   }
 
-  @ApiOperation({ summary: 'Get user profile', description: 'Get current authenticated user profile information' })
+  @ApiOperation({ summary: 'Get user profile', description: 'Get current authenticated user profile information including registration date and account age' })
   @ApiBearerAuth('JWT-auth')
   @ApiResponse({ status: 200, description: 'Profile retrieved successfully', type: UserResponseDto })
   @ApiResponse({ status: 401, description: 'Unauthorized - invalid or missing JWT token', type: ErrorResponseDto })
@@ -65,12 +65,48 @@ export class AuthController {
   async getProfile(@Request() req) {
     const userId = req.user.sub || req.user.userId;
     const user = await this.authService.getUserById(userId);
+    
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Calculate account age
+    const registrationDate = user.createdAt;
+    const now = new Date();
+    const ageInMs = now.getTime() - registrationDate.getTime();
+    const ageInDays = Math.floor(ageInMs / (1000 * 60 * 60 * 24));
+    
+    // Format account age
+    let accountAge: string;
+    if (ageInDays < 1) {
+      const ageInHours = Math.floor(ageInMs / (1000 * 60 * 60));
+      accountAge = ageInHours < 1 
+        ? 'Less than 1 hour' 
+        : `${ageInHours} ${ageInHours === 1 ? 'hour' : 'hours'}`;
+    } else if (ageInDays < 30) {
+      accountAge = `${ageInDays} ${ageInDays === 1 ? 'day' : 'days'}`;
+    } else if (ageInDays < 365) {
+      const months = Math.floor(ageInDays / 30);
+      accountAge = `${months} ${months === 1 ? 'month' : 'months'}`;
+    } else {
+      const years = Math.floor(ageInDays / 365);
+      const remainingDays = ageInDays % 365;
+      if (remainingDays === 0) {
+        accountAge = `${years} ${years === 1 ? 'year' : 'years'}`;
+      } else {
+        accountAge = `${years} ${years === 1 ? 'year' : 'years'}, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'}`;
+      }
+    }
+
     return { 
       id: user.id, 
       email: user.email,
       avatarUrl: user.avatarUrl || null,
       name: user.name || null,
       bio: user.bio || null,
+      createdAt: user.createdAt.toISOString(),
+      accountAgeDays: ageInDays,
+      accountAge,
     };
   }
 
