@@ -560,6 +560,13 @@ export class Pillar1RiskScoringService {
       return 'stellar';
     }
 
+    // Stellar Tier - Score-based fallback: Trust high scores even without LP lock data
+    // If score >=70 and meets age/liquidity, trust the score (it already penalized missing LP lock)
+    if (age >= 60 && liquidityUSD >= 100000 && score >= 70 && effectiveLockMonths === 0) {
+      console.log(`✅ Tier: stellar (score-based: score ${score} >= 70 indicates high safety, age ${age} >= 60 days, liquidity $${liquidityUSD} >= $100k, LP lock requirement waived)`);
+      return 'stellar';
+    }
+
     // Bloom Tier: Premium tier for mature CTO projects
     // Age: >=30 days, LP: >=$50k, Lock: >=24 months, Score: >=50 (risk score <50)
     if (age >= 30 && liquidityUSD >= 50000 && 
@@ -568,11 +575,23 @@ export class Pillar1RiskScoringService {
       return 'bloom';
     }
 
+    // Bloom Tier - Score-based fallback: Trust scores >=60 even without LP lock data
+    if (age >= 30 && liquidityUSD >= 50000 && score >= 60 && effectiveLockMonths === 0) {
+      console.log(`✅ Tier: bloom (score-based: score ${score} >= 60 indicates safety, age ${age} >= 30 days, liquidity $${liquidityUSD} >= $50k, LP lock requirement waived)`);
+      return 'bloom';
+    }
+
     // Sprout Tier: Mid-level tier for growing CTO projects
     // Age: >=21 days, LP: >=$20k, Lock: >=12 months, Score: >=50 (risk score <50)
     if (age >= 21 && liquidityUSD >= 20000 && 
         effectiveLockMonths >= 12 && score >= 50) {
       console.log(`✅ Tier: sprout (age ${age} >= 21 days, liquidity $${liquidityUSD} >= $20k, LP lock ${effectiveLockMonths} months >= 12, score ${score} >= 50)`);
+      return 'sprout';
+    }
+
+    // Sprout Tier - Score-based fallback: Trust scores >=55 even without LP lock data
+    if (age >= 21 && liquidityUSD >= 20000 && score >= 55 && effectiveLockMonths === 0) {
+      console.log(`✅ Tier: sprout (score-based: score ${score} >= 55 indicates safety, age ${age} >= 21 days, liquidity $${liquidityUSD} >= $20k, LP lock requirement waived)`);
       return 'sprout';
     }
 
