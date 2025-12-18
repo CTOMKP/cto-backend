@@ -8,6 +8,28 @@ import { Prisma } from '@prisma/client';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
+  // Select fields that exist in the database
+  // Note: bio column exists in DB, but Prisma client must be regenerated after column is added
+  private readonly userSelect = {
+    id: true,
+    name: true,
+    email: true,
+    passwordHash: true,
+    role: true,
+    provider: true,
+    providerId: true,
+    circleUserId: true,
+    circleAppId: true,
+    circlePinStatus: true,
+    privyUserId: true,
+    privyDid: true,
+    lastLoginAt: true,
+    avatarUrl: true,
+    bio: true, // Column exists in DB - Prisma client must be regenerated
+    createdAt: true,
+    updatedAt: true,
+  };
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
@@ -15,7 +37,10 @@ export class AuthService {
 
   // Validate user by email and password against DB
   async validateUser(email: string, password: string): Promise<any> {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({ 
+      where: { email },
+      select: this.userSelect
+    });
     if (!user || !user.passwordHash) return null; // Circle/social users may not have a password
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) return null;
@@ -50,11 +75,17 @@ export class AuthService {
     const providerIdStr = String(providerId);
 
     // Try to find by email first
-    let user = await this.prisma.user.findUnique({ where: { email } });
+    let user = await this.prisma.user.findUnique({ 
+      where: { email },
+      select: this.userSelect
+    });
 
     if (!user) {
       // Try to find by providerId if email is not found
-      user = await this.prisma.user.findFirst({ where: { provider: 'google', providerId: providerIdStr } });
+      user = await this.prisma.user.findFirst({ 
+        where: { provider: 'google', providerId: providerIdStr },
+        select: this.userSelect
+      });
     }
 
     if (!user) {
@@ -89,17 +120,26 @@ export class AuthService {
 
   // Get user by id
   async getUserById(id: number) {
-    return this.prisma.user.findUnique({ where: { id } });
+    return this.prisma.user.findUnique({ 
+      where: { id },
+      select: this.userSelect
+    });
   }
 
   // Get user by email
   async findByEmail(email: string) {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.prisma.user.findUnique({ 
+      where: { email },
+      select: this.userSelect
+    });
   }
 
   // Get user by Privy user ID
   async findByPrivyUserId(privyUserId: string) {
-    return this.prisma.user.findUnique({ where: { privyUserId } });
+    return this.prisma.user.findUnique({ 
+      where: { privyUserId },
+      select: this.userSelect
+    });
   }
 
   // Get user wallets
