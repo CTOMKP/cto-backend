@@ -107,36 +107,19 @@ export class ImageController {
         return res.set({ 'Cache-Control': 'public, max-age=86400' }).redirect(publicUrl);
       }
       
-      // Check if file exists in S3 before generating presigned URL
-      // Use ImageService's fileExists method (with retry for eventual consistency)
+      // Check if file exists in S3 (non-blocking - we'll still try to generate presigned URL)
+      // This is just for logging/debugging purposes
       try {
-        let exists = false;
-        // Retry up to 3 times with delays to handle S3 eventual consistency
-        for (let attempt = 0; attempt < 3; attempt++) {
-          exists = await this.imageService.fileExists(normalizedKey);
-          if (exists) {
-            console.log(`[ImageController] File exists in S3: ${normalizedKey} (attempt ${attempt + 1})`);
-            break;
-          }
-          if (attempt < 2) {
-            // Wait before retry (S3 eventual consistency can take a moment)
-            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-          }
-        }
-        
-        if (!exists) {
-          console.error(`[ImageController] File does not exist in S3 after 3 attempts: ${normalizedKey}`);
-          res.status(HttpStatus.NOT_FOUND).json({ 
-            message: 'Image not found',
-            key: normalizedKey,
-            error: 'File does not exist in S3 storage'
-          });
-          return;
+        const exists = await this.imageService.fileExists(normalizedKey);
+        if (exists) {
+          console.log(`[ImageController] ✅ File exists in S3: ${normalizedKey}`);
+        } else {
+          console.warn(`[ImageController] ⚠️ File not found in S3: ${normalizedKey} - but will still try to generate presigned URL (may be propagating)`);
         }
       } catch (fileCheckError: any) {
         // If fileExists check fails (e.g., permission issue), log but continue
         // Don't block the request - the presigned URL might still work
-        console.warn(`[ImageController] Could not verify file existence: ${fileCheckError?.message || fileCheckError}`);
+        console.warn(`[ImageController] Could not verify file existence: ${fileCheckError?.message || fileCheckError} - continuing anyway`);
       }
       
       // For user uploads, use a presigned URL with extended expiration
