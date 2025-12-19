@@ -172,48 +172,20 @@ export class ImageController {
       
       // Stream the image body to the response
       // The Body from AWS SDK GetObjectCommand is a Readable stream
-      const stream = streamData.Body;
-      if (stream && typeof (stream as any).pipe === 'function') {
-        // Pipe the stream directly to the response
-        (stream as any).pipe(res);
-      } else if (stream && typeof (stream as any).transformToWebStream === 'function') {
-        // Handle web streams (AWS SDK v3 can return web streams)
-        const webStream = (stream as any).transformToWebStream();
-        const reader = webStream.getReader();
-        const pump = async () => {
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                res.end();
-                break;
-              }
-              res.write(Buffer.from(value));
-            }
-          } catch (error) {
-            console.error('[ImageController] Stream error:', error);
-            if (!res.headersSent) {
-              res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to stream image' });
-            }
-          }
-        };
-        pump();
-      } else {
-        // Fallback: try to read as buffer
-        const chunks: Buffer[] = [];
-        const readable = stream as NodeJS.ReadableStream;
-        readable.on('data', (chunk: Buffer) => chunks.push(chunk));
-        readable.on('end', () => {
-          const buffer = Buffer.concat(chunks);
-          res.send(buffer);
-        });
-        readable.on('error', (error) => {
-          console.error('[ImageController] Stream read error:', error);
-          if (!res.headersSent) {
-            res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to read image' });
-          }
-        });
-      }
+      const stream = streamData.Body as any;
+      
+      // Handle stream errors
+      stream.on('error', (error: any) => {
+        console.error('[ImageController] Stream error:', error);
+        if (!res.headersSent) {
+          res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to stream image' });
+        } else {
+          res.end();
+        }
+      });
+      
+      // Pipe the stream directly to the response
+      stream.pipe(res);
     } catch (error: any) {
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       console.error('[ImageController] ❌ Image view error - FULL DETAILS:', {
