@@ -125,4 +125,17 @@ export class S3StorageService implements StorageProvider {
       throw error;
     }
   }
+
+  async getObjectStream(key: string): Promise<{ Body: any; ContentType?: string; ContentLength?: number }> {
+    const cmd = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+    const response = await this.s3.send(cmd);
+    return {
+      Body: response.Body,
+      ContentType: response.ContentType,
+      ContentLength: response.ContentLength,
+    };
+  }
 }

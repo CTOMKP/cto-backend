@@ -15,6 +15,9 @@ export interface StorageProvider {
 
   // Optional: check if file exists
   fileExists?(key: string): Promise<boolean>;
+
+  // Optional: get object stream for proxying
+  getObjectStream?(key: string): Promise<{ Body: any; ContentType?: string; ContentLength?: number }>;
 }
 
 export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');

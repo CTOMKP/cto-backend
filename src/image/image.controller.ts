@@ -153,10 +153,37 @@ export class ImageController {
         // Continue anyway - we can still generate presigned URL
       }
       
-      console.log(`[ImageController] Generating presigned view URL for: ${normalizedKey}`);
-      const url = await this.imageService.getPresignedViewUrl(normalizedKey, 86400); // 24 hour expiration
-      console.log(`[ImageController] ✅ Generated presigned URL successfully: ${url.substring(0, 100)}...`);
-      res.set({ 'Cache-Control': 'no-store' }).redirect(url);
+      // Proxy the image through the backend to avoid CORS issues
+      console.log(`[ImageController] Fetching image stream from S3 for: ${normalizedKey}`);
+      const streamData = await this.imageService.getObjectStream(normalizedKey);
+      console.log(`[ImageController] ✅ Image stream fetched successfully`);
+      
+      // Set appropriate headers
+      const headers: Record<string, string> = {
+        'Content-Type': streamData.ContentType || 'image/png',
+        'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+      };
+      
+      if (streamData.ContentLength) {
+        headers['Content-Length'] = streamData.ContentLength.toString();
+      }
+      
+      res.set(headers);
+      
+      // Stream the image body to the response
+      // The Body from AWS SDK GetObjectCommand is a Readable stream
+      const stream = streamData.Body;
+      if (stream && typeof (stream as any).pipe === 'function') {
+        (stream as any).pipe(res);
+      } else {
+        // Fallback: convert to buffer if not a stream
+        const chunks: Buffer[] = [];
+        for await (const chunk of stream as any) {
+          chunks.push(chunk);
+        }
+        const buffer = Buffer.concat(chunks);
+        res.send(buffer);
+      }
     } catch (error: any) {
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       console.error('[ImageController] ❌ Image view error - FULL DETAILS:', {

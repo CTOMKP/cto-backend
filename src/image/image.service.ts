@@ -111,6 +111,13 @@ export class ImageService {
     return this.storage.getPresignedGetUrl(key, ttlSeconds);
   }
 
+  async getObjectStream(key: string): Promise<{ Body: any; ContentType?: string; ContentLength?: number }> {
+    if (this.storage && typeof this.storage.getObjectStream === 'function') {
+      return this.storage.getObjectStream(key);
+    }
+    throw new HttpException('Storage provider does not support streaming', HttpStatus.NOT_IMPLEMENTED);
+  }
+
   /**
    * Check if a file exists in storage
    * Exposed for use by controllers
