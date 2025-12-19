@@ -186,7 +186,7 @@ export class ImageController {
   }
 
   // Diagnostic endpoint to test S3 access and presigned URL generation
-  @Get('test/:key')
+  @Get('test/*key')
   async testImageAccess(@Param('key') key: string): Promise<any> {
     try {
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
