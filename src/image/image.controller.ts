@@ -115,11 +115,12 @@ export class ImageController {
           const exists = await storage.fileExists(normalizedKey);
           if (!exists) {
             console.error(`[ImageController] File does not exist in S3: ${normalizedKey}`);
-            return res.status(HttpStatus.NOT_FOUND).json({ 
+            res.status(HttpStatus.NOT_FOUND).json({ 
               message: 'Image not found',
               key: normalizedKey,
               error: 'File does not exist in S3 storage'
             });
+            return;
           }
           console.log(`[ImageController] File exists in S3: ${normalizedKey}`);
         } catch (fileCheckError: any) {
