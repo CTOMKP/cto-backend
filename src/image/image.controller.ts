@@ -153,14 +153,14 @@ export class ImageController {
         // Continue anyway - we can still generate presigned URL
       }
       
-      // Generate presigned URL and redirect - simpler and avoids QUIC issues
-      // S3 CORS is already configured, so this should work
-      console.log(`[ImageController] Generating presigned view URL for: ${normalizedKey}`);
-      const presignedUrl = await this.imageService.getPresignedViewUrl(normalizedKey, 86400); // 24 hour expiration
-      console.log(`[ImageController] ✅ Generated presigned URL successfully`);
+      // Use CloudFront URL instead of S3 presigned URL (same approach as memes)
+      // CloudFront handles CORS properly and is faster
+      const cloudfrontDomain = process.env.CLOUDFRONT_DOMAIN || 'd2cjbd1iqkwr9j.cloudfront.net';
+      const cloudfrontUrl = `https://${cloudfrontDomain}/${normalizedKey}`;
+      console.log(`[ImageController] ✅ Using CloudFront URL: ${cloudfrontUrl}`);
       
-      // Redirect to S3 presigned URL - browser will handle CORS with S3's configured headers
-      res.set({ 'Cache-Control': 'public, max-age=86400' }).redirect(302, presignedUrl);
+      // Redirect to CloudFront URL - CloudFront handles CORS properly
+      res.set({ 'Cache-Control': 'public, max-age=86400' }).redirect(302, cloudfrontUrl);
     } catch (error: any) {
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       console.error('[ImageController] ❌ Image view error - FULL DETAILS:', {
