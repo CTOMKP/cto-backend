@@ -179,12 +179,6 @@ export class ImageController {
     }
   }
 
-  // List images from cache/redis (metadata only)
-  @Get()
-  async listImages(): Promise<ImageMetadata[]> {
-    return this.imageService.listImages();
-  }
-
   // Diagnostic endpoint to test S3 access and presigned URL generation
   @Get('test/*key')
   async testImageAccess(@Param('key') key: string): Promise<any> {
@@ -223,6 +217,12 @@ export class ImageController {
         stack: error?.stack,
       };
     }
+  }
+
+  // List images from cache/redis (metadata only) - MUST be last to avoid catching wildcard routes
+  @Get()
+  async listImages(): Promise<ImageMetadata[]> {
+    return this.imageService.listImages();
   }
 
   // Delete by storage key
