@@ -99,9 +99,21 @@ export class ImageController {
   }
 
   // Short-lived read redirect — supports keys with slashes via wildcard
-  @Get('view/*key')
-  async viewImage(@Param('key') key: string, @Res() res: Response): Promise<void> {
+  // Using catch-all pattern that works with Express routing
+  @Get('view/**')
+  async viewImage(@Req() req: any, @Res() res: Response): Promise<void> {
     try {
+      // Extract the key from the request path
+      // Path will be: /api/v1/images/view/user-uploads/70/profile/...
+      const fullPath = req.url; // e.g., /api/v1/images/view/user-uploads/70/profile/file.png
+      const viewPrefix = '/api/v1/images/view/';
+      let key = fullPath.startsWith(viewPrefix) 
+        ? fullPath.substring(viewPrefix.length) 
+        : fullPath.replace(/^\/api\/v1\/images\/view\//, '');
+      
+      // Decode URL encoding
+      key = decodeURIComponent(key);
+      
       // Accept legacy comma-separated keys like "user-uploads,4,generic,foo.jpg"
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       
