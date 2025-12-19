@@ -123,22 +123,39 @@ export class ImageController {
       }
       
       // For user uploads, use a presigned URL with extended expiration
-      await this.imageService.getImage(normalizedKey); // ensure metadata exists or seed fallback
+      console.log(`[ImageController] Getting image metadata for: ${normalizedKey}`);
+      try {
+        await this.imageService.getImage(normalizedKey); // ensure metadata exists or seed fallback
+        console.log(`[ImageController] Image metadata retrieved successfully`);
+      } catch (getImageError: any) {
+        console.warn(`[ImageController] getImage failed (non-critical): ${getImageError?.message || getImageError}`);
+        // Continue anyway - we can still generate presigned URL
+      }
+      
+      console.log(`[ImageController] Generating presigned view URL for: ${normalizedKey}`);
       const url = await this.imageService.getPresignedViewUrl(normalizedKey, 86400); // 24 hour expiration
-      console.log(`[ImageController] Generated presigned URL for: ${normalizedKey}`);
+      console.log(`[ImageController] ✅ Generated presigned URL successfully: ${url.substring(0, 100)}...`);
       res.set({ 'Cache-Control': 'no-store' }).redirect(url);
     } catch (error: any) {
-      console.error('[ImageController] Image view error:', {
+      console.error('[ImageController] ❌ Image view error - FULL DETAILS:', {
         key,
-        error: error?.message || error,
-        stack: error?.stack,
-        name: error?.name,
-        code: error?.code,
+        normalizedKey: String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/'),
+        errorMessage: error?.message || error,
+        errorName: error?.name,
+        errorCode: error?.code,
+        errorStack: error?.stack,
+        fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
       });
       res.status(HttpStatus.NOT_FOUND).json({ 
         message: 'Image not found',
         key: key,
-        error: error?.message || 'Unknown error'
+        normalizedKey: String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/'),
+        error: error?.message || 'Unknown error',
+        details: process.env.NODE_ENV === 'development' ? {
+          name: error?.name,
+          code: error?.code,
+          stack: error?.stack,
+        } : undefined,
       });
     }
   }

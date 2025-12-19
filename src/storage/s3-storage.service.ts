@@ -52,13 +52,27 @@ export class S3StorageService implements StorageProvider {
   }
 
   async getPresignedGetUrl(key: string, ttlSeconds = 900): Promise<string> {
-    const cmd = new GetObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-    });
-    const url = await getSignedUrl(this.s3, cmd, { expiresIn: ttlSeconds });
-    this.logger.debug(`Presigned GET: ${key} (ttl=${ttlSeconds}s)`);
-    return url;
+    try {
+      this.logger.log(`[S3Storage] Generating presigned GET URL for key: ${key}, bucket: ${this.bucket}, region: ${this.region}`);
+      const cmd = new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      });
+      const url = await getSignedUrl(this.s3, cmd, { expiresIn: ttlSeconds });
+      this.logger.log(`[S3Storage] ✅ Presigned GET URL generated successfully for: ${key} (ttl=${ttlSeconds}s)`);
+      return url;
+    } catch (error: any) {
+      this.logger.error(`[S3Storage] ❌ Failed to generate presigned GET URL:`, {
+        key,
+        bucket: this.bucket,
+        region: this.region,
+        errorMessage: error?.message || error,
+        errorName: error?.name,
+        errorCode: error?.code,
+        errorStack: error?.stack,
+      });
+      throw error;
+    }
   }
 
   async getPresignedDownloadUrl(key: string, filename: string, ttlSeconds = 900): Promise<string> {
