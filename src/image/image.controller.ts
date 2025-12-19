@@ -158,34 +158,27 @@ export class ImageController {
       const streamData = await this.imageService.getObjectStream(normalizedKey);
       console.log(`[ImageController] ✅ Image stream fetched successfully`);
       
+      // Read the entire stream into a buffer to avoid QUIC/streaming issues
+      const chunks: Buffer[] = [];
+      const stream = streamData.Body as NodeJS.ReadableStream;
+      
+      // Collect all chunks
+      for await (const chunk of stream as any) {
+        chunks.push(Buffer.from(chunk));
+      }
+      
+      const imageBuffer = Buffer.concat(chunks);
+      console.log(`[ImageController] ✅ Image buffered: ${imageBuffer.length} bytes`);
+      
       // Set appropriate headers
       const headers: Record<string, string> = {
         'Content-Type': streamData.ContentType || 'image/png',
         'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+        'Content-Length': imageBuffer.length.toString(),
       };
       
-      if (streamData.ContentLength) {
-        headers['Content-Length'] = streamData.ContentLength.toString();
-      }
-      
       res.set(headers);
-      
-      // Stream the image body to the response
-      // The Body from AWS SDK GetObjectCommand is a Readable stream
-      const stream = streamData.Body as any;
-      
-      // Handle stream errors
-      stream.on('error', (error: any) => {
-        console.error('[ImageController] Stream error:', error);
-        if (!res.headersSent) {
-          res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to stream image' });
-        } else {
-          res.end();
-        }
-      });
-      
-      // Pipe the stream directly to the response
-      stream.pipe(res);
+      res.send(imageBuffer);
     } catch (error: any) {
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       console.error('[ImageController] ❌ Image view error - FULL DETAILS:', {
