@@ -185,6 +185,46 @@ export class ImageController {
     return this.imageService.listImages();
   }
 
+  // Diagnostic endpoint to test S3 access and presigned URL generation
+  @Get('test/:key')
+  async testImageAccess(@Param('key') key: string): Promise<any> {
+    try {
+      const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
+      
+      console.log(`[ImageController] TEST endpoint - key: ${key} -> normalized: ${normalizedKey}`);
+      
+      // Test file existence
+      const exists = await this.imageService.fileExists(normalizedKey);
+      console.log(`[ImageController] TEST - File exists: ${exists}`);
+      
+      // Test presigned URL generation
+      let presignedUrl = null;
+      try {
+        presignedUrl = await this.imageService.getPresignedViewUrl(normalizedKey, 3600);
+        console.log(`[ImageController] TEST - Presigned URL generated: ${presignedUrl?.substring(0, 100)}...`);
+      } catch (urlError: any) {
+        console.error(`[ImageController] TEST - Presigned URL generation failed:`, urlError);
+      }
+      
+      return {
+        success: true,
+        key: key,
+        normalizedKey,
+        fileExists: exists,
+        presignedUrl: presignedUrl,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error: any) {
+      console.error(`[ImageController] TEST - Error:`, error);
+      return {
+        success: false,
+        key: key,
+        error: error?.message || 'Unknown error',
+        stack: error?.stack,
+      };
+    }
+  }
+
   // Delete by storage key
   @UseGuards(JwtAuthGuard)
   @Delete('/*key')
