@@ -99,19 +99,53 @@ export class ImageController {
       // Accept legacy comma-separated keys like "user-uploads,4,generic,foo.jpg"
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       
+      console.log(`[ImageController] View request for key: ${key} -> normalized: ${normalizedKey}`);
+      
       // First try to get a direct public URL if the key starts with 'assets/'
       if (normalizedKey.startsWith('assets/')) {
         const publicUrl = this.imageService.getPublicAssetUrl(normalizedKey);
         return res.set({ 'Cache-Control': 'public, max-age=86400' }).redirect(publicUrl);
       }
       
+      // Check if file exists in S3 before generating presigned URL
+      // Access storage through imageService's private storage property
+      const storage = (this.imageService as any).storage;
+      if (storage && typeof storage.fileExists === 'function') {
+        try {
+          const exists = await storage.fileExists(normalizedKey);
+          if (!exists) {
+            console.error(`[ImageController] File does not exist in S3: ${normalizedKey}`);
+            return res.status(HttpStatus.NOT_FOUND).json({ 
+              message: 'Image not found',
+              key: normalizedKey,
+              error: 'File does not exist in S3 storage'
+            });
+          }
+          console.log(`[ImageController] File exists in S3: ${normalizedKey}`);
+        } catch (fileCheckError: any) {
+          // If fileExists check fails (e.g., permission issue), log but continue
+          console.warn(`[ImageController] Could not verify file existence: ${fileCheckError?.message || fileCheckError}`);
+        }
+      }
+      
       // For user uploads, use a presigned URL with extended expiration
       await this.imageService.getImage(normalizedKey); // ensure metadata exists or seed fallback
       const url = await this.imageService.getPresignedViewUrl(normalizedKey, 86400); // 24 hour expiration
+      console.log(`[ImageController] Generated presigned URL for: ${normalizedKey}`);
       res.set({ 'Cache-Control': 'no-store' }).redirect(url);
-    } catch (error) {
-      console.error('Image view error:', error);
-      res.status(HttpStatus.NOT_FOUND).json({ message: 'Image not found' });
+    } catch (error: any) {
+      console.error('[ImageController] Image view error:', {
+        key,
+        error: error?.message || error,
+        stack: error?.stack,
+        name: error?.name,
+        code: error?.code,
+      });
+      res.status(HttpStatus.NOT_FOUND).json({ 
+        message: 'Image not found',
+        key: key,
+        error: error?.message || 'Unknown error'
+      });
     }
   }
 
