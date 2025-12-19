@@ -102,18 +102,21 @@ export class ImageController {
   // Using catch-all pattern that works with Express routing
   @Get('view/**')
   async viewImage(@Req() req: any, @Res() res: Response): Promise<void> {
+    // Extract the key from the request path (outside try block for error handling)
+    const fullPath = req.url; // e.g., /api/v1/images/view/user-uploads/70/profile/file.png
+    const viewPrefix = '/api/v1/images/view/';
+    let key = fullPath.startsWith(viewPrefix) 
+      ? fullPath.substring(viewPrefix.length) 
+      : fullPath.replace(/^\/api\/v1\/images\/view\//, '');
+    
+    // Decode URL encoding
     try {
-      // Extract the key from the request path
-      // Path will be: /api/v1/images/view/user-uploads/70/profile/...
-      const fullPath = req.url; // e.g., /api/v1/images/view/user-uploads/70/profile/file.png
-      const viewPrefix = '/api/v1/images/view/';
-      let key = fullPath.startsWith(viewPrefix) 
-        ? fullPath.substring(viewPrefix.length) 
-        : fullPath.replace(/^\/api\/v1\/images\/view\//, '');
-      
-      // Decode URL encoding
       key = decodeURIComponent(key);
-      
+    } catch {
+      // If decode fails, use as-is
+    }
+    
+    try {
       // Accept legacy comma-separated keys like "user-uploads,4,generic,foo.jpg"
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       
@@ -155,9 +158,10 @@ export class ImageController {
       console.log(`[ImageController] ✅ Generated presigned URL successfully: ${url.substring(0, 100)}...`);
       res.set({ 'Cache-Control': 'no-store' }).redirect(url);
     } catch (error: any) {
+      const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       console.error('[ImageController] ❌ Image view error - FULL DETAILS:', {
         key,
-        normalizedKey: String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/'),
+        normalizedKey,
         errorMessage: error?.message || error,
         errorName: error?.name,
         errorCode: error?.code,
@@ -167,7 +171,7 @@ export class ImageController {
       res.status(HttpStatus.NOT_FOUND).json({ 
         message: 'Image not found',
         key: key,
-        normalizedKey: String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/'),
+        normalizedKey: normalizedKey,
         error: error?.message || 'Unknown error',
         details: process.env.NODE_ENV === 'development' ? {
           name: error?.name,
