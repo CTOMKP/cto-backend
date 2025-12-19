@@ -153,32 +153,14 @@ export class ImageController {
         // Continue anyway - we can still generate presigned URL
       }
       
-      // Proxy the image through the backend to avoid CORS issues
-      console.log(`[ImageController] Fetching image stream from S3 for: ${normalizedKey}`);
-      const streamData = await this.imageService.getObjectStream(normalizedKey);
-      console.log(`[ImageController] ✅ Image stream fetched successfully`);
+      // Generate presigned URL and redirect - simpler and avoids QUIC issues
+      // S3 CORS is already configured, so this should work
+      console.log(`[ImageController] Generating presigned view URL for: ${normalizedKey}`);
+      const presignedUrl = await this.imageService.getPresignedViewUrl(normalizedKey, 86400); // 24 hour expiration
+      console.log(`[ImageController] ✅ Generated presigned URL successfully`);
       
-      // Read the entire stream into a buffer to avoid QUIC/streaming issues
-      const chunks: Buffer[] = [];
-      const stream = streamData.Body as NodeJS.ReadableStream;
-      
-      // Collect all chunks
-      for await (const chunk of stream as any) {
-        chunks.push(Buffer.from(chunk));
-      }
-      
-      const imageBuffer = Buffer.concat(chunks);
-      console.log(`[ImageController] ✅ Image buffered: ${imageBuffer.length} bytes`);
-      
-      // Set appropriate headers
-      const headers: Record<string, string> = {
-        'Content-Type': streamData.ContentType || 'image/png',
-        'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
-        'Content-Length': imageBuffer.length.toString(),
-      };
-      
-      res.set(headers);
-      res.send(imageBuffer);
+      // Redirect to S3 presigned URL - browser will handle CORS with S3's configured headers
+      res.set({ 'Cache-Control': 'public, max-age=86400' }).redirect(302, presignedUrl);
     } catch (error: any) {
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       console.error('[ImageController] ❌ Image view error - FULL DETAILS:', {
