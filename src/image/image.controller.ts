@@ -92,6 +92,12 @@ export class ImageController {
     });
   }
 
+  // Simple test route to verify routing works
+  @Get('ping')
+  ping() {
+    return { message: 'Image controller is working', timestamp: new Date().toISOString() };
+  }
+
   // Short-lived read redirect — supports keys with slashes via wildcard
   @Get('view/*key')
   async viewImage(@Param('key') key: string, @Res() res: Response): Promise<void> {
