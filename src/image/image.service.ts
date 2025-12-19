@@ -110,6 +110,18 @@ export class ImageService {
   async getPresignedViewUrl(key: string, ttlSeconds = this.defaultGetTtl): Promise<string> {
     return this.storage.getPresignedGetUrl(key, ttlSeconds);
   }
+
+  /**
+   * Check if a file exists in storage
+   * Exposed for use by controllers
+   */
+  async fileExists(key: string): Promise<boolean> {
+    if (this.storage && typeof this.storage.fileExists === 'function') {
+      return this.storage.fileExists(key);
+    }
+    // If storage doesn't support fileExists, assume it exists (for backward compatibility)
+    return true;
+  }
   
   // Get a public URL for user uploads (uses ASSETS_CDN_BASE if available)
   getPublicAssetUrl(key: string): string {

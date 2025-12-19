@@ -108,25 +108,35 @@ export class ImageController {
       }
       
       // Check if file exists in S3 before generating presigned URL
-      // Access storage through imageService's private storage property
-      const storage = (this.imageService as any).storage;
-      if (storage && typeof storage.fileExists === 'function') {
-        try {
-          const exists = await storage.fileExists(normalizedKey);
-          if (!exists) {
-            console.error(`[ImageController] File does not exist in S3: ${normalizedKey}`);
-            res.status(HttpStatus.NOT_FOUND).json({ 
-              message: 'Image not found',
-              key: normalizedKey,
-              error: 'File does not exist in S3 storage'
-            });
-            return;
+      // Use ImageService's fileExists method (with retry for eventual consistency)
+      try {
+        let exists = false;
+        // Retry up to 3 times with delays to handle S3 eventual consistency
+        for (let attempt = 0; attempt < 3; attempt++) {
+          exists = await this.imageService.fileExists(normalizedKey);
+          if (exists) {
+            console.log(`[ImageController] File exists in S3: ${normalizedKey} (attempt ${attempt + 1})`);
+            break;
           }
-          console.log(`[ImageController] File exists in S3: ${normalizedKey}`);
-        } catch (fileCheckError: any) {
-          // If fileExists check fails (e.g., permission issue), log but continue
-          console.warn(`[ImageController] Could not verify file existence: ${fileCheckError?.message || fileCheckError}`);
+          if (attempt < 2) {
+            // Wait before retry (S3 eventual consistency can take a moment)
+            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+          }
         }
+        
+        if (!exists) {
+          console.error(`[ImageController] File does not exist in S3 after 3 attempts: ${normalizedKey}`);
+          res.status(HttpStatus.NOT_FOUND).json({ 
+            message: 'Image not found',
+            key: normalizedKey,
+            error: 'File does not exist in S3 storage'
+          });
+          return;
+        }
+      } catch (fileCheckError: any) {
+        // If fileExists check fails (e.g., permission issue), log but continue
+        // Don't block the request - the presigned URL might still work
+        console.warn(`[ImageController] Could not verify file existence: ${fileCheckError?.message || fileCheckError}`);
       }
       
       // For user uploads, use a presigned URL with extended expiration
