@@ -82,8 +82,25 @@ export class ListingRepository {
       const tx24h = (m?.txns?.h24?.buys ?? 0) + (m?.txns?.h24?.sells ?? 0);
       
       // Normalize tier to lowercase for consistency (old scan service returns "Seed", new returns "seed")
+      // Also filter out invalid tier values like "----", "------", etc.
       const rawTier = i?.tier;
-      const normalizedTier = rawTier ? String(rawTier).trim().toLowerCase() : null;
+      let normalizedTier = rawTier ? String(rawTier).trim().toLowerCase() : null;
+      
+      // Filter out invalid tier values
+      if (normalizedTier && (
+        normalizedTier === 'none' || 
+        normalizedTier === 'null' || 
+        normalizedTier === 'undefined' || 
+        normalizedTier === '' || 
+        normalizedTier === '—' || 
+        normalizedTier === '----' || 
+        normalizedTier === '------' ||
+        normalizedTier.startsWith('---') ||
+        normalizedTier === 'n/a' ||
+        normalizedTier === 'na'
+      )) {
+        normalizedTier = null;
+      }
       
       const merged: any = {
         ...i,
@@ -234,8 +251,22 @@ export class ListingRepository {
       // Preserve existing community score from database (set by voting system) or set to null
       const existingCommunityScore = existing?.communityScore ?? null;
 
-      // Convert 'none' tier to null for database consistency
-      const tierValue = (tier === 'none' || tier === null || tier === undefined) ? null : tier;
+      // Convert invalid tier values to null for database consistency
+      const normalizedTier = tier ? String(tier).trim().toLowerCase() : null;
+      const tierValue = (
+        normalizedTier === null || 
+        normalizedTier === undefined || 
+        normalizedTier === 'none' || 
+        normalizedTier === 'null' || 
+        normalizedTier === 'undefined' || 
+        normalizedTier === '' || 
+        normalizedTier === '—' || 
+        normalizedTier === '----' || 
+        normalizedTier === '------' ||
+        normalizedTier.startsWith('---') ||
+        normalizedTier === 'n/a' ||
+        normalizedTier === 'na'
+      ) ? null : (normalizedTier ? normalizedTier : null);
 
       const listing = await (tx as any).listing.upsert({
         where: { contractAddress },
