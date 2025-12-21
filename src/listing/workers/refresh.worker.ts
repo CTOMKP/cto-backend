@@ -1125,36 +1125,69 @@ export class RefreshWorker {
             continue;
           }
 
-          // Check if token already exists and has a risk score
-          const existing = await this.repo.findOne(address);
-          
-          // If token exists but has no risk score, trigger vetting with new backend risk scoring
-          if (existing && !existing.riskScore && chain === 'SOLANA') {
-            this.logger.log(`🔄 Token ${address} exists but has no risk score - triggering vetting with backend risk scoring`);
+          // For SOLANA tokens, use Pillar1RiskScoringService (new system)
+          // For other chains, use old scanService for now
+          if (chain === 'SOLANA') {
+            // Use comprehensive vetting with Pillar1RiskScoringService
+            this.logger.log(`🔄 Processing ${address} with Pillar 1 risk scoring`);
             try {
-              // Trigger vetting using new backend risk scoring (non-blocking)
-              this.triggerN8nVettingForNewToken(address, chain.toLowerCase()).catch((error) => {
-                this.logger.warn(`Failed to trigger vetting for existing token ${address}: ${error.message}`);
-              });
+              // Trigger comprehensive vetting (this uses Pillar1RiskScoringService)
+              await this.triggerN8nVettingForNewToken(address, chain.toLowerCase());
+              apiCalls += 1;
+              
+              // Fetch updated listing to get the risk score and tier
+              const updated = await this.repo.findOne(address);
+              if (updated) {
+                // Emit delta update
+                this.gateway.emitUpdate({ 
+                  chain, 
+                  contractAddress: address, 
+                  tier: updated.tier, 
+                  riskScore: updated.riskScore, 
+                  communityScore: (updated as any)?.communityScore ?? null 
+                });
+                refreshed += 1;
+                this.logger.log(`✅ Refreshed ${chain}:${address} - Risk: ${updated.riskScore}, Tier: ${updated.tier || 'none'}`);
+              }
             } catch (error: any) {
-              this.logger.warn(`Error triggering vetting for ${address}: ${error.message}`);
+              this.logger.warn(`Failed to process ${address} with Pillar 1: ${error.message}`);
+              // Fallback to old scanService if Pillar 1 fails
+              try {
+                const result = await this.scanService.scanToken(address, undefined, chain);
+                apiCalls += 1;
+                const { listing: updated } = await this.repo.persistScanAndUpsertListing({
+                  contractAddress: address,
+                  chain,
+                  token: result.metadata,
+                  riskScore: result.risk_score,
+                  tier: result.tier,
+                  summary: result.summary,
+                });
+                this.gateway.emitUpdate({ chain, contractAddress: address, tier: result.tier, riskScore: result.risk_score, communityScore: (updated as any)?.communityScore ?? null });
+                refreshed += 1;
+                this.logger.log(`Refreshed ${chain}:${address} (fallback to old system)`);
+              } catch (fallbackError: any) {
+                failures += 1;
+                this.logger.warn(`Refresh failed for ${chain}:${address}: ${fallbackError.message}`);
+              }
             }
+          } else {
+            // For non-SOLANA chains, use old scanService for now
+            const result = await this.scanService.scanToken(address, undefined, chain);
+            apiCalls += 1;
+            const { listing: updated } = await this.repo.persistScanAndUpsertListing({
+              contractAddress: address,
+              chain,
+              token: result.metadata,
+              riskScore: result.risk_score,
+              tier: result.tier,
+              summary: result.summary,
+            });
+            // Emit delta update for enrichment, include communityScore
+            this.gateway.emitUpdate({ chain, contractAddress: address, tier: result.tier, riskScore: result.risk_score, communityScore: (updated as any)?.communityScore ?? null });
+            refreshed += 1;
+            this.logger.log(`Refreshed ${chain}:${address}`);
           }
-          
-          const result = await this.scanService.scanToken(address, undefined, chain);
-          apiCalls += 1;
-          const { listing: updated } = await this.repo.persistScanAndUpsertListing({
-            contractAddress: address,
-            chain,
-            token: result.metadata,
-            riskScore: result.risk_score,
-            tier: result.tier,
-            summary: result.summary,
-          });
-          // Emit delta update for enrichment, include communityScore
-          this.gateway.emitUpdate({ chain, contractAddress: address, tier: result.tier, riskScore: result.risk_score, communityScore: (updated as any)?.communityScore ?? null });
-          refreshed += 1;
-          this.logger.log(`Refreshed ${chain}:${address}`);
         } catch (e: any) {
           failures += 1;
           this.logger.warn(`Refresh failed for ${chain}:${address}: ${e.message}`);
@@ -1263,14 +1296,10 @@ export class RefreshWorker {
       this.logger.debug(`  - pair?.pairCreatedAt: ${pair?.pairCreatedAt || 'null'}`);
       this.logger.debug(`  - Final tokenAge: ${tokenAge} days`);
 
-      // ⚠️ AGE FILTER: Temporarily set to 2 days for testing n8n flow (normally 14 days)
-      const MIN_TOKEN_AGE_DAYS = 2;
-      if (tokenAge < MIN_TOKEN_AGE_DAYS) {
-        this.logger.debug(`⏳ Skipping n8n vetting for ${contractAddress}: Token age is ${tokenAge} days (minimum ${MIN_TOKEN_AGE_DAYS} days required)`);
-        return;
-      }
-
-      this.logger.log(`✅ Token ${contractAddress} is ${tokenAge} days old (>= ${MIN_TOKEN_AGE_DAYS} days), proceeding with n8n vetting`);
+      // AGE FILTER: Removed 14-day minimum to allow more tokens to be scanned
+      // Tokens of any age can now be scanned and vetted
+      // The tier calculation will handle age requirements (Seed: 14-21 days, etc.)
+      this.logger.log(`✅ Processing token ${contractAddress} (age: ${tokenAge} days) with Pillar 1 risk scoring`);
 
       // Build COMPLETE payload with all required data for n8n risk scoring
       const payload = {
@@ -1450,12 +1479,21 @@ export class RefreshWorker {
         };
       });
 
+      // Get actual holder count from AnalyticsService (not from token accounts length)
+      // getTokenLargestAccounts only returns top 10 token accounts, not total holders
+      let holderCount: number | null = null;
+      try {
+        holderCount = await this.analyticsService.getHolderCount(contractAddress, 'SOLANA');
+      } catch (error) {
+        this.logger.debug(`Could not fetch holder count for ${contractAddress}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
       return {
         isMintable: asset?.token_info?.supply_authority !== null,
         isFreezable: asset?.token_info?.freeze_authority !== null,
         totalSupply: Number(asset?.token_info?.supply || 0),
         circulatingSupply: Number(asset?.token_info?.supply || 0),
-        holderCount: holders.length,
+        holderCount: holderCount ?? 0, // Use actual holder count, fallback to 0 if unavailable
         topHolders,
         creationTimestamp: asset?.content?.metadata?.created_at || null,
       };
