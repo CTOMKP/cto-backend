@@ -266,43 +266,10 @@ export class Pillar2MonitoringService {
    */
   private async getLatestSnapshot(contractAddress: string): Promise<any> {
     try {
-      // First, try to find token_id from tokens table (if it exists)
-      // Otherwise, use Listing.id directly
-      let tokenId: string | null = null;
-
-      // Check if tokens table exists and has matching contract_address
-      try {
-        const tokenResult = await this.prisma.$queryRaw`
-          SELECT id FROM tokens 
-          WHERE contract_address = ${contractAddress}
-          LIMIT 1
-        ` as any[];
-        
-        if (tokenResult && tokenResult.length > 0) {
-          tokenId = tokenResult[0].id;
-        }
-      } catch (error) {
-        // tokens table doesn't exist or query failed, use Listing.id
-        this.logger.debug(`tokens table not found or query failed, using Listing.id`);
-      }
-
-      // If no token_id found, use Listing.id as fallback
-      if (!tokenId) {
-        const listing = await this.prisma.listing.findUnique({
-          where: { contractAddress },
-          select: { id: true },
-        });
-        if (listing) {
-          tokenId = listing.id;
-        }
-      }
-
-      if (!tokenId) return null;
-
-      // Get latest snapshot
+      // Get latest snapshot using contract_address (since monitoring_snapshots references Listing by contractAddress)
       const result = await this.prisma.$queryRaw`
         SELECT * FROM monitoring_snapshots
-        WHERE token_id = ${tokenId}::uuid
+        WHERE contract_address = ${contractAddress}
         ORDER BY scanned_at DESC
         LIMIT 1
       ` as any[];
@@ -319,7 +286,7 @@ export class Pillar2MonitoringService {
    */
   private async saveSnapshot(contractAddress: string, monitoringData: any): Promise<any> {
     try {
-      // Find listing ID
+      // Verify listing exists
       const listing = await this.prisma.listing.findUnique({
         where: { contractAddress },
         select: { id: true },
@@ -330,12 +297,10 @@ export class Pillar2MonitoringService {
       }
 
       // Insert snapshot using raw query (monitoring_snapshots table)
-      // Note: monitoring_snapshots table uses token_id which references tokens.id
-      // But we're using Listing table, so we need to map listing.id to token_id
-      // For now, we'll use listing.id directly as token_id (assuming they're the same)
+      // Use contract_address directly (no foreign key to Listing.id since it's String/cuid, not UUID)
       const snapshot = await this.prisma.$queryRaw`
         INSERT INTO monitoring_snapshots (
-          token_id,
+          contract_address,
           scanned_at,
           current_tier,
           price,
@@ -356,7 +321,7 @@ export class Pillar2MonitoringService {
           activity_trend,
           raw_data
         ) VALUES (
-          ${listing.id}::uuid,
+          ${contractAddress}::varchar,
           ${monitoringData.scannedAt}::timestamp,
           ${monitoringData.currentTier || null}::varchar,
           ${monitoringData.price || 0}::decimal,
@@ -438,37 +403,17 @@ export class Pillar2MonitoringService {
     // Save alerts to database
     for (const alert of alerts) {
       try {
-        // Find token_id: First check tokens table, then fallback to Listing.id
-        let tokenId: string | null = null;
+        // Verify listing exists
+        const listing = await this.prisma.listing.findUnique({
+          where: { contractAddress },
+          select: { id: true },
+        });
 
-        try {
-          const tokenResult = await this.prisma.$queryRaw`
-            SELECT id FROM tokens 
-            WHERE contract_address = ${contractAddress}
-            LIMIT 1
-          ` as any[];
-          
-          if (tokenResult && tokenResult.length > 0) {
-            tokenId = tokenResult[0].id;
-          }
-        } catch (error) {
-          // tokens table doesn't exist, use Listing.id
-        }
-
-        if (!tokenId) {
-          const listing = await this.prisma.listing.findUnique({
-            where: { contractAddress },
-            select: { id: true },
-          });
-          if (listing) {
-            tokenId = listing.id;
-          }
-        }
-
-        if (tokenId) {
+        if (listing) {
+          // Use contract_address directly (no foreign key to Listing.id)
           await this.prisma.$executeRaw`
             INSERT INTO alerts (
-              token_id,
+              contract_address,
               severity,
               trigger_type,
               condition_description,
@@ -476,7 +421,7 @@ export class Pillar2MonitoringService {
               message,
               detected
             ) VALUES (
-              ${tokenId}::uuid,
+              ${contractAddress}::varchar,
               ${alert.severity}::varchar,
               ${alert.triggerType}::varchar,
               ${alert.conditionDescription}::text,
