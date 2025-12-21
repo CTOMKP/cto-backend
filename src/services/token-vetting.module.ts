@@ -7,6 +7,7 @@ import { N8nService } from './n8n.service';
 import { ExternalApisService } from './external-apis.service';
 import { TokenImageService } from './token-image.service';
 import { Pillar1RiskScoringService } from './pillar1-risk-scoring.service';
+import { Pillar2MonitoringService } from './pillar2-monitoring.service';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { Pillar1RiskScoringService } from './pillar1-risk-scoring.service';
     ExternalApisService,
     TokenImageService,
     Pillar1RiskScoringService,
+    Pillar2MonitoringService,
   ],
   exports: [
     CronService,
@@ -27,6 +29,7 @@ import { Pillar1RiskScoringService } from './pillar1-risk-scoring.service';
     ExternalApisService,
     TokenImageService,
     Pillar1RiskScoringService,
+    Pillar2MonitoringService,
   ],
 })
 export class TokenVettingModule {}

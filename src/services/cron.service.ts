@@ -24,6 +24,7 @@ export class CronService implements OnModuleInit {
     private n8nService: N8nService,
     private tokenImageService: TokenImageService,
     private pillar1RiskScoringService: Pillar1RiskScoringService,
+    private pillar2MonitoringService: Pillar2MonitoringService,
     private listingRepository: ListingRepository,
     private httpService: HttpService,
   ) {}
@@ -749,38 +750,19 @@ export class CronService implements OnModuleInit {
 
   /**
    * Process monitoring for a single listing
-   * Sends listing address to N8N Automation Y for monitoring
-   * N8N handles: data fetching, change detection, re-evaluation, and saving to DB
+   * Uses Pillar2MonitoringService for continuous monitoring
    */
   private async processListingMonitoring(listing: Listing) {
     try {
-      // Send to N8N Automation Y for continuous monitoring
-      // N8N will handle: data fetching, change detection, risk re-evaluation, and saving to DB
-      const monitoringResult = await this.n8nService.triggerContinuousMonitoring({
-        contractAddress: listing.contractAddress,
-        chain: listing.chain.toLowerCase(),
-      });
+      // Use Pillar2MonitoringService for direct monitoring (no N8N dependency)
+      await this.pillar2MonitoringService.monitorListing(
+        listing.contractAddress,
+        listing.chain,
+      );
 
-      if (monitoringResult.success) {
-        // Update last scanned timestamp and monitoring results
-        await this.prisma.listing.update({
-          where: { id: listing.id },
-          data: {
-            lastScannedAt: new Date(),
-            // Merge new monitoring data into existing metadata
-            metadata: {
-              ...(listing.metadata as object || {}),
-              monitoringResults: monitoringResult.monitoringResults,
-            },
-          },
-        });
-
-        this.logger.debug(`Successfully sent listing ${listing.contractAddress} to N8N Automation Y for monitoring`);
-      } else {
-        this.logger.error(`Failed to send listing ${listing.contractAddress} to N8N:`, monitoringResult.error);
-      }
+      this.logger.debug(`✅ Successfully monitored listing ${listing.contractAddress}`);
     } catch (error: any) {
-      this.logger.error(`Failed to process monitoring for listing ${listing.contractAddress}:`, error);
+      this.logger.error(`❌ Failed to monitor listing ${listing.contractAddress}:`, error.message);
     }
   }
 
