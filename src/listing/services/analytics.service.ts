@@ -57,11 +57,29 @@ export class AnalyticsService {
       }
     }
 
-    // Try Solscan for Solana tokens
+    // Try Solscan for Solana tokens (with API key)
     if (chain === 'SOLANA' && this.solscanApiKey) {
       const holders = await this.getSolscanHolders(contractAddress);
       if (holders !== null) {
-        this.logger.log(`✅ Solscan returned ${holders} holders`);
+        this.logger.log(`✅ Solscan (API key) returned ${holders} holders`);
+        return holders;
+      }
+    }
+
+    // Try public Solscan API (no key required) for Solana tokens
+    if (chain === 'SOLANA') {
+      const holders = await this.getSolscanPublicHolders(contractAddress);
+      if (holders !== null) {
+        this.logger.log(`✅ Solscan (public) returned ${holders} holders`);
+        return holders;
+      }
+    }
+
+    // Try Birdeye API for Solana tokens (if available)
+    if (chain === 'SOLANA') {
+      const holders = await this.getBirdeyeHolders(contractAddress);
+      if (holders !== null) {
+        this.logger.log(`✅ Birdeye returned ${holders} holders`);
         return holders;
       }
     }
@@ -155,7 +173,7 @@ export class AnalyticsService {
   }
 
   /**
-   * Solscan API - Get Solana token holders
+   * Solscan API - Get Solana token holders (with API key)
    */
   private async getSolscanHolders(contractAddress: string): Promise<number | null> {
     try {
@@ -172,10 +190,72 @@ export class AnalyticsService {
         return response.data.total;
       }
 
-      this.logger.debug(`Solscan API returned no holder data`);
+      this.logger.debug(`Solscan API (key) returned no holder data`);
       return null;
     } catch (error: any) {
-      this.logger.debug(`Solscan API error: ${error.message}`);
+      this.logger.debug(`Solscan API (key) error: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Solscan Public API - Get Solana token holders (no API key required)
+   */
+  private async getSolscanPublicHolders(contractAddress: string): Promise<number | null> {
+    try {
+      const url = `https://public-api.solscan.io/token/meta?tokenAddress=${contractAddress}`;
+      
+      const response = await axios.get(url, {
+        headers: {
+          'User-Agent': 'CTO-Marketplace/1.0',
+        },
+        timeout: 5000,
+      });
+
+      // Solscan public API returns holder count in 'holder' or 'holders' field
+      const holderCount = response.data?.holder || response.data?.holders;
+      if (holderCount !== null && holderCount !== undefined) {
+        const parsed = parseInt(String(holderCount), 10);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          return parsed;
+        }
+      }
+
+      this.logger.debug(`Solscan public API returned no holder data`);
+      return null;
+    } catch (error: any) {
+      this.logger.debug(`Solscan public API error: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Birdeye API - Get Solana token holders
+   */
+  private async getBirdeyeHolders(contractAddress: string): Promise<number | null> {
+    try {
+      const birdeyeApiKey = process.env.BIRDEYE_API_KEY || 'public';
+      const url = `https://public-api.birdeye.so/v1/token/holder?address=${contractAddress}`;
+      
+      const response = await axios.get(url, {
+        headers: {
+          'X-API-KEY': birdeyeApiKey,
+        },
+        timeout: 5000,
+      });
+
+      // Birdeye returns holder count in the response
+      if (response.data?.data?.holderCount !== null && response.data?.data?.holderCount !== undefined) {
+        const parsed = parseInt(String(response.data.data.holderCount), 10);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          return parsed;
+        }
+      }
+
+      this.logger.debug(`Birdeye API returned no holder data`);
+      return null;
+    } catch (error: any) {
+      this.logger.debug(`Birdeye API error: ${error.message}`);
       return null;
     }
   }
