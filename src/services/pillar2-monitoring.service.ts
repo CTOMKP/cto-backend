@@ -266,18 +266,43 @@ export class Pillar2MonitoringService {
    */
   private async getLatestSnapshot(contractAddress: string): Promise<any> {
     try {
-      // Find listing ID first
-      const listing = await this.prisma.listing.findUnique({
-        where: { contractAddress },
-        select: { id: true },
-      });
+      // First, try to find token_id from tokens table (if it exists)
+      // Otherwise, use Listing.id directly
+      let tokenId: string | null = null;
 
-      if (!listing) return null;
+      // Check if tokens table exists and has matching contract_address
+      try {
+        const tokenResult = await this.prisma.$queryRaw`
+          SELECT id FROM tokens 
+          WHERE contract_address = ${contractAddress}
+          LIMIT 1
+        ` as any[];
+        
+        if (tokenResult && tokenResult.length > 0) {
+          tokenId = tokenResult[0].id;
+        }
+      } catch (error) {
+        // tokens table doesn't exist or query failed, use Listing.id
+        this.logger.debug(`tokens table not found or query failed, using Listing.id`);
+      }
 
-      // Get latest snapshot (using raw query since monitoring_snapshots might not be in Prisma schema)
+      // If no token_id found, use Listing.id as fallback
+      if (!tokenId) {
+        const listing = await this.prisma.listing.findUnique({
+          where: { contractAddress },
+          select: { id: true },
+        });
+        if (listing) {
+          tokenId = listing.id;
+        }
+      }
+
+      if (!tokenId) return null;
+
+      // Get latest snapshot
       const result = await this.prisma.$queryRaw`
         SELECT * FROM monitoring_snapshots
-        WHERE token_id = ${listing.id}
+        WHERE token_id = ${tokenId}::uuid
         ORDER BY scanned_at DESC
         LIMIT 1
       ` as any[];
@@ -413,12 +438,34 @@ export class Pillar2MonitoringService {
     // Save alerts to database
     for (const alert of alerts) {
       try {
-        const listing = await this.prisma.listing.findUnique({
-          where: { contractAddress },
-          select: { id: true },
-        });
+        // Find token_id: First check tokens table, then fallback to Listing.id
+        let tokenId: string | null = null;
 
-        if (listing) {
+        try {
+          const tokenResult = await this.prisma.$queryRaw`
+            SELECT id FROM tokens 
+            WHERE contract_address = ${contractAddress}
+            LIMIT 1
+          ` as any[];
+          
+          if (tokenResult && tokenResult.length > 0) {
+            tokenId = tokenResult[0].id;
+          }
+        } catch (error) {
+          // tokens table doesn't exist, use Listing.id
+        }
+
+        if (!tokenId) {
+          const listing = await this.prisma.listing.findUnique({
+            where: { contractAddress },
+            select: { id: true },
+          });
+          if (listing) {
+            tokenId = listing.id;
+          }
+        }
+
+        if (tokenId) {
           await this.prisma.$executeRaw`
             INSERT INTO alerts (
               token_id,
@@ -429,7 +476,7 @@ export class Pillar2MonitoringService {
               message,
               detected
             ) VALUES (
-              ${listing.id}::uuid,
+              ${tokenId}::uuid,
               ${alert.severity}::varchar,
               ${alert.triggerType}::varchar,
               ${alert.conditionDescription}::text,

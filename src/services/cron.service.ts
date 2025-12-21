@@ -8,6 +8,7 @@ import { ExternalApisService } from './external-apis.service';
 import { N8nService } from './n8n.service';
 import { TokenImageService } from './token-image.service';
 import { Pillar1RiskScoringService, TokenVettingData } from './pillar1-risk-scoring.service';
+import { Pillar2MonitoringService } from './pillar2-monitoring.service';
 import { TokenValidatorUtil } from '../utils/token-validator.util';
 import { Chain, Listing } from '@prisma/client';
 import { ListingRepository } from '../listing/repository/listing.repository';
