@@ -153,6 +153,10 @@ model Wallet {
   userId         Int
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Relations
+  walletBalances WalletBalance[]
+  walletTransactions WalletTransaction[]
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -264,6 +268,9 @@ model Payment {
   updatedAt         DateTime      @updatedAt
   completedAt       DateTime?
   
+  // Relations
+  walletTransactions WalletTransaction[]
+  
   @@index([userId])
   @@index([paymentType])
   @@index([status])
@@ -287,4 +294,70 @@ enum PaymentStatus {
   FAILED
   REFUNDED
   CANCELLED
+}
+
+// Movement wallet balance tracking
+model WalletBalance {
+  id            String   @id @default(cuid())
+  walletId      String   // Reference to Wallet.id
+  wallet        Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  // Token details
+  tokenAddress  String   // Movement test token contract address
+  tokenSymbol   String   // e.g., "MOV", "TEST"
+  tokenName     String?  // Full token name
+  decimals      Int      @default(8) // Movement token decimals
+  
+  // Balance
+  balance       String   @default("0") // Stored as string to handle large numbers
+  balanceUsd    Float?   // USD value if available
+  
+  // Metadata
+  lastUpdated   DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@unique([walletId, tokenAddress])
+  @@index([walletId])
+  @@index([tokenAddress])
+}
+
+// Movement wallet transaction history
+model WalletTransaction {
+  id            String   @id @default(cuid())
+  walletId      String   // Reference to Wallet.id
+  wallet        Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  // Transaction details
+  txHash        String   @unique // Movement transaction hash
+  txType        String   // CREDIT | DEBIT | TRANSFER
+  amount        String   // Amount as string
+  tokenAddress  String   // Token contract address
+  tokenSymbol   String   // Token symbol
+  
+  // Transaction parties
+  fromAddress   String?  // Sender address
+  toAddress     String?  // Recipient address
+  
+  // Related entities
+  paymentId     String?  // Reference to Payment.id if this is a payment
+  payment       Payment?  @relation(fields: [paymentId], references: [id])
+  
+  // Status
+  status        String   @default("COMPLETED") // PENDING | COMPLETED | FAILED
+  blockNumber   String?  // Block number
+  blockTime     DateTime? // Block timestamp
+  
+  // Metadata
+  description   String?
+  metadata      Json?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([walletId])
+  @@index([txHash])
+  @@index([paymentId])
+  @@index([txType])
+  @@index([createdAt])
 }

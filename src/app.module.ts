@@ -18,6 +18,7 @@ import { AdminModule } from './admin/admin.module';
 import { StatsModule } from './stats/stats.module';
 import { PfpModule } from './pfp/pfp.module';
 import { TokenVettingModule } from './services/token-vetting.module';
+import { MovementWalletModule } from './wallet/movement-wallet.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { TokenVettingModule } from './services/token-vetting.module';
     StatsModule,
     PfpModule,
     TokenVettingModule,
+    MovementWalletModule,
   ],
   controllers: [HealthController],
   providers: [],
