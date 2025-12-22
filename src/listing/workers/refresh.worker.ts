@@ -159,6 +159,10 @@ export class RefreshWorker {
 
       // Merge data from all sources
       const merged = this.mergeFeeds([dex, bird, heli, moralis, solscan]);
+      
+      // Enforce 100-token limit before upserting new tokens
+      await this.enforceTokenLimit();
+      
       const deltas = await this.upsertFromMerged(merged);
 
       // Broadcast deltas via WebSockets for real-time updates
@@ -882,9 +886,10 @@ export class RefreshWorker {
       // Make sure market object exists
       if (!item.market) item.market = {};
       
-      // Ensure holders field is present
-      if (item.market.holders === undefined || item.market.holders === null) {
-        item.market.holders = 0;
+      // Preserve holders as null if unavailable (don't default to 0)
+      // Frontend will display "N/A" for null values
+      if (item.market.holders === undefined) {
+        item.market.holders = null;
       }
       
       // Ensure price change fields are present
@@ -915,10 +920,97 @@ export class RefreshWorker {
     return 'OTHER';
   }
 
+  /**
+   * Enforce 100-token limit with rotation system
+   * - Keep only the 100 most recent tokens
+   * - Remove tokens older than 2-3 days to make room for new ones
+   * - This ensures fresh data and proper Pillar 1 & 2 processing
+   */
+  private async enforceTokenLimit() {
+    try {
+      const client = (this.repo as any)['prisma'] as any;
+      
+      // Get total count
+      const totalCount = await client.listing.count();
+      this.logger.log(`📊 Current token count: ${totalCount}`);
+      
+      if (totalCount <= 100) {
+        // No cleanup needed if we're under the limit
+        return;
+      }
+      
+      // Calculate cutoff date: 2.5 days ago (middle of 2-3 day range)
+      const cutoffDate = new Date(Date.now() - (2.5 * 24 * 60 * 60 * 1000));
+      
+      // Get tokens older than 2.5 days, sorted by creation date (oldest first)
+      const oldTokens = await client.listing.findMany({
+        where: {
+          createdAt: {
+            lt: cutoffDate
+          }
+        },
+        orderBy: {
+          createdAt: 'asc'
+        },
+        select: {
+          id: true,
+          contractAddress: true,
+          symbol: true,
+          createdAt: true
+        }
+      });
+      
+      // If we still have more than 100 tokens after removing old ones, remove the oldest until we're at 100
+      const tokensToRemove = totalCount - 100;
+      
+      if (tokensToRemove > 0) {
+        // Get the oldest tokens (beyond the 100 most recent)
+        const tokensToDelete = await client.listing.findMany({
+          orderBy: {
+            createdAt: 'asc'
+          },
+          take: tokensToRemove,
+          select: {
+            id: true,
+            contractAddress: true,
+            symbol: true
+          }
+        });
+        
+        if (tokensToDelete.length > 0) {
+          const idsToDelete = tokensToDelete.map((t: any) => t.id);
+          await client.listing.deleteMany({
+            where: {
+              id: { in: idsToDelete }
+            }
+          });
+          
+          this.logger.log(`🗑️ Removed ${tokensToDelete.length} old tokens to maintain 100-token limit. Remaining: ${totalCount - tokensToDelete.length}`);
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(`❌ Error enforcing token limit: ${error.message}`);
+    }
+  }
+
   private async upsertFromMerged(items: any[]) {
     const deltas = { new: [] as any[], updated: [] as any[] };
     if (!Array.isArray(items) || !items.length) return deltas;
-    for (const x of items.slice(0, 350)) {
+    
+    // Limit to 100 tokens max to ensure proper Pillar 1 & 2 processing
+    // Process only the most promising tokens (sorted by volume/liquidity)
+    const sortedItems = items
+      .sort((a, b) => {
+        const aVolume = Number(a.market?.volume?.h24 ?? a.market?.volume24h ?? 0);
+        const bVolume = Number(b.market?.volume?.h24 ?? b.market?.volume24h ?? 0);
+        const aLiquidity = Number(a.market?.liquidityUsd ?? 0);
+        const bLiquidity = Number(b.market?.liquidityUsd ?? 0);
+        // Sort by volume first, then liquidity
+        return (bVolume + bLiquidity) - (aVolume + aLiquidity);
+      })
+      .slice(0, 100); // Only process top 100 tokens
+    
+    for (const x of sortedItems) {
       const chain = x?.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
       const address = x?.address as string;
       if (!chain || !address) continue;
@@ -929,34 +1021,22 @@ export class RefreshWorker {
         // Enrich missing logo with TrustWallet assets or identicon (cached)
         const resolvedLogo = x.logoUrl || await this.resolveLogoCached(chain, address, x.symbol, x.name);
         
-        // Fetch holder data if not available
-        let holderCount = x.market?.holders ?? 0;
-        if (holderCount === 0 || holderCount === null) {
+        // Fetch holder data if not available - preserve null if unavailable
+        let holderCount: number | null = x.market?.holders ?? null;
+        if (holderCount === null || holderCount === 0) {
           try {
             const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
             if (fetchedHolders !== null && fetchedHolders > 0) {
               holderCount = fetchedHolders;
               console.log(`👥 Fetched holders for ${x.symbol || address}: ${holderCount}`);
             } else {
-              // Fallback: Estimate holders based on market cap and volume
-              const marketCap = x.market?.fdv ?? x.market?.marketCap ?? 0;
-              const volume24h = x.market?.volume?.h24 ?? 0;
-              
-              if (marketCap > 0) {
-                // Simple estimation: 1 holder per $1000 market cap, minimum 10
-                holderCount = Math.max(10, Math.floor(marketCap / 1000));
-                
-                // Adjust based on volume (higher volume = more holders)
-                if (volume24h > 0) {
-                  const volumeRatio = Math.min(volume24h / marketCap, 1); // Cap at 1
-                  holderCount = Math.floor(holderCount * (1 + volumeRatio));
-                }
-                
-                console.log(`📊 Estimated holders for ${x.symbol || address}: ${holderCount} (MC: $${marketCap.toLocaleString()})`);
-              }
+              // Don't estimate - preserve null to show "N/A" in frontend
+              holderCount = null;
+              console.log(`⚠️ Holder count unavailable for ${x.symbol || address} - will display as N/A`);
             }
           } catch (error) {
             console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error instanceof Error ? error.message : String(error)}`);
+            holderCount = null; // Preserve null on error
           }
         }
         
@@ -1018,14 +1098,23 @@ export class RefreshWorker {
         } as any;
         if (!before) {
           deltas.new.push(payload);
-          // Trigger n8n vetting for new tokens that don't have a riskScore yet
-          // Note: Age check (>= 2 days, temporarily lowered for testing) is done inside triggerN8nVettingForNewToken
+          // ALWAYS trigger vetting for new tokens (no age check - process all tokens)
+          // This ensures all tokens go through Pillar 1 and get tier assigned
           if (!after?.riskScore && this.n8nService && this.externalApisService) {
             this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
-              this.logger.warn(`Failed to trigger n8n vetting for new token ${address}: ${error.message}`);
+              this.logger.warn(`Failed to trigger vetting for new token ${address}: ${error.message}`);
             });
+          } else if (!after?.riskScore) {
+            // If n8n service not available, log warning
+            this.logger.warn(`⚠️ New token ${address} created but vetting services not available - tier will remain null`);
           }
         } else {
+          // For existing tokens, trigger vetting if they don't have a tier yet
+          if (!after?.tier && !after?.riskScore && this.n8nService && this.externalApisService) {
+            this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
+              this.logger.warn(`Failed to trigger vetting for existing token ${address}: ${error.message}`);
+            });
+          }
           deltas.updated.push(payload);
         }
         this.metrics.incCounter(`listing_ingested_total{chain="${chain}"}`, 1);
@@ -1075,6 +1164,16 @@ export class RefreshWorker {
         this.logger.debug(`Upsert from dex failed: ${e.message}`);
       }
     }
+  }
+
+  /**
+   * Enforce 100-token limit and rotation (runs every 6 hours)
+   * Removes tokens older than 2.5 days to make room for new ones
+   */
+  @Cron('0 0 */6 * * *') // Every 6 hours
+  async enforceTokenLimitRotation() {
+    this.logger.log('🔄 Starting token limit rotation...');
+    await this.enforceTokenLimit();
   }
 
   // Phase 1 live updating: refresh all listings every 5 minutes using scan enrichment
@@ -1327,11 +1426,13 @@ export class RefreshWorker {
           lpLocks: bearTreeData?.lpLocks || [],
         },
         holders: {
-          // Prioritize heliusData holderCount (from AnalyticsService), then gmgn, then 0
+          // Prioritize heliusData holderCount (from AnalyticsService), then gmgn, preserve null if unavailable
           // Use null check to distinguish between 0 (no data) and actual 0 holders
           count: heliusData?.holderCount !== null && heliusData?.holderCount !== undefined 
             ? heliusData.holderCount 
-            : (combinedData?.gmgn?.holders || 0),
+            : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
+              ? combinedData.gmgn.holders
+              : null),
           topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || []).slice(0, 10).map((h: any) => ({
             address: h.address || h.id,
             balance: Number(h.balance || 0),

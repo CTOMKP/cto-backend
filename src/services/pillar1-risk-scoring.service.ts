@@ -574,10 +574,10 @@ export class Pillar1RiskScoringService {
     }
 
     // Bloom Tier: Premium tier for mature CTO projects
-    // Age: >=30 days, LP: >=$50k (no max), Lock: 24-36 months, Score: >=50
-    // Allow tokens with any liquidity above minimum (but below Stellar minimum of $100k)
+    // Age: >=30 days, LP: >=$50k (no max - allow high liquidity tokens), Lock: 24-36 months, Score: >=50
+    // Allow tokens with liquidity >= $50k (no upper limit - high liquidity tokens can still be Bloom if they don't meet Stellar)
     if (age >= 30 && 
-        liquidityUSD >= 50000 && liquidityUSD < 100000 && 
+        liquidityUSD >= 50000 && 
         effectiveLockMonths >= 24 && effectiveLockMonths <= 36 && 
         score >= 50) {
       this.logger.debug(`✅ Tier: bloom (age ${age} >= 30 days, liquidity $${liquidityUSD} >= $50k, LP lock ${effectiveLockMonths} months [24-36], score ${score} >= 50)`);
@@ -585,19 +585,19 @@ export class Pillar1RiskScoringService {
     }
 
     // Bloom Tier - Score-based fallback: Trust scores >=60 even without LP lock data
-    // Allow tokens with liquidity between $50k-$100k
+    // Allow tokens with liquidity >= $50k (no upper limit)
     if (age >= 30 && 
-        liquidityUSD >= 50000 && liquidityUSD < 100000 && 
+        liquidityUSD >= 50000 && 
         score >= 60 && effectiveLockMonths === 0) {
       this.logger.debug(`✅ Tier: bloom (score-based: score ${score} >= 60, age ${age} >= 30 days, liquidity $${liquidityUSD} >= $50k, LP lock waived)`);
       return 'bloom';
     }
 
     // Sprout Tier: Mid-level tier for growing CTO projects
-    // Age: >=21 days, LP: >=$20k but <$50k, Lock: 12-18 months, Score: >=50
-    // Allow tokens with liquidity between $20k-$50k
+    // Age: >=21 days, LP: >=$20k (no max), Lock: 12-18 months, Score: >=50
+    // Allow tokens with liquidity >= $20k (no upper limit - high liquidity tokens can still be Sprout if they don't meet Bloom/Stellar)
     if (age >= 21 && 
-        liquidityUSD >= 20000 && liquidityUSD < 50000 && 
+        liquidityUSD >= 20000 && 
         effectiveLockMonths >= 12 && effectiveLockMonths <= 18 && 
         score >= 50) {
       this.logger.debug(`✅ Tier: sprout (age ${age} >= 21 days, liquidity $${liquidityUSD} >= $20k, LP lock ${effectiveLockMonths} months [12-18], score ${score} >= 50)`);
@@ -605,19 +605,19 @@ export class Pillar1RiskScoringService {
     }
 
     // Sprout Tier - Score-based fallback: Trust scores >=55 even without LP lock data
-    // Allow tokens with liquidity between $20k-$50k
+    // Allow tokens with liquidity >= $20k (no upper limit)
     if (age >= 21 && 
-        liquidityUSD >= 20000 && liquidityUSD < 50000 && 
+        liquidityUSD >= 20000 && 
         score >= 55 && effectiveLockMonths === 0) {
       this.logger.debug(`✅ Tier: sprout (score-based: score ${score} >= 55, age ${age} >= 21 days, liquidity $${liquidityUSD} >= $20k, LP lock waived)`);
       return 'sprout';
     }
 
     // Seed Tier: Entry-level tier for new CTO projects
-    // Age: >=14 days, LP: >=$10k but <$20k, Lock: 6-12 months, Score: >=30
-    // Allow tokens with liquidity between $10k-$20k
+    // Age: >=14 days, LP: >=$10k (no max), Lock: 6-12 months, Score: >=30
+    // Allow tokens with liquidity >= $10k (no upper limit - high liquidity tokens can still be Seed if they don't meet higher tiers)
     if (age >= 14 && 
-        liquidityUSD >= 10000 && liquidityUSD < 20000 && 
+        liquidityUSD >= 10000 && 
         effectiveLockMonths >= 6 && effectiveLockMonths <= 12 && 
         score >= 30) {
       this.logger.debug(`✅ Tier: seed (age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock ${effectiveLockMonths} months [6-12], score ${score} >= 30)`);
@@ -627,9 +627,9 @@ export class Pillar1RiskScoringService {
     // Seed Tier - Score-based fallback: Trust the risk score for tokens with high scores
     // If score >=50, the token is relatively safe despite missing LP lock data
     // The risk score calculation already penalized missing LP lock (-5 points), so trust the score
-    // Allow tokens with liquidity between $10k-$20k
+    // Allow tokens with liquidity >= $10k (no upper limit)
     if (age >= 14 && 
-        liquidityUSD >= 10000 && liquidityUSD < 20000 && 
+        liquidityUSD >= 10000 && 
         score >= 50 && effectiveLockMonths === 0) {
       this.logger.debug(`✅ Tier: seed (score-based: score ${score} >= 50, age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock waived)`);
       return 'seed';
