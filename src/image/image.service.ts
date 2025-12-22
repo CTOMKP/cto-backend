@@ -110,7 +110,7 @@ export class ImageService {
   async getPresignedViewUrl(key: string, ttlSeconds = this.defaultGetTtl): Promise<string> {
     return this.storage.getPresignedGetUrl(key, ttlSeconds);
   }
-
+  
   async getObjectStream(key: string): Promise<{ Body: any; ContentType?: string; ContentLength?: number }> {
     if (this.storage && typeof this.storage.getObjectStream === 'function') {
       return this.storage.getObjectStream(key);

@@ -1077,8 +1077,9 @@ export class RefreshWorker {
     }
   }
 
-  // Phase 1 live updating: refresh all listings every 60 minutes using scan enrichment
-  @Cron('0 */60 * * * *') // Every 60 minutes instead of 5 minutes
+  // Phase 1 live updating: refresh all listings every 5 minutes using scan enrichment
+  // Reduced from 60 minutes to 5 minutes to ensure tokens get updated with fixes quickly
+  @Cron('0 */5 * * * *') // Every 5 minutes to keep data fresh
   async scheduledRefreshAll() {
     const client = (this.repo as any)['prisma'] as any;
     const rows: { contractAddress: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' }[] = await client.listing.findMany({ select: { contractAddress: true, chain: true } });
@@ -1326,7 +1327,11 @@ export class RefreshWorker {
           lpLocks: bearTreeData?.lpLocks || [],
         },
         holders: {
-          count: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
+          // Prioritize heliusData holderCount (from AnalyticsService), then gmgn, then 0
+          // Use null check to distinguish between 0 (no data) and actual 0 holders
+          count: heliusData?.holderCount !== null && heliusData?.holderCount !== undefined 
+            ? heliusData.holderCount 
+            : (combinedData?.gmgn?.holders || 0),
           topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || []).slice(0, 10).map((h: any) => ({
             address: h.address || h.id,
             balance: Number(h.balance || 0),
@@ -1352,7 +1357,11 @@ export class RefreshWorker {
           liquidity: Number(pair?.liquidity?.usd || combinedData?.gmgn?.liquidity || 0),
           fdv: Number(pair?.fdv || combinedData?.gmgn?.marketCap || 0),
           marketCap: Number(pair?.marketCap || pair?.fdv || combinedData?.gmgn?.marketCap || 0),
-          holderCount: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
+          holderCount: heliusData?.holderCount !== null && heliusData?.holderCount !== undefined
+            ? heliusData.holderCount
+            : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
+              ? combinedData.gmgn.holders
+              : null),
         },
         tokenAge: Math.max(0, tokenAge),
         topTraders: (gmgnData?.topTraders || []) as any[],
@@ -1385,7 +1394,7 @@ export class RefreshWorker {
             chain: chain.toUpperCase() as any,
             name: payload.tokenInfo.name,
             symbol: payload.tokenInfo.symbol,
-            holders: payload.holders.count,
+            holders: payload.holders.count ?? null, // Preserve null for missing data
             age: `${payload.tokenAge} days`,
             imageUrl: payload.tokenInfo.image,
             tokenAge: payload.tokenAge,
@@ -1484,8 +1493,13 @@ export class RefreshWorker {
       let holderCount: number | null = null;
       try {
         holderCount = await this.analyticsService.getHolderCount(contractAddress, 'SOLANA');
+        if (holderCount !== null && holderCount > 0) {
+          this.logger.debug(`✅ Fetched holder count for ${contractAddress}: ${holderCount}`);
+        } else {
+          this.logger.warn(`⚠️ Holder count unavailable for ${contractAddress} (returned: ${holderCount})`);
+        }
       } catch (error) {
-        this.logger.debug(`Could not fetch holder count for ${contractAddress}: ${error instanceof Error ? error.message : String(error)}`);
+        this.logger.warn(`❌ Could not fetch holder count for ${contractAddress}: ${error instanceof Error ? error.message : String(error)}`);
       }
 
       return {
@@ -1493,7 +1507,7 @@ export class RefreshWorker {
         isFreezable: asset?.token_info?.freeze_authority !== null,
         totalSupply: Number(asset?.token_info?.supply || 0),
         circulatingSupply: Number(asset?.token_info?.supply || 0),
-        holderCount: holderCount ?? 0, // Use actual holder count, fallback to 0 if unavailable
+        holderCount: holderCount ?? null, // Use null instead of 0 to indicate missing data (scoring will handle it)
         topHolders,
         creationTimestamp: asset?.content?.metadata?.created_at || null,
       };

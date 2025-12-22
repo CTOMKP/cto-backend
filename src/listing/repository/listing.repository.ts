@@ -313,7 +313,7 @@ export class ListingRepository {
     chain: Chain;
     name: string;
     symbol: string;
-    holders: number;
+    holders: number | null;
     age: string;
     imageUrl: string;
     tokenAge: number;

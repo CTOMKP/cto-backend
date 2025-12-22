@@ -146,7 +146,7 @@ export class ImageController {
       // For user uploads, use a presigned URL with extended expiration
       console.log(`[ImageController] Getting image metadata for: ${normalizedKey}`);
       try {
-        await this.imageService.getImage(normalizedKey); // ensure metadata exists or seed fallback
+      await this.imageService.getImage(normalizedKey); // ensure metadata exists or seed fallback
         console.log(`[ImageController] Image metadata retrieved successfully`);
       } catch (getImageError: any) {
         console.warn(`[ImageController] getImage failed (non-critical): ${getImageError?.message || getImageError}`);
