@@ -159,7 +159,7 @@ export class MovementPaymentService {
       // Debit balance from wallet
       await this.movementWalletService.debitBalance(
         wallet.id,
-        (BigInt(payment.metadata?.amountInNativeUnits || '0')).toString(),
+        (BigInt((payment.metadata as any)?.amountInNativeUnits || '0')).toString(),
         txHash,
         paymentId,
       );
