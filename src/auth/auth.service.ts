@@ -37,13 +37,36 @@ export class AuthService {
 
   // Validate user by email and password against DB
   async validateUser(email: string, password: string): Promise<any> {
+    this.logger.log(`🔍 [AuthService] validateUser called for email: ${email}`);
+    
     const user = await this.prisma.user.findUnique({ 
       where: { email },
       select: this.userSelect
     });
-    if (!user || !user.passwordHash) return null; // Circle/social users may not have a password
+    
+    if (!user) {
+      this.logger.warn(`❌ [AuthService] User not found for email: ${email}`);
+      return null;
+    }
+    
+    if (!user.passwordHash) {
+      this.logger.warn(`❌ [AuthService] User ${email} has no password hash (social login user)`);
+      return null; // Circle/social users may not have a password
+    }
+    
+    this.logger.log(`🔍 [AuthService] User found: ${email}, comparing password...`);
+    this.logger.debug(`🔍 [AuthService] Password length: ${password.length}, Hash preview: ${user.passwordHash.substring(0, 20)}...`);
+    
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return null;
+    
+    if (!valid) {
+      this.logger.warn(`❌ [AuthService] Password comparison failed for ${email}`);
+      // Test if it's a hash format issue
+      this.logger.debug(`🔍 [AuthService] Hash length: ${user.passwordHash.length}, Hash format: ${user.passwordHash.substring(0, 7)}`);
+      return null;
+    }
+    
+    this.logger.log(`✅ [AuthService] Password verified successfully for ${email}`);
     const { passwordHash, ...result } = user as any;
     return result;
   }
