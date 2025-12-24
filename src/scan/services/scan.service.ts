@@ -300,6 +300,7 @@ export class ScanService {
 
       return result;
     } catch (error: unknown) {
+      this.logger.error(`❌ Scan error for ${contractAddress}:`, error instanceof Error ? error.stack : String(error));
       const msg = error instanceof Error ? error.message : (typeof error === 'string' ? error : '');
       if (msg.includes('Token not found') || msg.includes('account not found')) {
         throw new HttpException('Token not found. Please verify the contract address is correct.', HttpStatus.NOT_FOUND);
@@ -311,6 +312,10 @@ export class ScanService {
         throw new HttpException('Invalid contract address format. Please check and try again.', HttpStatus.BAD_REQUEST);
       }
       if (error instanceof HttpException) throw error;
+      // Log the full error for debugging
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`❌ Unexpected scan error for ${contractAddress}: ${errorMessage}`, errorStack);
       throw new HttpException('Scan failed. Please try again later.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
