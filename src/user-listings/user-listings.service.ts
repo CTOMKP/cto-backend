@@ -8,7 +8,7 @@ import { ScanService } from '../scan/services/scan.service';
 
 @Injectable()
 export class UserListingsService {
-  private readonly MAX_RISK = 40; // pass if risk_score >= MAX_RISK (higher = safer in repoanalyzer.io system)
+  private readonly MIN_QUALIFYING_SCORE = 50; // pass if risk_score >= MIN_QUALIFYING_SCORE (higher = safer, score range: 0-100)
 
   constructor(private prisma: PrismaService, private scanService: ScanService) {}
 
@@ -17,10 +17,10 @@ export class UserListingsService {
     // Delegate to existing ScanService; use userId to persist scan result linkage
     const result = await this.scanService.scanToken(dto.contractAddr, userId, chain as any);
 
-    const score = result?.risk_score ?? 0; // higher is better (matches repoanalyzer.io)
+    const score = result?.risk_score ?? 0; // higher is better (score range: 0-100, higher = safer)
     const tier = result?.tier ?? 'Seed';
 
-    const passed = typeof score === 'number' && score >= this.MAX_RISK && result?.eligible !== false;
+    const passed = typeof score === 'number' && score >= this.MIN_QUALIFYING_SCORE && result?.eligible !== false;
     return {
       success: passed,
       vettingScore: score,
@@ -32,7 +32,11 @@ export class UserListingsService {
 
   async create(userId: number, dto: CreateUserListingDto) {
     if (!userId) throw new ForbiddenException('Authentication required');
-    if ((dto.vettingScore ?? 100) > this.MAX_RISK) throw new BadRequestException('Vetting score above allowed risk');
+    // Validate that vetting score meets minimum requirement (>= 50)
+    const vettingScore = dto.vettingScore ?? 0;
+    if (vettingScore < this.MIN_QUALIFYING_SCORE) {
+      throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${this.MIN_QUALIFYING_SCORE}`);
+    }
 
     const created = await this.prisma.userListing.create({
       data: {
@@ -82,7 +86,11 @@ export class UserListingsService {
 
     // minimal validation before publish
     if (!found.title || !found.description) throw new BadRequestException('Missing required fields');
-    if ((found.vettingScore ?? 100) > this.MAX_RISK) throw new BadRequestException('Vetting score above allowed risk');
+    // Validate that vetting score still meets minimum requirement (>= 50)
+    const vettingScore = found.vettingScore ?? 0;
+    if (vettingScore < this.MIN_QUALIFYING_SCORE) {
+      throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${this.MIN_QUALIFYING_SCORE}`);
+    }
 
     // ⚠️ CRITICAL: Check if payment has been made before publishing
     const payment = await this.prisma.payment.findFirst({

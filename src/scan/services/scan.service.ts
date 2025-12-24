@@ -2,8 +2,7 @@ import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { SolanaApiService } from './solana-api.service';
 import { validateSolanaAddress } from '../../utils/validation';
 import { formatTokenAge, formatTokenAgeShort } from '../../utils/age-formatter';
-import { classifyTier } from './tier-classifier.service';
-import { calculateRiskScore, getRiskLevel } from './risk-scoring.service';
+import { Pillar1RiskScoringService, TokenVettingData } from '../../services/pillar1-risk-scoring.service';
 import { generateAISummary } from './ai-summary.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -12,6 +11,7 @@ export class ScanService {
   constructor(
     private readonly solanaApiService: SolanaApiService,
     private readonly prisma: PrismaService,
+    private readonly pillar1RiskScoringService: Pillar1RiskScoringService,
   ) {}
 
   // Scans a single token, optionally persists result if userId provided
@@ -86,16 +86,26 @@ export class ScanService {
         );
       }
 
-      const tier = classifyTier(tokenData);
-      if (!tier) {
+      // Transform SolanaApiService data to TokenVettingData format for Pillar1RiskScoringService
+      const vettingData = this.transformToVettingData(contractAddress, tokenData, chain);
+
+      // Calculate risk score using Pillar1RiskScoringService (N8N workflow formula)
+      const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
+
+      // Check if score meets minimum threshold (50) and data is sufficient
+      if (!vettingResults.dataSufficient || !vettingResults.overallScore || vettingResults.overallScore < 50) {
+        const reason = !vettingResults.dataSufficient 
+          ? `Insufficient data to calculate risk score. Missing: ${vettingResults.missingData.join(', ')}`
+          : `Risk score ${vettingResults.overallScore} is below minimum threshold of 50`;
+        
         throw new HttpException(
           {
-            message: 'Token does not meet minimum criteria for any tier',
+            message: reason,
             eligible: false,
-            tier: null,
-            risk_score: 0,
-            risk_level: 'HIGH',
-            summary: 'Token fails minimum criteria.',
+            tier: vettingResults.eligibleTier,
+            risk_score: vettingResults.overallScore || 0,
+            risk_level: vettingResults.riskLevel.toUpperCase(),
+            summary: reason,
             metadata: {
               token_symbol: tokenData.symbol,
               token_name: tokenData.name,
@@ -125,19 +135,26 @@ export class ScanService {
               activity_summary: tokenData.activity_summary,
               wallet_activity_data: tokenData.wallet_activity,
               smart_contract_security: tokenData.smart_contract_risks,
+              vetting_results: vettingResults,
             },
           },
           HttpStatus.BAD_REQUEST,
         );
       }
 
-      const riskScore = calculateRiskScore(tokenData, tier);
-      const riskLevel = getRiskLevel(riskScore);
-      const summary = generateAISummary(tokenData, tier, riskScore);
+      // Map risk level to uppercase string for backward compatibility
+      const riskLevelMap: Record<string, string> = {
+        low: 'LOW',
+        medium: 'MEDIUM',
+        high: 'HIGH',
+        insufficient_data: 'HIGH',
+      };
+      const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
+      const summary = generateAISummary(tokenData, { name: vettingResults.eligibleTier }, vettingResults.overallScore);
 
       const result = {
-        tier: tier.name,
-        risk_score: riskScore,
+        tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
+        risk_score: vettingResults.overallScore,
         risk_level: riskLevel,
         eligible: true,
         summary,
@@ -170,6 +187,7 @@ export class ScanService {
           activity_summary: tokenData.activity_summary,
           wallet_activity_data: tokenData.wallet_activity,
           smart_contract_security: tokenData.smart_contract_risks,
+          vetting_results: vettingResults,
         },
       };
 
@@ -240,30 +258,43 @@ export class ScanService {
               metadata: { token_symbol: tokenData.symbol, token_name: tokenData.name, project_age_days: tokenData.project_age_days, age_display: ageDisplay, minimum_age_required: 14 },
             };
           }
-          const tier = classifyTier(tokenData);
-          if (!tier) {
+          // Transform and calculate risk score using Pillar1RiskScoringService
+          const vettingData = this.transformToVettingData(contractAddress, tokenData, 'SOLANA');
+          const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
+          
+          if (!vettingResults.dataSufficient || !vettingResults.overallScore || vettingResults.overallScore < 50) {
             return {
               contractAddress,
               success: false,
-              error: 'Token does not meet minimum criteria for any tier',
+              error: !vettingResults.dataSufficient 
+                ? `Insufficient data. Missing: ${vettingResults.missingData.join(', ')}`
+                : `Risk score ${vettingResults.overallScore} below minimum threshold of 50`,
               eligible: false,
               metadata: {
                 token_symbol: tokenData.symbol,
                 token_name: tokenData.name,
                 lp_amount_usd: tokenData.lp_amount_usd,
                 project_age_days: tokenData.project_age_days,
-                active_wallets: tokenData.active_wallets,
-                holder_count: tokenData.holder_count
+                holder_count: tokenData.holder_count,
+                risk_score: vettingResults.overallScore || 0,
+                tier: vettingResults.eligibleTier,
               }
             };
           }
-          const riskScore = calculateRiskScore(tokenData, tier);
-          const riskLevel = getRiskLevel(riskScore);
-          const summary = generateAISummary(tokenData, tier, riskScore);
+          
+          const riskScore = vettingResults.overallScore;
+          const riskLevelMap: Record<string, string> = {
+            low: 'LOW',
+            medium: 'MEDIUM',
+            high: 'HIGH',
+            insufficient_data: 'HIGH',
+          };
+          const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
+          const summary = generateAISummary(tokenData, { name: vettingResults.eligibleTier }, riskScore);
           return {
             contractAddress,
             success: true,
-            tier: tier.name,
+            tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
             risk_score: riskScore,
             risk_level: riskLevel,
             eligible: true,
@@ -354,5 +385,108 @@ export class ScanService {
       if (error instanceof HttpException) throw error;
       throw new HttpException('Batch scan failed. Please try again later.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  /**
+   * Transform SolanaApiService token data to TokenVettingData format for Pillar1RiskScoringService
+   */
+  private transformToVettingData(
+    contractAddress: string,
+    tokenData: any,
+    chain: string,
+  ): TokenVettingData {
+    // Transform top holders: SolanaApiService uses { address, amount, share } where share is percentage
+    const topHolders = (tokenData.top_holders || []).slice(0, 10).map((h: any) => ({
+      address: h.address || h.owner || '',
+      balance: Number(h.amount || 0),
+      percentage: Number(h.share || h.percentage || 0),
+    }));
+
+    // Calculate LP lock percentage from available data
+    // If LP is burned, it's 100% locked permanently
+    // If LP is locked, estimate percentage based on lock duration
+    // Note: SolanaApiService doesn't provide exact percentage, so we estimate conservatively
+    let lpLockPercentage = 0;
+    if (tokenData.lp_burned) {
+      lpLockPercentage = 100; // Burned = 100% locked permanently
+    } else if (tokenData.lp_locked) {
+      // If locked, estimate percentage conservatively
+      // Longer lock duration typically means higher percentage of LP locked
+      if (tokenData.lp_lock_months >= 12) {
+        lpLockPercentage = 99; // Very long lock = likely most/all LP
+      } else if (tokenData.lp_lock_months >= 6) {
+        lpLockPercentage = 95; // Long lock = most LP
+      } else if (tokenData.lp_lock_months >= 3) {
+        lpLockPercentage = 90; // Medium lock = high percentage
+      } else if (tokenData.lp_lock_months > 0) {
+        lpLockPercentage = 85; // Short lock = high percentage (conservative estimate)
+      } else {
+        // Locked but no duration info - use conservative estimate
+        lpLockPercentage = 90;
+      }
+    }
+
+    // Build LP locks array (for Pillar1RiskScoringService)
+    const lpLocks: Array<{ tag?: string; [key: string]: any }> = [];
+    if (tokenData.lp_burned) {
+      lpLocks.push({ tag: 'Burned' });
+    } else if (tokenData.lp_locked) {
+      lpLocks.push({ tag: 'Locked', months: tokenData.lp_lock_months });
+    }
+
+    // Calculate top 10 holder rate (percentage of supply held by top 10)
+    const top10HolderRate = topHolders.slice(0, 10).reduce((sum, h) => sum + h.percentage, 0) / 100;
+
+    // Determine mint/freeze authority status
+    const isMintable = !!tokenData.mint_authority;
+    const isFreezable = !!tokenData.freeze_authority;
+
+    // Create image URL (fallback to identicon if not available)
+    const imageUrl = tokenData.icon || tokenData.image || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(contractAddress)}`;
+
+    return {
+      contractAddress,
+      chain: chain.toLowerCase(),
+      tokenInfo: {
+        name: tokenData.name || 'Unknown Token',
+        symbol: tokenData.symbol || 'UNKNOWN',
+        image: imageUrl,
+        decimals: tokenData.decimals || 6,
+        description: null,
+        websites: [],
+        socials: [],
+      },
+      security: {
+        isMintable,
+        isFreezable,
+        lpLockPercentage,
+        totalSupply: Number(tokenData.total_supply || 0),
+        circulatingSupply: Number(tokenData.total_supply || 0), // Assume all circulating if not provided
+        lpLocks,
+      },
+      holders: {
+        count: tokenData.holder_count || tokenData.total_holders || 0,
+        topHolders,
+      },
+      developer: {
+        // GMGN data not available from SolanaApiService, use defaults/estimates
+        creatorAddress: null, // Not available without GMGN
+        creatorBalance: 0, // Not available without GMGN
+        creatorStatus: 'unknown', // Not available without GMGN
+        top10HolderRate,
+        twitterCreateTokenCount: 0, // Not available without GMGN
+      },
+      trading: {
+        price: Number(tokenData.token_price || 0),
+        priceChange24h: 0, // Not available from SolanaApiService
+        volume24h: Number(tokenData.volume_24h || 0),
+        buys24h: 0, // Not available from SolanaApiService
+        sells24h: 0, // Not available from SolanaApiService
+        liquidity: Number(tokenData.lp_amount_usd || 0),
+        fdv: Number(tokenData.market_cap || 0),
+        holderCount: tokenData.holder_count || tokenData.total_holders || 0,
+      },
+      tokenAge: Math.max(0, Math.floor(tokenData.project_age_days || 0)),
+    };
   }
 }
