@@ -66,24 +66,6 @@ export class AnalyticsService {
       }
     }
 
-    // Try public Solscan API (no key required) for Solana tokens
-    if (chain === 'SOLANA') {
-      const holders = await this.getSolscanPublicHolders(contractAddress);
-      if (holders !== null) {
-        this.logger.log(`✅ Solscan (public) returned ${holders} holders`);
-        return holders;
-      }
-    }
-
-    // Try Birdeye API for Solana tokens (if available)
-    if (chain === 'SOLANA') {
-      const holders = await this.getBirdeyeHolders(contractAddress);
-      if (holders !== null) {
-        this.logger.log(`✅ Birdeye returned ${holders} holders`);
-        return holders;
-      }
-    }
-
     this.logger.warn(`❌ No holder data available for ${contractAddress} on ${chain}`);
     return null;
   }
