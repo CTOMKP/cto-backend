@@ -15,7 +15,7 @@ import { TokenAnalysisService } from './services/token-analysis.service';
 import { TokenVettingModule } from '../services/token-vetting.module';
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => ScanModule), TokenVettingModule, HttpModule],
+  imports: [PrismaModule, forwardRef(() => ScanModule), forwardRef(() => TokenVettingModule), HttpModule],
   controllers: [ListingController],
   providers: [ListingService, ListingRepository, CacheService, RefreshWorker, RateLimiterGuard, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
   exports: [ListingService, ListingRepository, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
