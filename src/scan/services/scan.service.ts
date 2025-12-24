@@ -246,17 +246,25 @@ export class ScanService {
       const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
       
       // Build metadata for AI summary (using vettingData structure)
-      const tokenMetadataForSummary = {
-        symbol: vettingData.tokenInfo.symbol,
-        name: vettingData.tokenInfo.name,
-        project_age_days: vettingData.tokenAge,
-        lp_amount_usd: vettingData.trading.liquidity,
-        token_price: vettingData.trading.price,
-        volume_24h: vettingData.trading.volume24h,
-        market_cap: vettingData.trading.fdv,
-        holder_count: vettingData.holders.count,
-      };
-      const summary = generateAISummary(tokenMetadataForSummary, { name: vettingResults.eligibleTier }, vettingResults.overallScore);
+      // Wrap in try-catch to ensure scan result is always returned even if summary generation fails
+      let summary = `Risk Level: ${vettingResults.riskLevel}. Tier: ${vettingResults.eligibleTier}`;
+      try {
+        const tokenMetadataForSummary = {
+          symbol: vettingData.tokenInfo.symbol,
+          name: vettingData.tokenInfo.name,
+          project_age_days: vettingData.tokenAge,
+          lp_amount_usd: vettingData.trading.liquidity,
+          token_price: vettingData.trading.price,
+          volume_24h: vettingData.trading.volume24h,
+          market_cap: vettingData.trading.fdv,
+          holder_count: vettingData.holders.count,
+        };
+        summary = generateAISummary(tokenMetadataForSummary, { name: vettingResults.eligibleTier }, vettingResults.overallScore);
+      } catch (summaryError: any) {
+        // If summary generation fails, use fallback summary - don't fail the scan
+        this.logger.warn(`⚠️ Summary generation failed for ${contractAddress}: ${summaryError?.message || String(summaryError)}, using fallback summary`);
+        summary = `Risk Level: ${vettingResults.riskLevel}. Tier: ${vettingResults.eligibleTier}. Risk Score: ${vettingResults.overallScore}/100`;
+      }
 
       const result = {
         tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
