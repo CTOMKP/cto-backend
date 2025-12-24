@@ -118,17 +118,17 @@ function generateWarnings(tokenData, riskScore) {
   const warnings = [];
   
   // High concentration warning
-  if (tokenData.top_holders.length > 0 && tokenData.top_holders[0].percentage > 15) {
+  if (tokenData.top_holders && Array.isArray(tokenData.top_holders) && tokenData.top_holders.length > 0 && tokenData.top_holders[0].percentage > 15) {
     warnings.push('High concentration risk with large holder dominance.');
   }
   
   // Suspicious activity warning
-  if (tokenData.suspicious_activity.sell_off_percent > 20) {
+  if (tokenData.suspicious_activity && tokenData.suspicious_activity.sell_off_percent > 20) {
     warnings.push('Recent suspicious selling activity detected.');
   }
   
   // Smart contract warnings
-  if (tokenData.smart_contract_risks.critical_vulnerabilities > 0) {
+  if (tokenData.smart_contract_risks && tokenData.smart_contract_risks.critical_vulnerabilities > 0) {
     warnings.push('Critical smart contract vulnerabilities found.');
   }
   
@@ -138,7 +138,7 @@ function generateWarnings(tokenData, riskScore) {
   }
   
   // Low liquidity warning
-  if (tokenData.lp_amount_usd < 10000) {
+  if (tokenData.lp_amount_usd && tokenData.lp_amount_usd < 10000) {
     warnings.push('Limited liquidity may affect trading.');
   }
   
@@ -162,17 +162,17 @@ function generatePositives(tokenData, riskScore) {
   }
   
   // Full audit
-  if (tokenData.smart_contract_risks.full_audit) {
+  if (tokenData.smart_contract_risks && tokenData.smart_contract_risks.full_audit) {
     positives.push('Smart contract has undergone a full security audit.');
   }
   
   // Bug bounty
-  if (tokenData.smart_contract_risks.bug_bounty) {
+  if (tokenData.smart_contract_risks && tokenData.smart_contract_risks.bug_bounty) {
     positives.push('Active bug bounty program demonstrates commitment to security.');
   }
   
   // Strong liquidity
-  if (tokenData.lp_amount_usd > 100000) {
+  if (tokenData.lp_amount_usd && tokenData.lp_amount_usd > 100000) {
     positives.push('Strong liquidity pool supports stable trading.');
   }
   
