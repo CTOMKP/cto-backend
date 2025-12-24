@@ -183,7 +183,13 @@ export class AuthService {
       access_token: accessToken,
       refresh_token: refreshToken,
       expires_in: 86400, // 24 hours
-      user: { id: user.id, email: user.email },
+      user: { 
+        id: user.id, 
+        email: user.email,
+        avatarUrl: user.avatarUrl || null,
+        name: user.name || null,
+        bio: user.bio || null,
+      },
     };
   }
 
