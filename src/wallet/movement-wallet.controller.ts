@@ -11,8 +11,37 @@ export class MovementWalletController {
   @Get('balance/:walletId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Get Movement wallet balance' })
-  @ApiResponse({ status: 200, description: 'Balance retrieved successfully' })
+  @ApiOperation({ 
+    summary: 'Get Movement wallet balance',
+    description: 'Get all token balances for a Movement wallet. Returns balances stored in database (synced from blockchain).'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Balance retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        balances: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              walletId: { type: 'string' },
+              tokenAddress: { type: 'string', example: '0x1::aptos_coin::AptosCoin' },
+              tokenSymbol: { type: 'string', example: 'MOV' },
+              balance: { type: 'string', example: '1000000000' },
+              decimals: { type: 'number', example: 8 },
+              lastUpdated: { type: 'string', format: 'date-time' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Wallet not found' })
   async getBalance(
     @Param('walletId') walletId: string,
     @Query('tokenAddress') tokenAddress?: string,
@@ -28,8 +57,31 @@ export class MovementWalletController {
   @Post('sync/:walletId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Sync Movement wallet balance from blockchain' })
-  @ApiResponse({ status: 200, description: 'Balance synced successfully' })
+  @ApiOperation({ 
+    summary: 'Sync Movement wallet balance from blockchain',
+    description: 'Manually sync wallet balance from Movement blockchain to database. Optionally specify token address and network (testnet/mainnet).'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Balance synced successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        balance: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            balance: { type: 'string' },
+            tokenSymbol: { type: 'string' },
+            lastUpdated: { type: 'string', format: 'date-time' }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Wallet not found' })
   async syncBalance(
     @Param('walletId') walletId: string,
     @Body() body: { tokenAddress?: string; testnet?: boolean },
@@ -48,8 +100,37 @@ export class MovementWalletController {
   @Get('transactions/:walletId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Get Movement wallet transaction history' })
-  @ApiResponse({ status: 200, description: 'Transactions retrieved successfully' })
+  @ApiOperation({ 
+    summary: 'Get Movement wallet transaction history',
+    description: 'Get transaction history for a Movement wallet. Includes CREDIT (funding), DEBIT (payments), and TRANSFER transactions. Default limit is 50.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Transactions retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        transactions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              txHash: { type: 'string' },
+              txType: { type: 'string', example: 'CREDIT' },
+              amount: { type: 'string' },
+              tokenSymbol: { type: 'string' },
+              status: { type: 'string', example: 'COMPLETED' },
+              createdAt: { type: 'string', format: 'date-time' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Wallet not found' })
   async getTransactions(
     @Param('walletId') walletId: string,
     @Query('limit') limit?: string,
@@ -67,8 +148,35 @@ export class MovementWalletController {
   @Post('poll/:walletId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Poll for new transactions (detect funding)' })
-  @ApiResponse({ status: 200, description: 'Polling completed' })
+  @ApiOperation({ 
+    summary: 'Poll for new transactions (detect funding)',
+    description: 'Manually trigger funding detection by comparing current balance with stored balance. If balance increased, records CREDIT transaction automatically.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Polling completed',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        transactions: {
+          type: 'array',
+          description: 'New transactions detected (if any)',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              txType: { type: 'string', example: 'CREDIT' },
+              amount: { type: 'string' },
+              description: { type: 'string' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Wallet not found' })
   async pollTransactions(
     @Param('walletId') walletId: string,
     @Body() body: { testnet?: boolean },
@@ -83,3 +191,10 @@ export class MovementWalletController {
     };
   }
 }
+
+
+
+
+
+
+

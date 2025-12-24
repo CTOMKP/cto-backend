@@ -1090,6 +1090,8 @@ export class RefreshWorker {
           name: after?.name ?? x.name ?? null,
           category,
           priceUsd: after?.priceUsd ?? x.market?.priceUsd ?? null,
+          change1m: (after as any)?.change1m ?? m?.priceChange?.m5 ?? null, // Using m5 as 1m approximation
+          change5m: (after as any)?.change5m ?? m?.priceChange?.m5 ?? null, // Exact 5m data
           change1h: (after as any)?.change1h ?? m?.priceChange?.h1 ?? null,
           change6h: (after as any)?.change6h ?? m?.priceChange?.h6 ?? null,
           change24h: (after as any)?.change24h ?? m?.priceChange?.h24 ?? null,

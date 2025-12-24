@@ -11,3 +11,10 @@ import { PrismaModule } from '../prisma/prisma.module';
   exports: [MovementWalletService],
 })
 export class MovementWalletModule {}
+
+
+
+
+
+
+

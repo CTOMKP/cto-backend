@@ -21,7 +21,6 @@ import { Pillar2MonitoringService } from './pillar2-monitoring.service';
     ExternalApisService,
     TokenImageService,
     Pillar1RiskScoringService,
-    Pillar2MonitoringService,
   ],
   exports: [
     CronService,
@@ -29,7 +28,6 @@ import { Pillar2MonitoringService } from './pillar2-monitoring.service';
     ExternalApisService,
     TokenImageService,
     Pillar1RiskScoringService,
-    Pillar2MonitoringService,
   ],
 })
 export class TokenVettingModule {}

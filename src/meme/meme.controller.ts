@@ -129,7 +129,30 @@ export class MemeController {
   /**
    * Get all memes (Public)
    */
-  @ApiOperation({ summary: 'Get all memes' })
+  @ApiOperation({ 
+    summary: 'Get all memes',
+    description: 'Get list of all memes with CloudFront CDN URLs. Returns metadata for all memes in the database.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Memes retrieved successfully',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          url: { type: 'string', example: 'https://cdn.example.com/meme.jpg' },
+          filename: { type: 'string' },
+          size: { type: 'number' },
+          uploadDate: { type: 'string', format: 'date-time' },
+          description: { type: 'string', nullable: true },
+          category: { type: 'string', nullable: true },
+          mimeType: { type: 'string' }
+        }
+      }
+    }
+  })
   @Get()
   async getAllMemes() {
     const memes = await this.memeService.getAllMemes();
@@ -208,7 +231,28 @@ export class MemeController {
   /**
    * Get meme by ID (Public)
    */
-  @ApiOperation({ summary: 'Get meme by ID' })
+  @ApiOperation({ 
+    summary: 'Get meme by ID',
+    description: 'Get details of a single meme by its ID. Returns CloudFront CDN URL for the meme image.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Meme retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        url: { type: 'string', example: 'https://cdn.example.com/meme.jpg' },
+        filename: { type: 'string' },
+        size: { type: 'number' },
+        uploadDate: { type: 'string', format: 'date-time' },
+        description: { type: 'string', nullable: true },
+        category: { type: 'string', nullable: true },
+        mimeType: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: 'Meme not found' })
   @Get(':id')
   async getMemeById(@Param('id') id: string) {
     const meme = await this.memeService.getMemeById(id);
@@ -233,9 +277,16 @@ export class MemeController {
   /**
    * Update meme metadata (Admin only)
    */
-  @ApiOperation({ summary: 'Update meme metadata' })
+  @ApiOperation({ 
+    summary: 'Update meme metadata',
+    description: 'Update meme metadata (filename, description, category). Admin only. Does not modify the underlying file.'
+  })
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
+  @ApiResponse({ status: 200, description: 'Meme metadata updated successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Meme not found' })
   @Put(':id')
   async updateMeme(
     @Param('id') id: string,
@@ -254,9 +305,16 @@ export class MemeController {
   /**
    * Delete meme (Admin only)
    */
-  @ApiOperation({ summary: 'Delete meme' })
+  @ApiOperation({ 
+    summary: 'Delete meme',
+    description: 'Delete a meme from database and storage. Admin only. This action cannot be undone.'
+  })
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
+  @ApiResponse({ status: 200, description: 'Meme deleted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Meme not found' })
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   async deleteMeme(@Param('id') id: string, @Req() req: any) {

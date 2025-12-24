@@ -14,13 +14,34 @@ export class UserListingsController {
 
   // Public endpoints
   @Get()
-  @ApiOperation({ summary: 'List published user listings (paginated)' })
+  @ApiOperation({ 
+    summary: 'List published user listings (paginated)',
+    description: 'Get paginated list of published user listings. Only returns listings with status PUBLISHED.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Listings retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        page: { type: 'number', example: 1 },
+        limit: { type: 'number', example: 20 },
+        total: { type: 'number', example: 100 },
+        items: { type: 'array', items: { type: 'object' } }
+      }
+    }
+  })
   async listPublic(@Query('page') page = 1, @Query('limit') limit = 20) {
     return this.svc.findPublic(Number(page) || 1, Number(limit) || 20);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single published user listing' })
+  @ApiOperation({ 
+    summary: 'Get a single published user listing',
+    description: 'Get details of a published user listing by ID. Only returns listings with status PUBLISHED.'
+  })
+  @ApiResponse({ status: 200, description: 'Listing retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Listing not found or not published' })
   async getOnePublic(@Param('id') id: string) {
     return this.svc.findOnePublic(id);
   }
@@ -56,7 +77,25 @@ export class UserListingsController {
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Create draft user listing (requires passing vetting)' })
+  @ApiOperation({ 
+    summary: 'Create draft user listing',
+    description: 'Create a new user listing with DRAFT status. Requires token to have passed vetting (risk_score >= 50). Payment is required later to publish.'
+  })
+  @ApiResponse({ 
+    status: 201, 
+    description: 'Listing created successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', example: 'cmhx1234567890' },
+        status: { type: 'string', example: 'DRAFT' },
+        title: { type: 'string' },
+        createdAt: { type: 'string', format: 'date-time' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid input or token did not pass vetting' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async create(@Body() dto: CreateUserListingDto, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
     return this.svc.create(Number(userId), dto);
@@ -74,7 +113,25 @@ export class UserListingsController {
   @Post(':id/publish')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Publish a user listing' })
+  @ApiOperation({ 
+    summary: 'Publish a user listing',
+    description: 'Publish a user listing. Requires payment to be completed first. If no payment exists, listing remains DRAFT and user must pay before publishing.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Listing published successfully (if payment exists)',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        status: { type: 'string', example: 'PENDING_APPROVAL' },
+        message: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Payment required or listing cannot be published' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Listing not found' })
   async publish(@Param('id') id: string, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
     return this.svc.publish(Number(userId), id);

@@ -9,17 +9,44 @@ export class TransferController {
   constructor(private readonly transferService: TransferService) {}
 
   @Post('cctp')
-  @ApiOperation({ summary: 'Initiate CCTP cross-chain USDC transfer' })
-  @ApiResponse({ status: 200, description: 'CCTP transfer initiated successfully' })
-  @ApiResponse({ status: 400, description: 'Invalid request parameters' })
+  @ApiOperation({ 
+    summary: 'Initiate CCTP cross-chain USDC transfer',
+    description: 'Initiate a CCTP (Circle Cross-Chain Transfer Protocol) transfer of USDC between different blockchains. Supports Ethereum, Base, Polygon, Arbitrum, Optimism.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'CCTP transfer initiated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        transferId: { type: 'string' },
+        status: { type: 'string', example: 'PENDING' },
+        message: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid request parameters or insufficient balance' })
   async initiateCCTPTransfer(@Body() dto: CCTPTransferDto) {
     return this.transferService.initiateCCTPTransfer(dto);
   }
 
   @Post('wormhole/attestation')
-  @ApiOperation({ summary: 'Get Wormhole attestation for cross-chain transfer' })
-  @ApiResponse({ status: 200, description: 'Wormhole attestation retrieved successfully' })
-  @ApiResponse({ status: 400, description: 'Failed to get attestation' })
+  @ApiOperation({ 
+    summary: 'Get Wormhole attestation for cross-chain transfer',
+    description: 'Get Wormhole attestation for cross-chain USDC transfer. Attestation is required to redeem tokens on destination chain.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Wormhole attestation retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        attestation: { type: 'string', description: 'Wormhole attestation message' },
+        txHash: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Failed to get attestation or invalid request' })
   async getWormholeAttestation(@Body() dto: WormholeAttestationDto) {
     return this.transferService.getWormholeAttestation(dto);
   }
@@ -43,8 +70,24 @@ export class TransferController {
   }
 
   @Get('status/:transactionId')
-  @ApiOperation({ summary: 'Get transaction status' })
-  @ApiResponse({ status: 200, description: 'Transaction status retrieved' })
+  @ApiOperation({ 
+    summary: 'Get transaction status',
+    description: 'Get status of a cross-chain transfer transaction. Checks Circle API for current transaction state.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Transaction status retrieved',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        transactionId: { type: 'string' },
+        status: { type: 'string', example: 'pending', enum: ['pending', 'completed', 'failed'] },
+        message: { type: 'string' }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: 'Transaction not found' })
   async getTransactionStatus(
     @Param('transactionId') transactionId: string,
     @Query('userId') userId: string

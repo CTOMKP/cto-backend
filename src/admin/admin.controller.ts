@@ -1,7 +1,8 @@
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { ApproveListingDto, RejectListingDto, UpdateUserRoleDto } from './dto/admin.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -11,8 +12,26 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('dashboard/stats')
-  @ApiOperation({ summary: 'Get dashboard statistics (admin only)' })
-  @ApiResponse({ status: 200, description: 'Dashboard stats retrieved successfully' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Get dashboard statistics',
+    description: 'Get admin dashboard statistics including total listings, pending approvals, payments, etc. Admin only.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Dashboard stats retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        totalListings: { type: 'number' },
+        pendingListings: { type: 'number' },
+        publishedListings: { type: 'number' },
+        totalPayments: { type: 'number' },
+        totalUsers: { type: 'number' }
+      }
+    }
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
   async getDashboardStats() {
     return this.adminService.getDashboardStats();
@@ -27,27 +46,82 @@ export class AdminController {
   }
 
   @Get('listings/published')
-  @ApiOperation({ summary: 'Get all published listings (admin only)' })
-  @ApiResponse({ status: 200, description: 'Published listings retrieved successfully' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Get all published listings',
+    description: 'Get all user listings with status PUBLISHED. Admin only.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Published listings retrieved successfully',
+    schema: {
+      type: 'array',
+      items: { type: 'object' }
+    }
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
   async getPublishedListings() {
     return this.adminService.getPublishedListings();
   }
 
   @Post('listings/approve')
-  @ApiOperation({ summary: 'Approve a listing (admin only)' })
-  @ApiResponse({ status: 200, description: 'Listing approved successfully' })
-  @ApiResponse({ status: 400, description: 'Invalid request' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Approve a listing',
+    description: 'Approve a user listing. Changes status from PENDING_APPROVAL to PUBLISHED. Admin only.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Listing approved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        listing: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            status: { type: 'string', example: 'PUBLISHED' }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid request or listing not in PENDING_APPROVAL status' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Listing not found' })
   async approveListing(@Body() dto: ApproveListingDto) {
     return this.adminService.approveListing(dto);
   }
 
   @Post('listings/reject')
-  @ApiOperation({ summary: 'Reject a listing (admin only)' })
-  @ApiResponse({ status: 200, description: 'Listing rejected successfully' })
-  @ApiResponse({ status: 400, description: 'Invalid request' })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ 
+    summary: 'Reject a listing',
+    description: 'Reject a user listing. Changes status from PENDING_APPROVAL to REJECTED. Admin only.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Listing rejected successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        listing: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            status: { type: 'string', example: 'REJECTED' }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid request or listing not in PENDING_APPROVAL status' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Listing not found' })
   async rejectListing(@Body() dto: RejectListingDto) {
     return this.adminService.rejectListing(dto);
   }
@@ -64,8 +138,20 @@ export class AdminController {
   }
 
   @Get('ad-boosts/active')
-  @ApiOperation({ summary: 'Get all active ad boosts (admin only)' })
-  @ApiResponse({ status: 200, description: 'Active ad boosts retrieved successfully' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Get all active ad boosts',
+    description: 'Get all currently active ad boosts. Admin only.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Active ad boosts retrieved successfully',
+    schema: {
+      type: 'array',
+      items: { type: 'object' }
+    }
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
   async getActiveAdBoosts() {
     return this.adminService.getActiveAdBoosts();

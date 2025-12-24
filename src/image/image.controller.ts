@@ -74,8 +74,26 @@ export class ImageController {
   constructor(private readonly imageService: ImageService) {}
 
   // Generate presigned PUT for direct-to-S3 uploads
+  @ApiOperation({ 
+    summary: 'Generate presigned upload URL for image',
+    description: 'Generate a presigned S3 URL for direct image upload. Supports types: generic, profile, banner, meme'
+  })
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Presigned URL generated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        uploadUrl: { type: 'string', example: 'https://s3.amazonaws.com/bucket/key?X-Amz-Signature=...' },
+        key: { type: 'string', example: 'user-uploads/123/profile/image.jpg' },
+        viewUrl: { type: 'string', example: 'https://cdn.example.com/user-uploads/123/profile/image.jpg' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid request parameters' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @Post('presign')
   async presign(@Body() dto: PresignUploadDto, @Req() req: any) {
     // userId is taken from JWT, not from client, to comply with bucket policy
@@ -100,6 +118,12 @@ export class ImageController {
 
   // Short-lived read redirect — supports keys with slashes via wildcard
   // Using catch-all pattern that works with Express routing
+  @ApiOperation({ 
+    summary: 'View image by key',
+    description: 'Redirects to CloudFront CDN URL for the image. Supports keys with slashes. Example: /api/v1/images/view/user-uploads/123/profile/image.jpg'
+  })
+  @ApiResponse({ status: 302, description: 'Redirects to CloudFront CDN URL' })
+  @ApiResponse({ status: 404, description: 'Image not found' })
   @Get('view/**')
   async viewImage(@Req() req: any, @Res() res: Response): Promise<void> {
     // Extract the key from the request path (outside try block for error handling)
@@ -187,6 +211,12 @@ export class ImageController {
   }
 
   // Download redirect with content-disposition hint
+  @ApiOperation({ 
+    summary: 'Download image by key',
+    description: 'Generate presigned download URL with content-disposition header for file download'
+  })
+  @ApiResponse({ status: 302, description: 'Redirects to presigned download URL' })
+  @ApiResponse({ status: 404, description: 'Image not found' })
   @Get('download/*key')
   async downloadImage(@Param('key') key: string, @Res() res: Response): Promise<void> {
     try {
@@ -246,6 +276,11 @@ export class ImageController {
   }
 
   // List images from cache/redis (metadata only) - MUST be last to avoid catching wildcard routes
+  @ApiOperation({ 
+    summary: 'List all images',
+    description: 'Get list of all images from cache/redis (metadata only)'
+  })
+  @ApiResponse({ status: 200, description: 'List of images returned', type: [ImageMetadata] })
   @Get()
   async listImages(): Promise<ImageMetadata[]> {
     return this.imageService.listImages();
@@ -260,7 +295,15 @@ export class ImageController {
   }
 
   // Edit metadata only (does not rename underlying object)
+  @ApiOperation({ 
+    summary: 'Edit image metadata',
+    description: 'Update image metadata (filename, description, category) without renaming the underlying file'
+  })
+  @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
+  @ApiResponse({ status: 200, description: 'Image metadata updated successfully', type: ImageMetadata })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Image not found' })
   @Put(':id')
   async editImage(
     @Param('id') id: string,

@@ -9,15 +9,52 @@ export class FundingController {
   constructor(private readonly fundingService: FundingService) {}
 
   @Get('methods/:userId')
-  @ApiOperation({ summary: 'Get available funding methods for user' })
-  @ApiResponse({ status: 200, description: 'Funding methods retrieved successfully' })
+  @ApiOperation({ 
+    summary: 'Get available funding methods',
+    description: 'Get list of available funding methods for a user (bank transfer, card, etc.)'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Funding methods retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        methods: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', example: 'BANK_TRANSFER' },
+              enabled: { type: 'boolean' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 404, description: 'User not found' })
   async getFundingMethods(@Param('userId') userId: string) {
     return this.fundingService.getFundingMethods(userId);
   }
 
   @Post('deposit')
-  @ApiOperation({ summary: 'Create a deposit request' })
-  @ApiResponse({ status: 200, description: 'Deposit request created successfully' })
+  @ApiOperation({ 
+    summary: 'Create a deposit request',
+    description: 'Create a deposit request to fund a Circle wallet. Returns deposit instructions and tracking ID.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Deposit request created successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        depositId: { type: 'string' },
+        instructions: { type: 'object' },
+        status: { type: 'string', example: 'PENDING' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid request parameters' })
   async createDeposit(@Body() dto: CreateDepositDto) {
     return this.fundingService.createDeposit(dto);
   }
@@ -43,9 +80,24 @@ export class FundingController {
   }
 
   @Post('withdraw')
-  @ApiOperation({ summary: 'Withdraw USDC to external wallet' })
-  @ApiResponse({ status: 200, description: 'Withdrawal initiated successfully' })
+  @ApiOperation({ 
+    summary: 'Withdraw USDC to external wallet',
+    description: 'Initiate withdrawal of USDC from Circle wallet to external blockchain wallet address. Validates balance before processing.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Withdrawal initiated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        withdrawalId: { type: 'string' },
+        status: { type: 'string', example: 'PENDING' },
+        txHash: { type: 'string', nullable: true }
+      }
+    }
+  })
   @ApiResponse({ status: 400, description: 'Insufficient balance or invalid request' })
+  @ApiResponse({ status: 404, description: 'User or wallet not found' })
   async withdraw(@Body() dto: WithdrawDto) {
     return this.fundingService.withdraw(dto);
   }
