@@ -618,8 +618,9 @@ export class RefreshWorker {
             priceUsd: priceUsdNum,
             liquidityUsd: liquidityUsdNum,
             fdv: Number.isFinite(Number(p?.fdv)) ? Number(p?.fdv) : (Number.isFinite(Number(existing.market?.fdv)) ? Number(existing.market?.fdv) : null),
-            // DexScreener exposes priceChange as priceChange.h24 etc. when available
+            // DexScreener exposes priceChange as priceChange.m5, h1, h6, h24 etc. when available
             priceChange: {
+              m5: Number.isFinite(Number((p as any)?.priceChange?.m5)) ? Number((p as any)?.priceChange?.m5) : null, // 5 minute change (also used as 1m approximation)
               h1: Number.isFinite(Number((p as any)?.priceChange?.h1)) ? Number((p as any)?.priceChange?.h1) : null,
               h6: Number.isFinite(Number((p as any)?.priceChange?.h6)) ? Number((p as any)?.priceChange?.h6) : null,
               h24: Number.isFinite(Number((p as any)?.priceChange?.h24)) ? Number((p as any)?.priceChange?.h24) : null,
@@ -810,9 +811,10 @@ export class RefreshWorker {
             chainId: 'solana',
             source: 'solscan',
             priceChange: {
-              h24: Number.isFinite(Number(priceChangeH24)) ? Number(priceChangeH24) : (existing.market?.priceChange?.h24 ?? 0),
-              h1: existing.market?.priceChange?.h1 ?? 0,
-              h6: existing.market?.priceChange?.h6 ?? 0
+              m5: existing.market?.priceChange?.m5 ?? null, // Preserve m5 if exists, Solscan doesn't provide it
+              h24: Number.isFinite(Number(priceChangeH24)) ? Number(priceChangeH24) : (existing.market?.priceChange?.h24 ?? null),
+              h1: existing.market?.priceChange?.h1 ?? null,
+              h6: existing.market?.priceChange?.h6 ?? null
             }
           } as any;
           
@@ -894,9 +896,10 @@ export class RefreshWorker {
       
       // Ensure price change fields are present
       if (!item.market.priceChange) item.market.priceChange = {};
-      if (item.market.priceChange.h24 === undefined) item.market.priceChange.h24 = 0;
-      if (item.market.priceChange.h1 === undefined) item.market.priceChange.h1 = 0;
-      if (item.market.priceChange.h6 === undefined) item.market.priceChange.h6 = 0;
+      if (item.market.priceChange.m5 === undefined) item.market.priceChange.m5 = null; // 5 minute change (also used as 1m approximation)
+      if (item.market.priceChange.h24 === undefined) item.market.priceChange.h24 = null;
+      if (item.market.priceChange.h1 === undefined) item.market.priceChange.h1 = null;
+      if (item.market.priceChange.h6 === undefined) item.market.priceChange.h6 = null;
       
       // Ensure volume field is present
       if (!item.market.volume) item.market.volume = {};
@@ -1021,22 +1024,29 @@ export class RefreshWorker {
         // Enrich missing logo with TrustWallet assets or identicon (cached)
         const resolvedLogo = x.logoUrl || await this.resolveLogoCached(chain, address, x.symbol, x.name);
         
-        // Fetch holder data if not available - preserve null if unavailable
+        // Always try to fetch fresh holder data (feed data might be stale or missing)
+        // This ensures holders are updated even if they were previously null or outdated
         let holderCount: number | null = x.market?.holders ?? null;
-        if (holderCount === null || holderCount === 0) {
-          try {
-            const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
-            if (fetchedHolders !== null && fetchedHolders > 0) {
-              holderCount = fetchedHolders;
-              console.log(`👥 Fetched holders for ${x.symbol || address}: ${holderCount}`);
-            } else {
-              // Don't estimate - preserve null to show "N/A" in frontend
+        try {
+          const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
+          if (fetchedHolders !== null && fetchedHolders > 0) {
+            holderCount = fetchedHolders;
+            console.log(`👥 Fetched holders for ${x.symbol || address}: ${holderCount}`);
+          } else {
+            // If fetch returned null/0, preserve existing value if it exists, otherwise set to null
+            if (holderCount === null || holderCount === 0) {
               holderCount = null;
               console.log(`⚠️ Holder count unavailable for ${x.symbol || address} - will display as N/A`);
+            } else {
+              // Keep existing holder count if fetch failed but we have an existing value
+              console.log(`⚠️ Failed to fetch fresh holders for ${x.symbol || address}, preserving existing value: ${holderCount}`);
             }
-          } catch (error) {
-            console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error instanceof Error ? error.message : String(error)}`);
-            holderCount = null; // Preserve null on error
+          }
+        } catch (error) {
+          console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error instanceof Error ? error.message : String(error)}`);
+          // On error, preserve existing value if available, otherwise set to null
+          if (holderCount === null || holderCount === 0) {
+            holderCount = null;
           }
         }
         
@@ -1051,7 +1061,7 @@ export class RefreshWorker {
           liquidityUsd: x.market?.liquidityUsd ?? 0,
           fdv: x.market?.fdv ?? 0,
           volume: x.market?.volume ?? { h24: 0 },
-          priceChange: x.market?.priceChange ?? { h1: 0, h6: 0, h24: 0 },
+          priceChange: x.market?.priceChange ?? { m5: null, h1: null, h6: null, h24: null },
           // Include risk and community scores
           riskScore: x.market?.riskScore ?? null,
           communityScore: x.market?.communityScore ?? null,

@@ -109,6 +109,8 @@ export class ListingRepository {
         volume24h: i?.volume24h ?? m?.volume?.h24 ?? m?.volume24h ?? null,
         txCount1h: i?.txCount1h ?? (tx1h || null),
         txCount24h: i?.txCount24h ?? (tx24h || null),
+        change1m: i?.change1m ?? m?.priceChange?.m5 ?? null, // Using m5 as 1m approximation
+        change5m: i?.change5m ?? m?.priceChange?.m5 ?? null, // Exact 5m data
         change1h: i?.change1h ?? m?.priceChange?.h1 ?? null,
         change6h: i?.change6h ?? m?.priceChange?.h6 ?? null,
         change24h: i?.change24h ?? m?.priceChange?.h24 ?? null,
@@ -143,6 +145,10 @@ export class ListingRepository {
     const volume24h = market?.volume?.h24 ?? market?.volume24h ?? null;
     const txCount1h = ((market?.txns?.h1?.buys ?? 0) + (market?.txns?.h1?.sells ?? 0)) || null;
     const txCount24h = ((market?.txns?.h24?.buys ?? 0) + (market?.txns?.h24?.sells ?? 0)) || null;
+    // DexScreener provides m5 (5 minutes) - use as approximation for both 1m and 5m
+    // For 1m, we use m5 as a close approximation (exact 1m data not available from DexScreener)
+    const change1m = market?.priceChange?.m5 ?? null; // Using m5 as 1m approximation
+    const change5m = market?.priceChange?.m5 ?? null; // Exact 5m data
     const change1h = market?.priceChange?.h1 ?? null;
     const change6h = market?.priceChange?.h6 ?? null;
     const change24h = market?.priceChange?.h24 ?? null;
@@ -179,6 +185,8 @@ export class ListingRepository {
         symbol,
         name,
         priceUsd,
+        change1m,
+        change5m,
         change1h,
         change6h,
         change24h,
@@ -202,6 +210,8 @@ export class ListingRepository {
         symbol,
         name,
         priceUsd,
+        change1m,
+        change5m,
         change1h,
         change6h,
         change24h,

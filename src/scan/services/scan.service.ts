@@ -1,17 +1,30 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import { SolanaApiService } from './solana-api.service';
 import { validateSolanaAddress } from '../../utils/validation';
 import { formatTokenAge, formatTokenAgeShort } from '../../utils/age-formatter';
 import { Pillar1RiskScoringService, TokenVettingData } from '../../services/pillar1-risk-scoring.service';
+import { ExternalApisService } from '../../services/external-apis.service';
+import { TokenImageService } from '../../services/token-image.service';
+import { AnalyticsService } from '../../listing/services/analytics.service';
 import { generateAISummary } from './ai-summary.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class ScanService {
+  private readonly logger = new Logger(ScanService.name);
+
   constructor(
     private readonly solanaApiService: SolanaApiService,
     private readonly prisma: PrismaService,
     private readonly pillar1RiskScoringService: Pillar1RiskScoringService,
+    private readonly externalApisService: ExternalApisService,
+    private readonly tokenImageService: TokenImageService,
+    private readonly analyticsService: AnalyticsService,
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
   ) {}
 
   // Scans a single token, optionally persists result if userId provided
@@ -36,73 +49,154 @@ export class ScanService {
         throw new HttpException('Invalid Solana contract address format', HttpStatus.BAD_REQUEST);
       }
 
-      const tokenData = await this.solanaApiService.fetchTokenData(contractAddress);
-      if (!tokenData) {
-        throw new HttpException('Token not found or invalid contract address', HttpStatus.NOT_FOUND);
+      // Use the SAME comprehensive data fetching approach as RefreshWorker (Pillar 1)
+      this.logger.debug(`🔍 Fetching comprehensive data for user listing scan: ${contractAddress} on ${chain}`);
+      
+      // Fetch data from multiple sources in parallel (same as RefreshWorker)
+      const [dexScreenerData, combinedData, imageUrl] = await Promise.all([
+        this.externalApisService.fetchDexScreenerData(contractAddress, chain.toLowerCase()),
+        this.externalApisService.fetchCombinedTokenData(contractAddress, chain.toLowerCase()),
+        this.tokenImageService.fetchTokenImage(contractAddress, chain),
+      ]);
+
+      // Fetch Helius data (token metadata, holders, creation date)
+      const heliusData = await this.fetchHeliusData(contractAddress);
+      
+      // Fetch Alchemy data (if available)
+      const alchemyData = await this.fetchAlchemyData(contractAddress);
+      
+      // Fetch Helius BearTree data (developer info)
+      const bearTreeData = await this.fetchHeliusBearTreeData(contractAddress);
+
+      // Extract token info
+      const pair = dexScreenerData || combinedData?.dexScreener;
+      const baseToken = (pair?.baseToken || {}) as { name?: string; symbol?: string; decimals?: number };
+      const gmgnData = (combinedData?.gmgn as any) || {};
+      
+      // Extract trading and holders data for age estimation
+      const tradingData = {
+        volume24h: Number(pair?.volume?.h24 || combinedData?.gmgn?.volume24h || 0),
+        liquidity: Number(pair?.liquidity?.usd || combinedData?.gmgn?.liquidity || 0),
+      };
+      const holdersData = {
+        count: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
+      };
+
+      // Calculate token age - try multiple sources (same as RefreshWorker)
+      const creationTimestamp = 
+        heliusData?.creationTimestamp ||           // Helius RPC (primary)
+        pair?.pairCreatedAt ||                     // DexScreener pair creation
+        null;
+
+      let tokenAge = 0;
+
+      if (creationTimestamp) {
+        // Determine if timestamp is in seconds or milliseconds
+        const timestampMs = creationTimestamp > 1e12 
+          ? creationTimestamp  // Already in milliseconds
+          : creationTimestamp * 1000; // Convert seconds to milliseconds
+        
+        // Calculate age from timestamp
+        tokenAge = Math.floor((Date.now() - timestampMs) / (1000 * 60 * 60 * 24));
+        this.logger.debug(`📅 Token ${contractAddress} age calculated from timestamp: ${tokenAge} days`);
+      } else {
+        // Fallback: Estimate based on activity
+        const hasSignificantVolume = tradingData.volume24h > 50000;
+        const hasManyHolders = holdersData.count > 500;
+        const hasEstablishedLiquidity = tradingData.liquidity > 100000;
+        
+        if (hasSignificantVolume || hasManyHolders || hasEstablishedLiquidity) {
+          // Conservative estimate: assume minimum 7 days old for tokens with significant activity
+          tokenAge = 7;
+          this.logger.debug(`⚠️ No timestamp for ${contractAddress}, estimating minimum age: 7 days (based on activity)`);
+        } else {
+          // Very new token with no activity - likely < 1 day
+          tokenAge = 0;
+          this.logger.debug(`⚠️ No timestamp for ${contractAddress}, no significant activity - age: 0 days`);
+        }
       }
 
-      if (tokenData.project_age_days < 14) {
-        const ageDisplay = formatTokenAge(tokenData.project_age_days);
-        throw new HttpException(
-          {
-            message: `Token is too young for listing. Minimum age requirement is 14 days. This token is ${ageDisplay} old.`,
-            eligible: false,
-            tier: null,
-            risk_score: 0,
-            risk_level: 'HIGH',
-            summary: 'Token too young for listing.',
-            metadata: {
-              token_symbol: tokenData.symbol,
-              token_name: tokenData.name,
-              project_age_days: tokenData.project_age_days,
-              age_display: ageDisplay,
-              age_display_short: formatTokenAgeShort(tokenData.project_age_days),
-              creation_date: tokenData.creation_date,
-              lp_amount_usd: tokenData.lp_amount_usd,
-              token_price: tokenData.token_price,
-              volume_24h: tokenData.volume_24h,
-              market_cap: tokenData.market_cap,
-              pool_count: tokenData.pool_count,
-              lp_lock_months: tokenData.lp_lock_months,
-              lp_burned: tokenData.lp_burned,
-              lp_locked: tokenData.lp_locked,
-              lock_contract: tokenData.lock_contract,
-              lock_analysis: tokenData.lock_analysis,
-              largest_lp_holder: tokenData.largest_lp_holder,
-              pair_address: tokenData.pair_address,
-              scan_timestamp: new Date().toISOString(),
-              verified: tokenData.verified,
-              holder_count: tokenData.holder_count,
-              creation_transaction: tokenData.creation_transaction,
-              distribution_metrics: tokenData.distribution_metrics,
-              whale_analysis: tokenData.whale_analysis,
-              suspicious_activity_details: tokenData.suspicious_activity,
-              activity_summary: tokenData.activity_summary,
-              wallet_activity_data: tokenData.wallet_activity,
-              smart_contract_security: tokenData.smart_contract_risks,
-            },
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
+      // AGE FILTER: Removed 14-day minimum (same as RefreshWorker)
+      // Tokens of any age can be scanned and vetted
+      // The tier calculation will handle age requirements (Seed: 14-21 days, etc.)
+      this.logger.log(`✅ Processing token ${contractAddress} (age: ${tokenAge} days) with Pillar 1 risk scoring`);
 
-      // Transform SolanaApiService data to TokenVettingData format for Pillar1RiskScoringService
-      const vettingData = this.transformToVettingData(contractAddress, tokenData, chain);
+      // Build COMPLETE TokenVettingData payload (same structure as RefreshWorker)
+      const vettingData: TokenVettingData = {
+        contractAddress,
+        chain: chain.toLowerCase(),
+        tokenInfo: {
+          name: baseToken.name || gmgnData?.name || 'Unknown',
+          symbol: baseToken.symbol || gmgnData?.symbol || 'UNKNOWN',
+          image: imageUrl,
+          decimals: baseToken.decimals || gmgnData?.decimals || 6,
+          description: gmgnData?.description || null,
+          websites: combinedData?.gmgn?.socials?.website ? [combinedData.gmgn.socials.website] : [],
+          socials: [
+            combinedData?.gmgn?.socials?.twitter,
+            combinedData?.gmgn?.socials?.telegram,
+          ].filter(Boolean),
+        },
+        security: {
+          isMintable: heliusData?.isMintable ?? alchemyData?.isMintable ?? false,
+          isFreezable: heliusData?.isFreezable ?? alchemyData?.isFreezable ?? false,
+          lpLockPercentage: (pair?.liquidity as any)?.lockedPercentage || bearTreeData?.lpLockPercentage || 0,
+          totalSupply: Number(heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0),
+          circulatingSupply: Number(heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0),
+          lpLocks: bearTreeData?.lpLocks || [],
+        },
+        holders: {
+          // Prioritize heliusData holderCount (from AnalyticsService), then gmgn, preserve null if unavailable
+          count: heliusData?.holderCount !== null && heliusData?.holderCount !== undefined 
+            ? heliusData.holderCount 
+            : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
+              ? combinedData.gmgn.holders
+              : null),
+          topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || []).slice(0, 10).map((h: any) => ({
+            address: h.address || h.id,
+            balance: Number(h.balance || 0),
+            percentage: Number(h.percentage || 0),
+          })),
+        },
+        developer: {
+          creatorAddress: bearTreeData?.creatorAddress || combinedData?.gmgn?.creator?.address || null,
+          creatorBalance: Number(bearTreeData?.creatorBalance || combinedData?.gmgn?.creator?.balance || 0),
+          creatorStatus: bearTreeData?.creatorStatus || combinedData?.gmgn?.creator?.status || 'unknown',
+          top10HolderRate: Number(bearTreeData?.top10HolderRate || gmgnData?.top10HolderRate || 0),
+          twitterCreateTokenCount: bearTreeData?.twitterCreateTokenCount || 0,
+        },
+        trading: {
+          price: Number(pair?.priceUsd || combinedData?.gmgn?.price || 0),
+          priceChange24h: Number(pair?.priceChange?.h24 || 0),
+          volume24h: Number(pair?.volume?.h24 || combinedData?.gmgn?.volume24h || 0),
+          buys24h: Number(pair?.txns?.h24?.buys || 0),
+          sells24h: Number(pair?.txns?.h24?.sells || 0),
+          liquidity: Number(pair?.liquidity?.usd || combinedData?.gmgn?.liquidity || 0),
+          fdv: Number(pair?.fdv || combinedData?.gmgn?.marketCap || 0),
+          holderCount: heliusData?.holderCount !== null && heliusData?.holderCount !== undefined
+            ? heliusData.holderCount
+            : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
+              ? combinedData.gmgn.holders
+              : null),
+        },
+        tokenAge: Math.max(0, tokenAge),
+      };
 
       // Log critical data fields for debugging
-      console.log(`[ScanService] Token data for ${contractAddress}:`, {
-        holder_count: tokenData.holder_count,
-        lp_amount_usd: tokenData.lp_amount_usd,
-        project_age_days: tokenData.project_age_days,
-        has_top_holders: !!tokenData.top_holders?.length,
-        top_holders_count: tokenData.top_holders?.length || 0,
+      this.logger.debug(`[ScanService] Token data for ${contractAddress}:`, {
+        holder_count: vettingData.holders.count,
+        lp_amount_usd: vettingData.trading.liquidity,
+        project_age_days: vettingData.tokenAge,
+        has_top_holders: !!vettingData.holders.topHolders?.length,
+        top_holders_count: vettingData.holders.topHolders?.length || 0,
+        creator_address: vettingData.developer.creatorAddress,
       });
 
       // Calculate risk score using Pillar1RiskScoringService (N8N workflow formula)
       const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
       
       // Log risk score calculation result
-      console.log(`[ScanService] Risk score calculation result for ${contractAddress}:`, {
+      this.logger.debug(`[ScanService] Risk score calculation result for ${contractAddress}:`, {
         overallScore: vettingResults.overallScore,
         dataSufficient: vettingResults.dataSufficient,
         missingData: vettingResults.missingData,
@@ -124,34 +218,17 @@ export class ScanService {
             risk_level: vettingResults.riskLevel.toUpperCase(),
             summary: reason,
             metadata: {
-              token_symbol: tokenData.symbol,
-              token_name: tokenData.name,
-              project_age_days: tokenData.project_age_days,
-              age_display: formatTokenAge(tokenData.project_age_days),
-              age_display_short: formatTokenAgeShort(tokenData.project_age_days),
-              creation_date: tokenData.creation_date,
-              lp_amount_usd: tokenData.lp_amount_usd,
-              token_price: tokenData.token_price,
-              volume_24h: tokenData.volume_24h,
-              market_cap: tokenData.market_cap,
-              pool_count: tokenData.pool_count,
-              lp_lock_months: tokenData.lp_lock_months,
-              lp_burned: tokenData.lp_burned,
-              lp_locked: tokenData.lp_locked,
-              lock_contract: tokenData.lock_contract,
-              lock_analysis: tokenData.lock_analysis,
-              largest_lp_holder: tokenData.largest_lp_holder,
-              pair_address: tokenData.pair_address,
+              token_symbol: vettingData.tokenInfo.symbol,
+              token_name: vettingData.tokenInfo.name,
+              project_age_days: vettingData.tokenAge,
+              age_display: formatTokenAge(vettingData.tokenAge),
+              age_display_short: formatTokenAgeShort(vettingData.tokenAge),
+              lp_amount_usd: vettingData.trading.liquidity,
+              token_price: vettingData.trading.price,
+              volume_24h: vettingData.trading.volume24h,
+              market_cap: vettingData.trading.fdv,
+              holder_count: vettingData.holders.count,
               scan_timestamp: new Date().toISOString(),
-              verified: tokenData.verified,
-              holder_count: tokenData.holder_count,
-              creation_transaction: tokenData.creation_transaction,
-              distribution_metrics: tokenData.distribution_metrics,
-              whale_analysis: tokenData.whale_analysis,
-              suspicious_activity_details: tokenData.suspicious_activity,
-              activity_summary: tokenData.activity_summary,
-              wallet_activity_data: tokenData.wallet_activity,
-              smart_contract_security: tokenData.smart_contract_risks,
               vetting_results: vettingResults,
             },
           },
@@ -167,7 +244,19 @@ export class ScanService {
         insufficient_data: 'HIGH',
       };
       const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
-      const summary = generateAISummary(tokenData, { name: vettingResults.eligibleTier }, vettingResults.overallScore);
+      
+      // Build metadata for AI summary (using vettingData structure)
+      const tokenMetadataForSummary = {
+        symbol: vettingData.tokenInfo.symbol,
+        name: vettingData.tokenInfo.name,
+        project_age_days: vettingData.tokenAge,
+        lp_amount_usd: vettingData.trading.liquidity,
+        token_price: vettingData.trading.price,
+        volume_24h: vettingData.trading.volume24h,
+        market_cap: vettingData.trading.fdv,
+        holder_count: vettingData.holders.count,
+      };
+      const summary = generateAISummary(tokenMetadataForSummary, { name: vettingResults.eligibleTier }, vettingResults.overallScore);
 
       const result = {
         tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
@@ -176,34 +265,17 @@ export class ScanService {
         eligible: true,
         summary,
         metadata: {
-          token_symbol: tokenData.symbol,
-          token_name: tokenData.name,
-          project_age_days: tokenData.project_age_days,
-          age_display: formatTokenAge(tokenData.project_age_days),
-          age_display_short: formatTokenAgeShort(tokenData.project_age_days),
-          creation_date: tokenData.creation_date,
-          lp_amount_usd: tokenData.lp_amount_usd,
-          token_price: tokenData.token_price,
-          volume_24h: tokenData.volume_24h,
-          market_cap: tokenData.market_cap,
-          pool_count: tokenData.pool_count,
-          lp_lock_months: tokenData.lp_lock_months,
-          lp_burned: tokenData.lp_burned,
-          lp_locked: tokenData.lp_locked,
-          lock_contract: tokenData.lock_contract,
-          lock_analysis: tokenData.lock_analysis,
-          largest_lp_holder: tokenData.largest_lp_holder,
-          pair_address: tokenData.pair_address,
+          token_symbol: vettingData.tokenInfo.symbol,
+          token_name: vettingData.tokenInfo.name,
+          project_age_days: vettingData.tokenAge,
+          age_display: formatTokenAge(vettingData.tokenAge),
+          age_display_short: formatTokenAgeShort(vettingData.tokenAge),
+          lp_amount_usd: vettingData.trading.liquidity,
+          token_price: vettingData.trading.price,
+          volume_24h: vettingData.trading.volume24h,
+          market_cap: vettingData.trading.fdv,
+          holder_count: vettingData.holders.count,
           scan_timestamp: new Date().toISOString(),
-          verified: tokenData.verified,
-          holder_count: tokenData.holder_count,
-          creation_transaction: tokenData.creation_transaction,
-          distribution_metrics: tokenData.distribution_metrics,
-          whale_analysis: tokenData.whale_analysis,
-          suspicious_activity_details: tokenData.suspicious_activity,
-          activity_summary: tokenData.activity_summary,
-          wallet_activity_data: tokenData.wallet_activity,
-          smart_contract_security: tokenData.smart_contract_risks,
           vetting_results: vettingResults,
         },
       };
@@ -405,7 +477,168 @@ export class ScanService {
   }
 
   /**
-   * Transform SolanaApiService token data to TokenVettingData format for Pillar1RiskScoringService
+   * Fetch data from Helius RPC API (same as RefreshWorker)
+   */
+  private async fetchHeliusData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1a00b566-9c85-4b19-b219-d3875fbcb8d3');
+      const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+
+      const [assetResponse, holdersResponse] = await Promise.allSettled([
+        firstValueFrom(
+          this.httpService.post(heliusUrl, {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getAsset',
+            params: { id: contractAddress },
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+          })
+        ),
+        firstValueFrom(
+          this.httpService.post(heliusUrl, {
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'getTokenLargestAccounts',
+            params: [contractAddress, { commitment: 'finalized' }],
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+          })
+        ),
+      ]);
+
+      const assetData = assetResponse.status === 'fulfilled' ? assetResponse.value.data : null;
+      const holdersData = holdersResponse.status === 'fulfilled' ? holdersResponse.value.data : null;
+
+      const asset = assetData?.result;
+      const holders = holdersData?.result?.value || [];
+
+      const totalSupply = asset?.token_info?.supply || 0;
+      const topHolders = holders.slice(0, 10).map((h: any) => {
+        const balance = Number(h.uiAmount || 0);
+        const percentage = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
+        return {
+          address: h.address,
+          balance,
+          percentage,
+        };
+      });
+
+      // Get actual holder count from AnalyticsService (not from token accounts length)
+      let holderCount: number | null = null;
+      try {
+        holderCount = await this.analyticsService.getHolderCount(contractAddress, 'SOLANA');
+        if (holderCount !== null && holderCount > 0) {
+          this.logger.debug(`✅ Fetched holder count for ${contractAddress}: ${holderCount}`);
+        } else {
+          this.logger.warn(`⚠️ Holder count unavailable for ${contractAddress} (returned: ${holderCount})`);
+        }
+      } catch (error) {
+        this.logger.warn(`❌ Could not fetch holder count for ${contractAddress}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      return {
+        isMintable: asset?.token_info?.supply_authority !== null,
+        isFreezable: asset?.token_info?.freeze_authority !== null,
+        totalSupply: Number(asset?.token_info?.supply || 0),
+        circulatingSupply: Number(asset?.token_info?.supply || 0),
+        holderCount: holderCount ?? null,
+        topHolders,
+        creationTimestamp: asset?.content?.metadata?.created_at || null,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Helius API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch data from Alchemy API (same as RefreshWorker)
+   */
+  private async fetchAlchemyData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const alchemyApiKey = this.configService.get('ALCHEMY_API_KEY', 'bSSmYhMZK2oYWgB2aMzA_');
+      const alchemyUrl = `https://solana-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
+
+      const response = await firstValueFrom(
+        this.httpService.post(alchemyUrl, {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getAccountInfo',
+          params: [
+            contractAddress,
+            { encoding: 'jsonParsed' },
+          ],
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+
+      const data = response.data;
+      const accountInfo = data?.result?.value?.data?.parsed?.info;
+
+      if (!accountInfo) return null;
+
+      return {
+        isMintable: accountInfo.mintAuthority !== null,
+        isFreezable: accountInfo.freezeAuthority !== null,
+        totalSupply: Number(accountInfo.supply || 0),
+      };
+    } catch (error: any) {
+      this.logger.warn(`Alchemy API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch data from Helius BearTree API (same as RefreshWorker)
+   */
+  private async fetchHeliusBearTreeData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '99b6e8db-d86a-4d3d-a5ee-88afa8015074');
+      const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
+
+      const response = await firstValueFrom(
+        this.httpService.post(bearTreeUrl, {
+          mintAccounts: [contractAddress],
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+
+      const data = response.data;
+      const tokenData = data?.[0];
+
+      if (!tokenData) return null;
+
+      return {
+        creatorAddress: tokenData?.onChainMetadata?.metadata?.updateAuthority || null,
+        creatorBalance: 0,
+        creatorStatus: 'unknown',
+        top10HolderRate: 0,
+        twitterCreateTokenCount: 0,
+        lpLockPercentage: 0,
+        lpLocks: [],
+      };
+    } catch (error: any) {
+      this.logger.warn(`Helius BearTree API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * DEPRECATED: Transform SolanaApiService token data to TokenVettingData format
+   * This method is no longer used - we now use comprehensive data fetching (same as RefreshWorker)
    */
   private transformToVettingData(
     contractAddress: string,

@@ -106,6 +106,8 @@ model Listing {
   communityScore  Float?
   tier            String?
   priceUsd        Float?
+  change1m        Float?  // 1 minute price change percentage
+  change5m        Float?  // 5 minute price change percentage
   change1h        Float?
   change6h        Float?
   change24h       Float?

@@ -150,30 +150,19 @@ export class AnalyticsService {
 
   /**
    * Helius API - Get Solana token holders
+   * Note: Helius token-metadata API doesn't provide holder count directly.
+   * This method returns null to allow fallback to Solscan which is more reliable for holder counts.
    */
   private async getHeliusHolders(contractAddress: string): Promise<number | null> {
-    try {
-      const url = `https://api.helius.xyz/v0/token-metadata?api-key=${this.heliusApiKey}`;
-      
-      const response = await axios.post(url, {
-        mintAccounts: [contractAddress],
-      }, { timeout: 5000 });
-
-      // Helius may return holder count in metadata
-      if (response.data?.[0]?.onChainMetadata?.holders) {
-        return response.data[0].onChainMetadata.holders;
-      }
-
-      this.logger.debug(`Helius API returned no holder data`);
-      return null;
-    } catch (error: any) {
-      this.logger.debug(`Helius API error: ${error.message}`);
-      return null;
-    }
+    // Helius token-metadata API doesn't return holder count in a reliable way.
+    // Skip Helius for holder counts and rely on Solscan which is more reliable.
+    // Returning null allows the fallback chain to proceed to Solscan.
+    this.logger.debug(`Skipping Helius for holder count (not available via token-metadata API), will try Solscan`);
+    return null;
   }
 
   /**
-   * Solscan API - Get Solana token holders (with API key)
+   * Solscan API - Get Solana token holders
    */
   private async getSolscanHolders(contractAddress: string): Promise<number | null> {
     try {
@@ -190,72 +179,10 @@ export class AnalyticsService {
         return response.data.total;
       }
 
-      this.logger.debug(`Solscan API (key) returned no holder data`);
+      this.logger.debug(`Solscan API returned no holder data`);
       return null;
     } catch (error: any) {
-      this.logger.debug(`Solscan API (key) error: ${error.message}`);
-      return null;
-    }
-  }
-
-  /**
-   * Solscan Public API - Get Solana token holders (no API key required)
-   */
-  private async getSolscanPublicHolders(contractAddress: string): Promise<number | null> {
-    try {
-      const url = `https://public-api.solscan.io/token/meta?tokenAddress=${contractAddress}`;
-      
-      const response = await axios.get(url, {
-        headers: {
-          'User-Agent': 'CTO-Marketplace/1.0',
-        },
-        timeout: 5000,
-      });
-
-      // Solscan public API returns holder count in 'holder' or 'holders' field
-      const holderCount = response.data?.holder || response.data?.holders;
-      if (holderCount !== null && holderCount !== undefined) {
-        const parsed = parseInt(String(holderCount), 10);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          return parsed;
-        }
-      }
-
-      this.logger.debug(`Solscan public API returned no holder data`);
-      return null;
-    } catch (error: any) {
-      this.logger.debug(`Solscan public API error: ${error.message}`);
-      return null;
-    }
-  }
-
-  /**
-   * Birdeye API - Get Solana token holders
-   */
-  private async getBirdeyeHolders(contractAddress: string): Promise<number | null> {
-    try {
-      const birdeyeApiKey = process.env.BIRDEYE_API_KEY || 'public';
-      const url = `https://public-api.birdeye.so/v1/token/holder?address=${contractAddress}`;
-      
-      const response = await axios.get(url, {
-        headers: {
-          'X-API-KEY': birdeyeApiKey,
-        },
-        timeout: 5000,
-      });
-
-      // Birdeye returns holder count in the response
-      if (response.data?.data?.holderCount !== null && response.data?.data?.holderCount !== undefined) {
-        const parsed = parseInt(String(response.data.data.holderCount), 10);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          return parsed;
-        }
-      }
-
-      this.logger.debug(`Birdeye API returned no holder data`);
-      return null;
-    } catch (error: any) {
-      this.logger.debug(`Birdeye API error: ${error.message}`);
+      this.logger.debug(`Solscan API error: ${error.message}`);
       return null;
     }
   }
