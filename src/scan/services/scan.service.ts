@@ -280,15 +280,22 @@ export class ScanService {
         },
       };
 
-      // Persist in DB if authenticated user provided
+      // Persist in DB if authenticated user provided (non-blocking - don't fail the scan if DB write fails)
       if (userId) {
-        await this.prisma.scanResult.create({
-          data: {
-            contractAddress,
-            resultData: result as any,
-            userId,
-          },
-        });
+        try {
+          await this.prisma.scanResult.create({
+            data: {
+              contractAddress,
+              resultData: result as any,
+              userId,
+            },
+          });
+          this.logger.debug(`✅ Scan result persisted to database for ${contractAddress}`);
+        } catch (dbError: any) {
+          // Log DB error but don't fail the scan - the result is still valid
+          this.logger.warn(`⚠️ Failed to persist scan result to database for ${contractAddress}: ${dbError?.message || String(dbError)}`);
+          // Continue - the scan result is still valid even if DB write fails
+        }
       }
 
       return result;
