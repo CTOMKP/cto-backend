@@ -24,9 +24,15 @@ export class UserListingsService {
       const passed = typeof score === 'number' && score >= this.MIN_QUALIFYING_SCORE && result?.eligible !== false;
       return {
         success: passed,
+        risk_score: score, // Frontend expects this field name
+        tier: tier,
+        risk_level: result?.risk_level,
+        eligible: passed,
+        summary: result?.summary,
+        metadata: result?.metadata,
+        // Legacy fields for backward compatibility
         vettingScore: score,
         vettingTier: tier,
-        eligible: passed,
         details: result,
       };
     } catch (error: any) {
@@ -38,9 +44,15 @@ export class UserListingsService {
           const tier = response.tier ?? null;
           return {
             success: false,
+            risk_score: score, // Frontend expects this field name
+            tier: tier,
+            risk_level: response?.risk_level,
+            eligible: false,
+            summary: response?.summary,
+            metadata: response?.metadata,
+            // Legacy fields for backward compatibility
             vettingScore: score,
             vettingTier: tier,
-            eligible: false,
             details: response,
           };
         }
