@@ -280,7 +280,7 @@ export class ImageController {
     summary: 'List all images',
     description: 'Get list of all images from cache/redis (metadata only)'
   })
-  @ApiResponse({ status: 200, description: 'List of images returned', type: [ImageMetadata] })
+  @ApiResponse({ status: 200, description: 'List of images returned' })
   @Get()
   async listImages(): Promise<ImageMetadata[]> {
     return this.imageService.listImages();
@@ -301,7 +301,7 @@ export class ImageController {
   })
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
-  @ApiResponse({ status: 200, description: 'Image metadata updated successfully', type: ImageMetadata })
+  @ApiResponse({ status: 200, description: 'Image metadata updated successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Image not found' })
   @Put(':id')
