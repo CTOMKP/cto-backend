@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, BadRequestException, HttpException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserListingDto } from './dto/create-user-listing.dto';
 import { UpdateUserListingDto } from './dto/update-user-listing.dto';
@@ -14,20 +14,40 @@ export class UserListingsService {
 
   async scan(userId: number | undefined, dto: ScanDto) {
     const chain = dto.chain || 'SOLANA';
-    // Delegate to existing ScanService; use userId to persist scan result linkage
-    const result = await this.scanService.scanToken(dto.contractAddr, userId, chain as any);
+    try {
+      // Delegate to existing ScanService; use userId to persist scan result linkage
+      const result = await this.scanService.scanToken(dto.contractAddr, userId, chain as any);
 
-    const score = result?.risk_score ?? 0; // higher is better (score range: 0-100, higher = safer)
-    const tier = result?.tier ?? 'Seed';
+      const score = result?.risk_score ?? 0; // higher is better (score range: 0-100, higher = safer)
+      const tier = result?.tier ?? 'Seed';
 
-    const passed = typeof score === 'number' && score >= this.MIN_QUALIFYING_SCORE && result?.eligible !== false;
-    return {
-      success: passed,
-      vettingScore: score,
-      vettingTier: tier,
-      eligible: passed,
-      details: result,
-    };
+      const passed = typeof score === 'number' && score >= this.MIN_QUALIFYING_SCORE && result?.eligible !== false;
+      return {
+        success: passed,
+        vettingScore: score,
+        vettingTier: tier,
+        eligible: passed,
+        details: result,
+      };
+    } catch (error: any) {
+      // Extract risk score from HttpException response if available
+      if (error instanceof HttpException && error.getResponse) {
+        const response = error.getResponse() as any;
+        if (response?.risk_score !== undefined) {
+          const score = response.risk_score ?? 0;
+          const tier = response.tier ?? null;
+          return {
+            success: false,
+            vettingScore: score,
+            vettingTier: tier,
+            eligible: false,
+            details: response,
+          };
+        }
+      }
+      // If we can't extract score, rethrow the error
+      throw error;
+    }
   }
 
   async create(userId: number, dto: CreateUserListingDto) {

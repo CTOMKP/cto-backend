@@ -89,8 +89,25 @@ export class ScanService {
       // Transform SolanaApiService data to TokenVettingData format for Pillar1RiskScoringService
       const vettingData = this.transformToVettingData(contractAddress, tokenData, chain);
 
+      // Log critical data fields for debugging
+      console.log(`[ScanService] Token data for ${contractAddress}:`, {
+        holder_count: tokenData.holder_count,
+        lp_amount_usd: tokenData.lp_amount_usd,
+        project_age_days: tokenData.project_age_days,
+        has_top_holders: !!tokenData.top_holders?.length,
+        top_holders_count: tokenData.top_holders?.length || 0,
+      });
+
       // Calculate risk score using Pillar1RiskScoringService (N8N workflow formula)
       const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
+      
+      // Log risk score calculation result
+      console.log(`[ScanService] Risk score calculation result for ${contractAddress}:`, {
+        overallScore: vettingResults.overallScore,
+        dataSufficient: vettingResults.dataSufficient,
+        missingData: vettingResults.missingData,
+        riskLevel: vettingResults.riskLevel,
+      });
 
       // Check if score meets minimum threshold (50) and data is sufficient
       if (!vettingResults.dataSufficient || !vettingResults.overallScore || vettingResults.overallScore < 50) {
