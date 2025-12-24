@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { ListingController } from './listing.controller';
 import { ListingService } from './listing.service';
@@ -15,7 +15,7 @@ import { TokenAnalysisService } from './services/token-analysis.service';
 import { TokenVettingModule } from '../services/token-vetting.module';
 
 @Module({
-  imports: [PrismaModule, ScanModule, TokenVettingModule, HttpModule],
+  imports: [PrismaModule, forwardRef(() => ScanModule), TokenVettingModule, HttpModule],
   controllers: [ListingController],
   providers: [ListingService, ListingRepository, CacheService, RefreshWorker, RateLimiterGuard, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
   exports: [ListingService, ListingRepository, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
