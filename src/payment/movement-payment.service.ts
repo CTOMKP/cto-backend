@@ -22,8 +22,10 @@ export class MovementPaymentService {
    * Returns payment record and transaction data for frontend to sign
    */
   async createListingPayment(userId: number, listingId: string) {
+    // IMMEDIATE LOG TO CONFIRM REQUEST REACHED SERVICE
+    this.logger.log(`🚀 [CRITICAL] createListingPayment starting for User: ${userId}, Listing: ${listingId}`);
+    
     try {
-      this.logger.log(`Creating Movement payment for user ${userId}, listing ${listingId}`);
 
       // Get user and their Movement wallet
       let user = await this.prisma.user.findUnique({
