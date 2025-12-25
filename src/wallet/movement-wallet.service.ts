@@ -18,6 +18,7 @@ export class MovementWalletService {
   // Movement RPC endpoints
   private readonly MOVEMENT_TESTNET_RPC = 'https://aptos.testnet.m2.movementlabs.xyz/v1';
   private readonly MOVEMENT_TESTNET_RPC_FALLBACK = 'https://full.testnet.movementinfra.xyz/v1';
+  private readonly MOVEMENT_TESTNET_RPC_PIMLICO = 'https://public.pimlico.io/v2/250/rpc';
   private readonly MOVEMENT_MAINNET_RPC = 'https://mainnet.movementlabs.xyz/v1';
   
   // Movement test token (default to native MOVE, can be overridden via env)
@@ -67,7 +68,7 @@ export class MovementWalletService {
     decimals: number;
   }> {
     const urls = isTestnet 
-      ? [this.MOVEMENT_TESTNET_RPC, this.MOVEMENT_TESTNET_RPC_FALLBACK]
+      ? [this.MOVEMENT_TESTNET_RPC, this.MOVEMENT_TESTNET_RPC_FALLBACK, this.MOVEMENT_TESTNET_RPC_PIMLICO]
       : [this.MOVEMENT_MAINNET_RPC];
     
     let lastError: any;
