@@ -122,36 +122,34 @@ export class PrivyAuthService {
 
       if (user.linkedAccounts) {
         // Log all linked accounts to see what Privy returns
-        this.logger.log(`📋 All linkedAccounts: ${JSON.stringify(user.linkedAccounts.map((acc: any) => ({
+        this.logger.log(`📋 RAW linkedAccounts from Privy: ${JSON.stringify(user.linkedAccounts)}`);
+        
+        // Track summary for easier reading
+        const summary = user.linkedAccounts.map((acc: any) => ({
           type: acc.type,
           address: acc.address,
           chainType: acc.chainType,
           connectorType: acc.connectorType,
           walletClientType: acc.walletClientType,
           walletClient: acc.walletClient
-        })))}`);
+        }));
+        this.logger.log(`📋 Linked accounts summary: ${JSON.stringify(summary)}`);
         
         // Filter for wallet accounts
-        // MetaMask appears as type === 'wallet' in linkedAccounts, but Privy dashboard shows it as "Linked account"
-        // So we check for both: type === 'wallet' OR (has address AND connectorType === 'injected')
         const linkedWallets = user.linkedAccounts.filter(
           (account: any) => {
-            // Include if it's a wallet type
-            if (account.type === 'wallet' && account.address) {
-              return true;
-            }
-            // Also include if it's an injected wallet (MetaMask, etc.) even if type isn't 'wallet'
-            if (account.connectorType === 'injected' && account.address) {
-              return true;
-            }
-            // Include smart wallets
-            if (account.connectorType === 'smart_wallet' && account.address) {
-              return true;
-            }
-            return false;
+            // Include if it has an address and is either a wallet type, 
+            // or has a wallet connector type (injected, embedded, smart_wallet)
+            const hasAddress = !!account.address;
+            const isWalletType = account.type === 'wallet';
+            const isWalletConnector = ['injected', 'embedded', 'smart_wallet'].includes(account.connectorType);
+            
+            return hasAddress && (isWalletType || isWalletConnector);
           }
         );
         
+        this.logger.log(`🔍 Found ${linkedWallets.length} potential wallets in linkedAccounts`);
+
         linkedWallets.forEach((w: any) => {
           const walletAddress = w.address?.toLowerCase();
           
