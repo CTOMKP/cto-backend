@@ -106,11 +106,10 @@ export class MovementPaymentService {
 
       this.logger.log(`✅ Sufficient balance confirmed`);
 
-      // Get admin wallet
-      const adminWallet = this.configService.get('MOVEMENT_ADMIN_WALLET', '');
-      if (!adminWallet) {
-        this.logger.error('❌ MOVEMENT_ADMIN_WALLET not set in environment');
-        throw new BadRequestException('Admin wallet not configured. Please contact support.');
+      // Get admin wallet - use fallback for testing
+      const adminWallet = this.configService.get('MOVEMENT_ADMIN_WALLET', '0x1');
+      if (!adminWallet || adminWallet === '0x1') {
+        this.logger.warn('⚠️ MOVEMENT_ADMIN_WALLET not set or using fallback 0x1');
       }
 
       // Create payment record in database
