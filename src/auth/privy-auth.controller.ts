@@ -174,15 +174,26 @@ export class PrivyAuthController {
               this.logger.warn(`Privy reported 0 wallets for ${(privyUser as any).userId}, triggering retry...`);
               throw new Error('No wallets found in Privy yet');
             }
+
+            // FORCE WAIT FOR MOVEMENT: If we have some wallets but NOT Movement yet,
+            // we should keep retrying because we know Movement is required for this app.
+            const hasMovement = wallets.some(w => w.blockchain === 'MOVEMENT');
+            if (!hasMovement) {
+              this.logger.warn(`Found ${wallets.length} wallets but MOVEMENT is missing. Retrying to wait for Privy...`);
+              this.logToFile(`Found ${wallets.length} wallets but MOVEMENT is missing. Retrying to wait for Privy...`);
+              throw new Error('MOVEMENT wallet not ready in Privy API yet');
+            }
+
             return wallets;
           },
-          5, // 5 retries
+          8, // Increased retries to 8 (total ~30-40 seconds)
           2000, // 2s initial delay
-          2 // backoff
+          1.5 // Gentler backoff
         );
       } catch (error) {
-        this.logger.error(`Failed to get wallets even after retries: ${error.message}`);
-        userWallets = []; // Fallback to empty if it really fails after 1 minute
+        this.logger.error(`Failed to get full wallet set even after retries: ${error.message}`);
+        // Fallback: If we still don't have Movement after 40 seconds, take what we have
+        userWallets = await this.privyAuthService.getUserWallets((privyUser as any).userId);
       }
 
       this.logger.log(`✅ Wallets received: ${(userWallets as any)?.length || 0} wallets`);

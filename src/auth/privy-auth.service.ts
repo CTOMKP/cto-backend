@@ -75,17 +75,19 @@ export class PrivyAuthService {
 
       if (user.linkedAccounts) {
         // Log all linked accounts to see what Privy returns
-        this.logger.log(`📋 RAW linkedAccounts from Privy: ${JSON.stringify(user.linkedAccounts)}`);
+        this.logger.log(`📋 RAW linkedAccounts for ${userId}: ${JSON.stringify(user.linkedAccounts)}`);
         
         // Filter for wallet accounts - BE MORE INCLUSIVE
         const linkedWallets = user.linkedAccounts.filter(
           (account: any) => {
             // If it has an address and is labeled as a wallet, we WANT it.
-            return !!account.address && (account.type === 'wallet' || account.connectorType);
+            // Some wallets might not have 'type: wallet' but have an 'address' and 'chainType'
+            const isWallet = account.type === 'wallet' || !!account.address;
+            return isWallet && !!account.address;
           }
         );
         
-        this.logger.log(`🔍 Found ${linkedWallets.length} potential wallets in linkedAccounts`);
+        this.logger.log(`🔍 Found ${linkedWallets.length} potential wallets in linkedAccounts for ${userId}`);
         
         linkedWallets.forEach((w: any) => {
           const walletAddress = w.address?.toLowerCase();
