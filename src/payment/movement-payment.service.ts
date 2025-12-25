@@ -68,7 +68,7 @@ export class MovementPaymentService {
 
       if (!movementWallet || !movementWallet.address) {
         const walletCount = user.wallets?.length || 0;
-        const blockchains = user.wallets?.map(w => w.blockchain).join(', ') || 'none';
+        const blockchains = user.wallets?.map(w => `${w.blockchain}:${w.address.substring(0, 6)}`).join(', ') || 'none';
         this.logger.error(`❌ Wallet mismatch for user ${userId}: found ${walletCount} wallets (${blockchains}), but no MOVEMENT wallet.`);
         throw new BadRequestException(`No Movement wallet found for your account (User ID: ${userId}). Backend found ${walletCount} wallets: [${blockchains}]. Please try logging out and back in.`);
       }
