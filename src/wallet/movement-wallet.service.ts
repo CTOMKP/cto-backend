@@ -16,8 +16,9 @@ export class MovementWalletService {
   private readonly logger = new Logger(MovementWalletService.name);
   
   // Movement RPC endpoints
-  private readonly MOVEMENT_TESTNET_RPC = 'https://full.testnet.movementinfra.xyz/v1';
-  private readonly MOVEMENT_MAINNET_RPC = 'https://public.pimlico.io/v2/126/rpc';
+  private readonly MOVEMENT_TESTNET_RPC = 'https://aptos.testnet.m2.movementlabs.xyz/v1';
+  private readonly MOVEMENT_TESTNET_RPC_FALLBACK = 'https://full.testnet.movementinfra.xyz/v1';
+  private readonly MOVEMENT_MAINNET_RPC = 'https://mainnet.movementlabs.xyz/v1';
   
   // Movement test token (default to native MOVE, can be overridden via env)
   // For Movement (L1 native), native token resource is 0x1::aptos_coin::AptosCoin
@@ -65,58 +66,60 @@ export class MovementWalletService {
     tokenSymbol: string;
     decimals: number;
   }> {
-    try {
-      const rpcUrl = this.getRpcUrl(isTestnet);
-      const tokenAddr = tokenAddress || this.TEST_TOKEN_ADDRESS;
+    const urls = isTestnet 
+      ? [this.MOVEMENT_TESTNET_RPC, this.MOVEMENT_TESTNET_RPC_FALLBACK]
+      : [this.MOVEMENT_MAINNET_RPC];
+    
+    let lastError: any;
 
-      this.logger.debug(`Fetching Movement balance for ${walletAddress} from ${rpcUrl}`);
+    for (const rpcUrl of urls) {
+      try {
+        const tokenAddr = tokenAddress || this.TEST_TOKEN_ADDRESS;
+        this.logger.debug(`Fetching Movement balance for ${walletAddress} from ${rpcUrl}`);
 
-      // Movement uses Aptos REST API
-      // Endpoint: GET /accounts/{address}/resources
-      const response = await axios.get(`${rpcUrl}/accounts/${walletAddress}/resources`, {
-        timeout: 10000,
-      });
+        const response = await axios.get(`${rpcUrl}/accounts/${walletAddress}/resources`, {
+          timeout: 5000,
+        });
 
-      const resources = response.data || [];
-      
-      // Find coin store resource (format: 0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>)
-      const coinStore = resources.find((r: any) => 
-        r.type?.includes('coin::CoinStore') && 
-        (tokenAddr === '0x1::aptos_coin::AptosCoin' || r.type?.includes(tokenAddr))
-      );
+        const resources = response.data || [];
+        const coinStore = resources.find((r: any) => 
+          r.type?.includes('coin::CoinStore') && 
+          (tokenAddr === '0x1::aptos_coin::AptosCoin' || r.type?.includes(tokenAddr))
+        );
 
-      if (!coinStore) {
-        this.logger.warn(`No CoinStore found for ${walletAddress} - account may not be initialized on-chain`);
+        if (!coinStore) {
+          return {
+            balance: '0',
+            tokenAddress: tokenAddr,
+            tokenSymbol: 'MOVE',
+            decimals: 8,
+          };
+        }
+
+        const balance = coinStore.data?.coin?.value || '0';
         return {
-          balance: '0',
+          balance: balance.toString(),
           tokenAddress: tokenAddr,
           tokenSymbol: 'MOVE',
           decimals: 8,
         };
+      } catch (error: any) {
+        lastError = error;
+        if (error.response?.status === 404) {
+          return {
+            balance: '0',
+            tokenAddress: tokenAddress || this.TEST_TOKEN_ADDRESS,
+            tokenSymbol: 'MOVE',
+            decimals: 8,
+          };
+        }
+        this.logger.warn(`Failed to reach Movement RPC ${rpcUrl}: ${error.message}`);
+        continue;
       }
-
-      const balance = coinStore.data?.coin?.value || '0';
-      this.logger.log(`✅ Balance for ${walletAddress}: ${balance} (native units)`);
-
-      return {
-        balance: balance.toString(),
-        tokenAddress: tokenAddr,
-        tokenSymbol: 'MOVE',
-        decimals: 8,
-      };
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        this.logger.warn(`Wallet ${walletAddress} not found on-chain (404) - returning 0 balance`);
-        return {
-          balance: '0',
-          tokenAddress: tokenAddress || this.TEST_TOKEN_ADDRESS,
-          tokenSymbol: 'MOVE',
-          decimals: 8,
-        };
-      }
-      this.logger.error(`Failed to get Movement wallet balance: ${error.message}`);
-      throw new BadRequestException(`Failed to fetch wallet balance: ${error.message}`);
     }
+
+    this.logger.error(`All Movement RPCs failed: ${lastError.message}`);
+    throw new BadRequestException(`Movement Network Unreachable. Please try again. Details: ${lastError.message}`);
   }
 
   /**
