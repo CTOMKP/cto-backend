@@ -258,19 +258,22 @@ export class PrivyAuthController {
       this.logger.log(`Step 5: Syncing wallets...`);
       this.logToFile(`Step 5: Syncing wallets...`);
       if (userWallets && (userWallets as any).length > 0) {
-        this.logToFile(`Found ${(userWallets as any).length} wallets from Privy API`);
+        this.logger.log(`Found ${(userWallets as any).length} wallets from Privy API for user ${user.id}`);
+        this.logToFile(`Found ${(userWallets as any).length} wallets from Privy API for user ${user.id}`);
         for (const wallet of (userWallets as any)) {
-          this.logToFile(`Syncing wallet: ${(wallet as any).address} (${(wallet as any).chainType}, client: ${(wallet as any).walletClient}, type: ${(wallet as any).type})`);
+          const blockchain = this.mapChainType((wallet as any).chainType);
+          this.logger.log(`Syncing wallet: ${(wallet as any).address} (${(wallet as any).chainType} -> ${blockchain})`);
+          this.logToFile(`Syncing wallet: ${(wallet as any).address} (${(wallet as any).chainType} -> ${blockchain})`);
           await this.authService.syncPrivyWallet(user.id, {
             privyWalletId: (wallet as any).id,
             address: (wallet as any).address,
-            blockchain: this.mapChainType((wallet as any).chainType),
+            blockchain: blockchain,
             type: (wallet as any).type || ((wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL'),
-            walletClient: (wallet as any).walletClient || 'external', // Use walletClient from getUserWallets, default to 'external' not 'privy'
+            walletClient: (wallet as any).walletClient || 'external',
             isPrimary: (userWallets as any)[0].id === (wallet as any).id,
           });
         }
-        this.logger.log(`Synced ${(userWallets as any).length} wallets for user: ${email}`);
+        this.logger.log(`✅ Synced ${(userWallets as any).length} wallets for user: ${email}`);
         this.logToFile(`✅ Synced ${(userWallets as any).length} wallets for user: ${email}`);
       } else {
         this.logToFile(`No wallets from Privy API, checking user.wallet...`);

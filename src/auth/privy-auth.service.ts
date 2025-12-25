@@ -73,8 +73,8 @@ export class PrivyAuthService {
       // Debug: Log what we got
       this.logger.log(`Privy returned - Has user.wallet: ${!!user.wallet}, LinkedAccounts: ${user.linkedAccounts?.length || 0}`);
       
-      // Track addresses we've already added to avoid duplicates
-      const addedAddresses = new Set<string>();
+      // Track unique combinations of (address + blockchain) to avoid duplicates
+      const addedWallets = new Set<string>();
 
       // IMPORTANT: Privy stores wallets in linkedAccounts, NOT in user.wallet
       // user.wallet is just a reference to the primary wallet, which is already in linkedAccounts
@@ -114,7 +114,7 @@ export class PrivyAuthService {
             type: 'PRIVY_EMBEDDED'
           });
           
-          addedAddresses.add(user.wallet.address.toLowerCase());
+          addedWallets.add(`${user.wallet.address.toLowerCase()}-${blockchain}`);
         } else {
           this.logger.log(`Skipping user.wallet - already in linkedAccounts: ${user.wallet.address}`);
         }
@@ -151,9 +151,11 @@ export class PrivyAuthService {
         linkedWallets.forEach((w: any) => {
           const walletAddress = w.address?.toLowerCase();
           
-          // Skip if we already added this address (avoid duplicates)
-          if (walletAddress && addedAddresses.has(walletAddress)) {
-            this.logger.log(`Skipping duplicate wallet: ${w.address}`);
+          const walletKey = `${walletAddress}-${blockchain}`;
+          
+          // Skip if we already added this combination (avoid duplicates)
+          if (walletKey && addedWallets.has(walletKey)) {
+            this.logger.log(`Skipping duplicate wallet: ${w.address} on ${blockchain}`);
             return;
           }
           
@@ -248,7 +250,7 @@ export class PrivyAuthService {
           this.logger.log(`✅ Adding linked wallet: ${w.address} (${chainType} -> ${blockchain}, connectorType: ${w.connectorType}, walletType: ${walletType}, walletClient: ${walletClient})`);
           
           if (walletAddress) {
-            addedAddresses.add(walletAddress);
+            addedWallets.add(walletKey);
           }
           
           wallets.push({

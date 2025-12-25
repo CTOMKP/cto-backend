@@ -212,11 +212,12 @@ export class AuthService {
   async syncPrivyWallet(userId: number, walletData: any) {
     this.logger.log(`Syncing wallet for user ${userId}: ${walletData.address}`);
     
-    // Check if wallet already exists
+    // Check if wallet already exists for this user, address, AND blockchain
     const existingWallet = await this.prisma.wallet.findFirst({
       where: {
         userId,
         address: walletData.address,
+        blockchain: walletData.blockchain,
       },
     });
 
