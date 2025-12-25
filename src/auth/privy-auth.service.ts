@@ -146,14 +146,6 @@ export class PrivyAuthService {
     }
   }
 
-      this.logger.log(`✅ Total wallets found: ${wallets.length}`);
-      return wallets;
-    } catch (error) {
-      this.logger.error(`Failed to get wallets for user ${userId}`, error);
-      return [];
-    }
-  }
-
   /**
    * Create an Aptos wallet for a user (Tier 2 chain) via Privy SDK
    * @param userId - Privy user ID (DID format)
