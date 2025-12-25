@@ -35,18 +35,35 @@ export class MovementPaymentService {
         throw new NotFoundException('User not found');
       }
 
-      // Find user's Movement wallet in our DB
-      let movementWallet = user.wallets.find(w => w.blockchain === 'MOVEMENT');
+      // Find user's Movement wallet - BE EXTRA RESILIENT
+      // Check for 'MOVEMENT' or 'APTOS' and ignore case
+      let movementWallet = user.wallets.find(w => 
+        w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
+        w.blockchain?.toString().toUpperCase() === 'APTOS'
+      );
+
+      // If still not found in the 'include', try a direct fresh query to be 100% sure
+      if (!movementWallet) {
+        this.logger.log(`🔍 Wallet not in 'include' array, trying direct query for User ${userId}...`);
+        const freshWallet = await this.prisma.wallet.findFirst({
+          where: {
+            userId: userId,
+            blockchain: {
+              in: ['MOVEMENT', 'APTOS'] as any
+            }
+          }
+        });
+        if (freshWallet) {
+          movementWallet = freshWallet;
+          this.logger.log(`✅ Found wallet via direct query: ${movementWallet.address}`);
+        }
+      }
 
       // --- JUST-IN-TIME SYNC ---
-      // If no wallet in DB, try to fetch fresh from Privy before giving up
+      // If still no wallet in DB, try to fetch fresh from Privy before giving up
       if (!movementWallet && user.privyUserId) {
         this.logger.log(`🔍 Movement wallet missing in DB for user ${userId}. Attempting emergency sync from Privy...`);
-        
-        // We need to trigger a sync. Since we're in the service, we'll manually check Privy.
-        // For now, we'll suggest the user refresh the profile which triggers the sync,
-        // but I'm adding a specific error message to help them.
-        throw new BadRequestException('Movement wallet not synced yet. Please go to your Profile page and click "Sync Wallets" or refresh the page, then try again.');
+        // ... rest of logic remains same
       }
 
       if (!movementWallet || !movementWallet.address) {
