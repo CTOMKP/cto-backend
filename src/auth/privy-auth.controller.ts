@@ -166,9 +166,9 @@ export class PrivyAuthController {
       this.logToFile('Step 3: Getting user wallets...');
       const userWallets = await this.retryWithBackoff(
         () => this.privyAuthService.getUserWallets((privyUser as any).userId),
-        3, // max retries for wallets
-        500, // initial delay 500ms
-        2 // backoff multiplier
+        5, // Increased retries to 5
+        1000, // Increased initial delay to 1s
+        2 // Keep backoff
       );
       this.logger.log(`✅ Wallets received: ${(userWallets as any)?.length || 0} wallets`);
       this.logToFile(`✅ Wallets received: ${(userWallets as any)?.length || 0} wallets`);

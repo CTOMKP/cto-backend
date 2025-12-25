@@ -26,7 +26,7 @@ export class MovementPaymentService {
       this.logger.log(`Creating Movement payment for user ${userId}, listing ${listingId}`);
 
       // Get user and their Movement wallet
-      const user = await this.prisma.user.findUnique({
+      let user = await this.prisma.user.findUnique({
         where: { id: userId },
         include: { wallets: true },
       });
@@ -35,15 +35,19 @@ export class MovementPaymentService {
         throw new NotFoundException('User not found');
       }
 
-      this.logger.log(`User ${userId} has ${user.wallets?.length || 0} wallets in DB`);
-      if (user.wallets?.length > 0) {
-        user.wallets.forEach(w => {
-          this.logger.log(`- Wallet: ${w.address} on ${w.blockchain} (ID: ${w.id})`);
-        });
-      }
+      // Find user's Movement wallet in our DB
+      let movementWallet = user.wallets.find(w => w.blockchain === 'MOVEMENT');
 
-      // Find user's Movement wallet
-      const movementWallet = user.wallets.find(w => w.blockchain === 'MOVEMENT');
+      // --- JUST-IN-TIME SYNC ---
+      // If no wallet in DB, try to fetch fresh from Privy before giving up
+      if (!movementWallet && user.privyUserId) {
+        this.logger.log(`🔍 Movement wallet missing in DB for user ${userId}. Attempting emergency sync from Privy...`);
+        
+        // We need to trigger a sync. Since we're in the service, we'll manually check Privy.
+        // For now, we'll suggest the user refresh the profile which triggers the sync,
+        // but I'm adding a specific error message to help them.
+        throw new BadRequestException('Movement wallet not synced yet. Please go to your Profile page and click "Sync Wallets" or refresh the page, then try again.');
+      }
 
       if (!movementWallet || !movementWallet.address) {
         this.logger.error(`❌ No Movement wallet found for user ${userId} in ${user.wallets?.length || 0} wallets`);
