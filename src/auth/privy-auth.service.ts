@@ -144,12 +144,30 @@ export class PrivyAuthService {
             if (account.connectorType === 'injected' && account.address) {
               return true;
             }
+            // Include smart wallets
+            if (account.connectorType === 'smart_wallet' && account.address) {
+              return true;
+            }
             return false;
           }
         );
         
         linkedWallets.forEach((w: any) => {
           const walletAddress = w.address?.toLowerCase();
+          
+          const chainType = w.chainType || 'ethereum';
+          let blockchain: string;
+          
+          // Movement wallets are detected as chainType === 'aptos' (Aptos-compatible)
+          if (chainType === 'aptos' || chainType === 'movement') {
+            blockchain = 'MOVEMENT';
+          } else if (chainType === 'ethereum') {
+            blockchain = 'ETHEREUM';
+          } else if (chainType === 'solana') {
+            blockchain = 'SOLANA';
+          } else {
+            blockchain = 'OTHER';
+          }
           
           const walletKey = `${walletAddress}-${blockchain}`;
           
@@ -169,20 +187,6 @@ export class PrivyAuthService {
             type: w.type
           })}`);
           
-          const chainType = w.chainType || 'ethereum';
-          let blockchain: string;
-          
-          // Movement wallets are detected as chainType === 'aptos' (Aptos-compatible)
-          if (chainType === 'aptos' || chainType === 'movement') {
-            blockchain = 'MOVEMENT';
-          } else if (chainType === 'ethereum') {
-            blockchain = 'ETHEREUM';
-          } else if (chainType === 'solana') {
-            blockchain = 'SOLANA';
-          } else {
-            blockchain = 'OTHER';
-          }
-
           // Determine wallet type based on connectorType and walletClientType
           let walletType = 'PRIVY_EXTERNAL';
           let walletClient = 'external'; // Default
@@ -213,6 +217,10 @@ export class PrivyAuthService {
               // Default to metamask for injected wallets if we can't determine
               walletClient = 'metamask';
             }
+          } else if (w.connectorType === 'smart_wallet') {
+            // Handle Privy Smart Wallets
+            walletType = 'PRIVY_SMART_WALLET';
+            walletClient = 'privy_smart_wallet';
           } else {
             // For other connector types, try to detect from walletClientType or walletClient
             if (w.walletClientType) {
