@@ -409,27 +409,23 @@ export class MovementWalletService {
 
   /**
    * Get latest transaction hash for a wallet address
-   * Fetches from Movement RPC
+   * Fetches from Movement REST API
    */
   private async getLatestTransactionHash(walletAddress: string, isTestnet: boolean = true): Promise<string | null> {
     try {
       const rpcUrl = this.getRpcUrl(isTestnet);
 
-      // Get account transactions (Aptos-compatible RPC)
-      const response = await axios.post(rpcUrl, {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'get_account_transactions',
-        params: [walletAddress, { limit: 1 }],
-      }, {
+      // Movement uses Aptos REST API for transactions
+      // GET /accounts/{address}/transactions
+      const response = await axios.get(`${rpcUrl}/accounts/${walletAddress}/transactions?limit=1`, {
         timeout: 10000,
       });
 
-      if (response.data.error || !response.data.result || response.data.result.length === 0) {
+      if (!response.data || response.data.length === 0) {
         return null;
       }
 
-      const latestTx = response.data.result[0];
+      const latestTx = response.data[0];
       return latestTx.hash || null;
     } catch (error: any) {
       this.logger.debug(`Could not fetch transaction hash: ${error.message}`);
