@@ -363,3 +363,69 @@ model WalletTransaction {
   @@index([txType])
   @@index([createdAt])
 }
+
+// Pillar 2: Monitoring snapshots for continuous tracking
+model MonitoringSnapshot {
+  id                String   @id @default(cuid())
+  contractAddress   String   // Reference to Listing.contractAddress
+  scannedAt         DateTime @default(now())
+  
+  // Current state
+  currentTier       String?
+  
+  // Market metrics
+  price             Float?   @default(0)
+  marketCap         Float?   @default(0)
+  liquidity         Float?   @default(0)
+  volume24h         Float?   @default(0)
+  priceChange24h    Float?   @default(0)
+  
+  // Holder metrics
+  totalHolders      Int?     @default(0)
+  holderChange24h   Int?     @default(0)
+  topHolderPct      Float?   @default(0)
+  top10HoldersPct   Float?   @default(0)
+  
+  // Activity metrics
+  txns24h           Int?     @default(0)
+  buys24h           Int?     @default(0)
+  sells24h          Int?     @default(0)
+  uniqueWallets24h  Int?     @default(0)
+  
+  // Trends
+  liquidityTrend    String?  // 'increasing' | 'decreasing' | 'stable'
+  holderTrend       String?  // 'increasing' | 'decreasing' | 'stable'
+  activityTrend     String?  // 'increasing' | 'decreasing' | 'stable'
+  
+  // Raw data for reference
+  rawData           Json?
+  
+  createdAt         DateTime @default(now())
+  
+  @@index([contractAddress])
+  @@index([scannedAt])
+}
+
+// Pillar 2: Alerts detected during monitoring
+model Alert {
+  id                  String   @id @default(cuid())
+  contractAddress     String   // Reference to Listing.contractAddress
+  severity            String   // 'low' | 'medium' | 'high' | 'critical'
+  triggerType         String   // 'liquidity_drop' | 'holder_loss' | 'price_crash' | etc.
+  conditionDescription String? // Human-readable description of what triggered the alert
+  actionTaken         String?  // What action was taken (e.g., 'monitoring_detected', 'tier_downgraded')
+  message             String?  // Alert message
+  detected            Boolean  @default(true)
+  resolved            Boolean  @default(false)
+  resolvedAt          DateTime?
+  resolvedBy          Int?     // User ID who resolved it (if manual)
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([contractAddress])
+  @@index([severity])
+  @@index([triggerType])
+  @@index([detected])
+  @@index([createdAt])
+}
