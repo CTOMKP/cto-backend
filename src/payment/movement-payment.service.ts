@@ -67,8 +67,10 @@ export class MovementPaymentService {
       }
 
       if (!movementWallet || !movementWallet.address) {
-        this.logger.error(`❌ No Movement wallet found for user ${userId} in ${user.wallets?.length || 0} wallets`);
-        throw new BadRequestException('No Movement wallet found. Please ensure your Privy wallet is connected to Movement network.');
+        const walletCount = user.wallets?.length || 0;
+        const blockchains = user.wallets?.map(w => w.blockchain).join(', ') || 'none';
+        this.logger.error(`❌ Wallet mismatch for user ${userId}: found ${walletCount} wallets (${blockchains}), but no MOVEMENT wallet.`);
+        throw new BadRequestException(`No Movement wallet found for your account (User ID: ${userId}). Backend found ${walletCount} wallets: [${blockchains}]. Please try logging out and back in.`);
       }
 
       this.logger.log(`✅ Using Movement wallet: ${movementWallet.address}`);
