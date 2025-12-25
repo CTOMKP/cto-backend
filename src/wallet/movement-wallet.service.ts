@@ -69,22 +69,15 @@ export class MovementWalletService {
       const rpcUrl = this.getRpcUrl(isTestnet);
       const tokenAddr = tokenAddress || this.TEST_TOKEN_ADDRESS;
 
-      // Movement uses Aptos-compatible RPC
-      // Get account resources to find coin store
-      const response = await axios.post(rpcUrl, {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'get_account_resources',
-        params: [walletAddress],
-      }, {
+      this.logger.debug(`Fetching Movement balance for ${walletAddress} from ${rpcUrl}`);
+
+      // Movement uses Aptos REST API
+      // Endpoint: GET /accounts/{address}/resources
+      const response = await axios.get(`${rpcUrl}/accounts/${walletAddress}/resources`, {
         timeout: 10000,
       });
 
-      if (response.data.error) {
-        throw new Error(response.data.error.message || 'RPC error');
-      }
-
-      const resources = response.data.result || [];
+      const resources = response.data || [];
       
       // Find coin store resource (format: 0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>)
       const coinStore = resources.find((r: any) => 
@@ -93,7 +86,7 @@ export class MovementWalletService {
       );
 
       if (!coinStore) {
-        // No balance found (wallet might not have this token)
+        this.logger.warn(`No CoinStore found for ${walletAddress} - account may not be initialized on-chain`);
         return {
           balance: '0',
           tokenAddress: tokenAddr,
@@ -103,14 +96,24 @@ export class MovementWalletService {
       }
 
       const balance = coinStore.data?.coin?.value || '0';
+      this.logger.log(`✅ Balance for ${walletAddress}: ${balance} (native units)`);
 
       return {
         balance: balance.toString(),
         tokenAddress: tokenAddr,
-        tokenSymbol: 'MOVE', // Default, can be enhanced to fetch from token metadata
-        decimals: 8, // Default, can be enhanced to fetch from token metadata
+        tokenSymbol: 'MOVE',
+        decimals: 8,
       };
     } catch (error: any) {
+      if (error.response?.status === 404) {
+        this.logger.warn(`Wallet ${walletAddress} not found on-chain (404) - returning 0 balance`);
+        return {
+          balance: '0',
+          tokenAddress: tokenAddress || this.TEST_TOKEN_ADDRESS,
+          tokenSymbol: 'MOVE',
+          decimals: 8,
+        };
+      }
       this.logger.error(`Failed to get Movement wallet balance: ${error.message}`);
       throw new BadRequestException(`Failed to fetch wallet balance: ${error.message}`);
     }

@@ -35,24 +35,37 @@ export class MovementPaymentService {
         throw new NotFoundException('User not found');
       }
 
+      this.logger.log(`User ${userId} has ${user.wallets?.length || 0} wallets in DB`);
+      if (user.wallets?.length > 0) {
+        user.wallets.forEach(w => {
+          this.logger.log(`- Wallet: ${w.address} on ${w.blockchain} (ID: ${w.id})`);
+        });
+      }
+
       // Find user's Movement wallet
       const movementWallet = user.wallets.find(w => w.blockchain === 'MOVEMENT');
 
       if (!movementWallet || !movementWallet.address) {
+        this.logger.error(`❌ No Movement wallet found for user ${userId} in ${user.wallets?.length || 0} wallets`);
         throw new BadRequestException('No Movement wallet found. Please ensure your Privy wallet is connected to Movement network.');
       }
+
+      this.logger.log(`✅ Using Movement wallet: ${movementWallet.address}`);
 
       // Get payment amount (in native token units with decimals)
       // This is the fixed amount users pay for listing (configurable via env)
       const paymentAmount = this.configService.get('MOVEMENT_LISTING_PAYMENT_AMOUNT', '100000000'); // Default: 1 MOV (8 decimals)
+      this.logger.log(`Required payment amount: ${paymentAmount} units`);
 
       // Check if wallet has sufficient balance
+      this.logger.log(`Checking balance for wallet ID: ${movementWallet.id}`);
       const hasBalance = await this.movementWalletService.hasSufficientBalance(
         movementWallet.id,
         paymentAmount,
       );
 
       if (!hasBalance) {
+        this.logger.log(`Balance check failed, syncing balance for wallet: ${movementWallet.address}`);
         // Sync balance first to get latest
         await this.movementWalletService.syncWalletBalance(movementWallet.id, undefined, true);
         
@@ -63,16 +76,20 @@ export class MovementPaymentService {
         ));
 
         if (stillInsufficient) {
+          this.logger.warn(`❌ Insufficient balance for user ${userId}: wallet ${movementWallet.address} has less than ${paymentAmount} units`);
           throw new BadRequestException(
-            `Insufficient balance. Please fund your Movement wallet with test tokens.`
+            `Insufficient balance. Your Movement wallet (${movementWallet.address.substring(0, 6)}...) has less than 1 MOVE. Please fund it with test tokens.`
           );
         }
       }
 
+      this.logger.log(`✅ Sufficient balance confirmed`);
+
       // Get admin wallet
       const adminWallet = this.configService.get('MOVEMENT_ADMIN_WALLET', '');
       if (!adminWallet) {
-        throw new BadRequestException('Admin wallet not configured');
+        this.logger.error('❌ MOVEMENT_ADMIN_WALLET not set in environment');
+        throw new BadRequestException('Admin wallet not configured. Please contact support.');
       }
 
       // Create payment record in database

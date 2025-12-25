@@ -266,7 +266,8 @@ export class Pillar2MonitoringService {
    */
   private async getLatestSnapshot(contractAddress: string): Promise<any> {
     try {
-      // Get latest snapshot using contract_address (since monitoring_snapshots references Listing by contractAddress)
+      // Get latest snapshot using contract_address
+      // Wrap in try-catch because the table might not exist yet in production
       const result = await this.prisma.$queryRaw`
         SELECT * FROM monitoring_snapshots
         WHERE contract_address = ${contractAddress}
@@ -276,7 +277,11 @@ export class Pillar2MonitoringService {
 
       return result[0] || null;
     } catch (error: any) {
-      this.logger.debug(`Failed to get latest snapshot: ${error.message}`);
+      if (error.message?.includes('relation "monitoring_snapshots" does not exist')) {
+        this.logger.debug(`Table 'monitoring_snapshots' does not exist yet - skipping snapshot fetch`);
+      } else {
+        this.logger.warn(`Failed to get latest snapshot: ${error.message}`);
+      }
       return null;
     }
   }
@@ -297,58 +302,66 @@ export class Pillar2MonitoringService {
       }
 
       // Insert snapshot using raw query (monitoring_snapshots table)
-      // Use contract_address directly (no foreign key to Listing.id since it's String/cuid, not UUID)
-      const snapshot = await this.prisma.$queryRaw`
-        INSERT INTO monitoring_snapshots (
-          contract_address,
-          scanned_at,
-          current_tier,
-          price,
-          market_cap,
-          liquidity,
-          volume_24h,
-          price_change_24h,
-          total_holders,
-          holder_change_24h,
-          top_holder_pct,
-          top_10_holders_pct,
-          txns_24h,
-          buys_24h,
-          sells_24h,
-          unique_wallets_24h,
-          liquidity_trend,
-          holder_trend,
-          activity_trend,
-          raw_data
-        ) VALUES (
-          ${contractAddress}::varchar,
-          ${monitoringData.scannedAt}::timestamp,
-          ${monitoringData.currentTier || null}::varchar,
-          ${monitoringData.price || 0}::decimal,
-          ${monitoringData.marketCap || 0}::decimal,
-          ${monitoringData.liquidity || 0}::decimal,
-          ${monitoringData.volume24h || 0}::decimal,
-          ${monitoringData.priceChange24h || 0}::decimal,
-          ${monitoringData.totalHolders || 0}::integer,
-          ${monitoringData.holderChange24h || 0}::integer,
-          ${monitoringData.topHolderPct || 0}::decimal,
-          ${monitoringData.top10HoldersPct || 0}::decimal,
-          ${monitoringData.txns24h || 0}::integer,
-          ${monitoringData.buys24h || 0}::integer,
-          ${monitoringData.sells24h || 0}::integer,
-          ${monitoringData.uniqueWallets24h || 0}::integer,
-          ${monitoringData.liquidityTrend || 'stable'}::varchar,
-          ${monitoringData.holderTrend || 'stable'}::varchar,
-          ${monitoringData.activityTrend || 'stable'}::varchar,
-          ${JSON.stringify(monitoringData.rawData || {})}::jsonb
-        )
-        RETURNING *
-      `;
-
-      return snapshot;
+      // Wrap in try-catch because the table might not exist yet
+      try {
+        const snapshot = await this.prisma.$queryRaw`
+          INSERT INTO monitoring_snapshots (
+            contract_address,
+            scanned_at,
+            current_tier,
+            price,
+            market_cap,
+            liquidity,
+            volume_24h,
+            price_change_24h,
+            total_holders,
+            holder_change_24h,
+            top_holder_pct,
+            top_10_holders_pct,
+            txns_24h,
+            buys_24h,
+            sells_24h,
+            unique_wallets_24h,
+            liquidity_trend,
+            holder_trend,
+            activity_trend,
+            raw_data
+          ) VALUES (
+            ${contractAddress}::varchar,
+            ${monitoringData.scannedAt}::timestamp,
+            ${monitoringData.currentTier || null}::varchar,
+            ${monitoringData.price || 0}::decimal,
+            ${monitoringData.marketCap || 0}::decimal,
+            ${monitoringData.liquidity || 0}::decimal,
+            ${monitoringData.volume24h || 0}::decimal,
+            ${monitoringData.priceChange24h || 0}::decimal,
+            ${monitoringData.totalHolders || 0}::integer,
+            ${monitoringData.holderChange24h || 0}::integer,
+            ${monitoringData.topHolderPct || 0}::decimal,
+            ${monitoringData.top10HoldersPct || 0}::decimal,
+            ${monitoringData.txns24h || 0}::integer,
+            ${monitoringData.buys24h || 0}::integer,
+            ${monitoringData.sells24h || 0}::integer,
+            ${monitoringData.uniqueWallets24h || 0}::integer,
+            ${monitoringData.liquidityTrend || 'stable'}::varchar,
+            ${monitoringData.holderTrend || 'stable'}::varchar,
+            ${monitoringData.activityTrend || 'stable'}::varchar,
+            ${JSON.stringify(monitoringData.rawData || {})}::jsonb
+          )
+          RETURNING *
+        `;
+        return snapshot;
+      } catch (sqlError: any) {
+        if (sqlError.message?.includes('relation "monitoring_snapshots" does not exist')) {
+          this.logger.debug(`Table 'monitoring_snapshots' does not exist yet - skipping snapshot save`);
+          return { id: 'skipped', contractAddress, skipped: true };
+        }
+        throw sqlError;
+      }
     } catch (error: any) {
       this.logger.error(`Failed to save snapshot: ${error.message}`);
-      throw error;
+      // Don't throw here to prevent monitoring process from crashing the app
+      return null;
     }
   }
 
@@ -411,25 +424,33 @@ export class Pillar2MonitoringService {
 
         if (listing) {
           // Use contract_address directly (no foreign key to Listing.id)
-          await this.prisma.$executeRaw`
-            INSERT INTO alerts (
-              contract_address,
-              severity,
-              trigger_type,
-              condition_description,
-              action_taken,
-              message,
-              detected
-            ) VALUES (
-              ${contractAddress}::varchar,
-              ${alert.severity}::varchar,
-              ${alert.triggerType}::varchar,
-              ${alert.conditionDescription}::text,
-              'monitoring_detected'::varchar,
-              ${alert.message}::text,
-              true
-            )
-          `;
+          try {
+            await this.prisma.$executeRaw`
+              INSERT INTO alerts (
+                contract_address,
+                severity,
+                trigger_type,
+                condition_description,
+                action_taken,
+                message,
+                detected
+              ) VALUES (
+                ${contractAddress}::varchar,
+                ${alert.severity}::varchar,
+                ${alert.triggerType}::varchar,
+                ${alert.conditionDescription}::text,
+                'monitoring_detected'::varchar,
+                ${alert.message}::text,
+                true
+              )
+            `;
+          } catch (sqlError: any) {
+            if (sqlError.message?.includes('relation "alerts" does not exist')) {
+              this.logger.debug(`Table 'alerts' does not exist yet - skipping alert save`);
+            } else {
+              throw sqlError;
+            }
+          }
         }
       } catch (error: any) {
         this.logger.debug(`Failed to save alert: ${error.message}`);

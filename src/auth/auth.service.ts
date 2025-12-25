@@ -210,14 +210,15 @@ export class AuthService {
 
   // Sync Privy wallet to database
   async syncPrivyWallet(userId: number, walletData: any) {
-    this.logger.log(`Syncing wallet for user ${userId}: ${walletData.address}`);
+    this.logger.log(`Syncing wallet for user ${userId}: ${walletData.address} on ${walletData.blockchain}`);
     
     // Check if wallet already exists for this user, address, AND blockchain
+    // We use findFirst because we don't have a unique constraint on (userId, address, blockchain) yet
     const existingWallet = await this.prisma.wallet.findFirst({
       where: {
         userId,
         address: walletData.address,
-        blockchain: walletData.blockchain,
+        blockchain: walletData.blockchain as any,
       },
     });
 
@@ -234,14 +235,14 @@ export class AuthService {
         },
       });
     } else {
-      this.logger.log(`Creating new wallet for user ${userId}`);
+      this.logger.log(`Creating NEW ${walletData.blockchain} wallet for user ${userId}`);
       // Create new wallet
       const newWallet = await this.prisma.wallet.create({
         data: {
           userId,
           privyWalletId: walletData.privyWalletId,
           address: walletData.address,
-          blockchain: walletData.blockchain,
+          blockchain: walletData.blockchain as any,
           type: walletData.type,
           walletClient: walletData.walletClient,
           isPrimary: walletData.isPrimary,
