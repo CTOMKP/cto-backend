@@ -257,6 +257,7 @@ export class PrivyAuthController {
       // Sync wallets from Privy
       this.logger.log(`Step 5: Syncing wallets...`);
       this.logToFile(`Step 5: Syncing wallets...`);
+      
       if (userWallets && (userWallets as any).length > 0) {
         this.logger.log(`Found ${(userWallets as any).length} wallets from Privy API for user ${user.id}`);
         this.logToFile(`Found ${(userWallets as any).length} wallets from Privy API for user ${user.id}`);
@@ -276,70 +277,10 @@ export class PrivyAuthController {
         this.logger.log(`✅ Synced ${(userWallets as any).length} wallets for user: ${email}`);
         this.logToFile(`✅ Synced ${(userWallets as any).length} wallets for user: ${email}`);
       } else {
-        this.logToFile(`No wallets from Privy API, checking user.wallet...`);
-        this.logger.log(`Debug: userDetails.wallet = ${JSON.stringify((userDetails as any).wallet)}`);
-        this.logToFile(`Debug: userDetails.wallet = ${JSON.stringify((userDetails as any).wallet)}`);
-        
-        // Create embedded wallet from user.wallet if no wallets found
-        if ((userDetails as any).wallet?.address) {
-          this.logToFile(`Creating embedded wallet from user.wallet: ${(userDetails as any).wallet.address}`);
-          await this.authService.syncPrivyWallet(user.id, {
-            privyWalletId: 'embedded',
-            address: (userDetails as any).wallet.address,
-            blockchain: 'ETHEREUM',
-            type: 'PRIVY_EMBEDDED',
-            walletClient: 'privy',
-            isPrimary: true,
-          });
-          this.logger.log(`Created embedded wallet from user data for: ${email}`);
-          this.logToFile(`✅ Created embedded wallet from user data for: ${email}`);
-        } else {
-          this.logToFile(`⚠️ No embedded wallet found in user.wallet either!`);
-          this.logger.warn(`⚠️ User ${email} has no Privy wallets - this might be a timing issue`);
-          this.logToFile(`⚠️ User ${email} has no Privy wallets - this might be a timing issue`);
-          
-          // For ALL users (not just new users), try to get wallets again after a short delay
-          this.logger.log(`Retrying wallet fetch for user after delay...`);
-          this.logToFile(`Retrying wallet fetch for user after delay...`);
-          
-          // Wait 3 seconds and try again with more aggressive retry
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          
-          try {
-            const retryWallets = await this.retryWithBackoff(
-              () => this.privyAuthService.getUserWallets((privyUser as any).userId),
-              3, // more retries
-              2000, // longer initial delay
-              2
-            );
-            
-            if (retryWallets && (retryWallets as any).length > 0) {
-              this.logger.log(`✅ Retry successful: Found ${(retryWallets as any).length} wallets on retry`);
-              this.logToFile(`✅ Retry successful: Found ${(retryWallets as any).length} wallets on retry`);
-              
-              // Sync the retry wallets
-              for (const wallet of (retryWallets as any)) {
-                this.logToFile(`Syncing retry wallet: ${(wallet as any).address} (${(wallet as any).chainType}, client: ${(wallet as any).walletClient}, type: ${(wallet as any).type})`);
-                await this.authService.syncPrivyWallet(user.id, {
-                  privyWalletId: (wallet as any).id,
-                  address: (wallet as any).address,
-                  blockchain: this.mapChainType((wallet as any).chainType),
-                  type: (wallet as any).type || ((wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL'),
-                  walletClient: (wallet as any).walletClient || 'external', // Use walletClient from getUserWallets, default to 'external' not 'privy'
-                  isPrimary: (retryWallets as any)[0].id === (wallet as any).id,
-                });
-              }
-              this.logger.log(`✅ Synced ${(retryWallets as any).length} retry wallets for user: ${email}`);
-              this.logToFile(`✅ Synced ${(retryWallets as any).length} retry wallets for user: ${email}`);
-            } else {
-              this.logger.warn(`⚠️ Retry also failed - no wallets found for user ${email}`);
-              this.logToFile(`⚠️ Retry also failed - no wallets found for user ${email}`);
-            }
-          } catch (retryError) {
-            this.logger.error(`❌ Retry failed: ${(retryError as any).message}`);
-            this.logToFile(`❌ Retry failed: ${(retryError as any).message}`);
-          }
-        }
+        // REMOVED: Fallback that created a wallet from user.wallet.address 
+        // as it caused misclassification and duplicates.
+        this.logger.warn(`⚠️ User ${email} has no Privy wallets returned from getUserWallets`);
+        this.logToFile(`⚠️ User ${email} has no Privy wallets returned from getUserWallets`);
       }
 
       // Note: Aptos wallet creation is now manual via dashboard button
