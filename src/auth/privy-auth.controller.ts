@@ -164,12 +164,27 @@ export class PrivyAuthController {
       
       this.logger.log('Step 3: Getting user wallets...');
       this.logToFile('Step 3: Getting user wallets...');
-      const userWallets = await this.retryWithBackoff(
-        () => this.privyAuthService.getUserWallets((privyUser as any).userId),
-        5, // Increased retries to 5
-        1000, // Increased initial delay to 1s
-        2 // Keep backoff
-      );
+      
+      let userWallets;
+      try {
+        userWallets = await this.retryWithBackoff(
+          async () => {
+            const wallets = await this.privyAuthService.getUserWallets((privyUser as any).userId);
+            if (!wallets || wallets.length === 0) {
+              this.logger.warn(`Privy reported 0 wallets for ${(privyUser as any).userId}, triggering retry...`);
+              throw new Error('No wallets found in Privy yet');
+            }
+            return wallets;
+          },
+          5, // 5 retries
+          2000, // 2s initial delay
+          2 // backoff
+        );
+      } catch (error) {
+        this.logger.error(`Failed to get wallets even after retries: ${error.message}`);
+        userWallets = []; // Fallback to empty if it really fails after 1 minute
+      }
+
       this.logger.log(`✅ Wallets received: ${(userWallets as any)?.length || 0} wallets`);
       this.logToFile(`✅ Wallets received: ${(userWallets as any)?.length || 0} wallets`);
       
