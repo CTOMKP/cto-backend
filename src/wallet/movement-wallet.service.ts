@@ -14,16 +14,16 @@ import axios from 'axios';
 @Injectable()
 export class MovementWalletService {
   private readonly logger = new Logger(MovementWalletService.name);
-  private readonly SERVICE_VERSION = '1.0.3-BARDOCK-LOGS';
+  private readonly SERVICE_VERSION = '1.0.4-BARDOCK-FINAL';
   
   // Movement RPC endpoints
   private readonly MOVEMENT_TESTNET_RPC = this.configService.get(
     'MOVEMENT_TESTNET_RPC',
-    'https://aptos.testnet.bardock.movementnetwork.xyz/v1' // Movement Bardock (Latest Testnet)
+    'https://testnet.movementnetwork.xyz/v1' // Movement Bardock (Latest Testnet)
   );
   private readonly MOVEMENT_TESTNET_RPC_FALLBACK = this.configService.get(
     'MOVEMENT_TESTNET_RPC_FALLBACK',
-    'https://full.testnet.movementinfra.xyz/v1'
+    'https://aptos.testnet.bardock.movementnetwork.xyz/v1'
   );
   private readonly MOVEMENT_TESTNET_RPC_PIMLICO = 'https://public.pimlico.io/v2/250/rpc';
   private readonly MOVEMENT_MAINNET_RPC = this.configService.get(
@@ -80,7 +80,12 @@ export class MovementWalletService {
     decimals: number;
   }> {
     const urls = isTestnet 
-      ? [this.MOVEMENT_TESTNET_RPC, this.MOVEMENT_TESTNET_RPC_FALLBACK, this.MOVEMENT_TESTNET_RPC_PIMLICO]
+      ? [
+          this.MOVEMENT_TESTNET_RPC, 
+          'https://aptos.testnet.movementnetwork.xyz/v1',
+          this.MOVEMENT_TESTNET_RPC_FALLBACK, 
+          this.MOVEMENT_TESTNET_RPC_PIMLICO
+        ]
       : [this.MOVEMENT_MAINNET_RPC];
     
     let lastError: any;
