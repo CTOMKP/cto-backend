@@ -331,7 +331,7 @@ export class MovementWalletService {
 
   /**
    * Poll for new transactions and update balances
-   * Detects funding by comparing balance changes
+   * Detects funding by parsing actual transaction history
    */
   async pollForTransactions(walletId: string, isTestnet: boolean = true): Promise<any[]> {
     try {
@@ -343,68 +343,72 @@ export class MovementWalletService {
         throw new NotFoundException('Movement wallet not found');
       }
 
-      // Get current balance from database
-      const currentBalance = await this.prisma.walletBalance.findUnique({
-        where: {
-          walletId_tokenAddress: {
-            walletId,
-            tokenAddress: this.TEST_TOKEN_ADDRESS,
-          },
-        },
+      this.logger.debug(`Polling transactions for wallet: ${wallet.address}`);
+
+      // 1. Fetch transactions from blockchain
+      const rpcUrl = this.getRpcUrl(isTestnet);
+      const response = await axios.get(`${rpcUrl}/accounts/${wallet.address}/transactions?limit=10`, {
+        timeout: 10000,
       });
 
-      const oldBalance = currentBalance ? BigInt(currentBalance.balance) : BigInt(0);
+      const blockchainTxs = response.data || [];
+      const newTransactions: any[] = [];
 
-      // Sync balance from blockchain
-      await this.syncWalletBalance(walletId, undefined, isTestnet);
+      for (const tx of blockchainTxs) {
+        if (tx.type !== 'user_transaction' || !tx.success) continue;
 
-      // Get updated balance
-      const updatedBalance = await this.prisma.walletBalance.findUnique({
-        where: {
-          walletId_tokenAddress: {
-            walletId,
-            tokenAddress: this.TEST_TOKEN_ADDRESS,
-          },
-        },
-      });
+        // Check if we already have this transaction
+        const existingTx = await this.prisma.walletTransaction.findUnique({
+          where: { txHash: tx.hash },
+        });
 
-      if (!updatedBalance) {
-        return [];
-      }
+        if (existingTx) continue;
 
-      const newBalance = BigInt(updatedBalance.balance);
-      const balanceChange = newBalance - oldBalance;
-
-      // If balance increased, record as CREDIT transaction
-      if (balanceChange > 0) {
-        // Fetch recent transactions from blockchain to get tx hash
-        const txHash = await this.getLatestTransactionHash(wallet.address, isTestnet);
-        
-        if (txHash) {
-          // Check if we already recorded this transaction
-          const existingTx = await this.prisma.walletTransaction.findUnique({
-            where: { txHash },
-          });
-
-          if (!existingTx) {
-            await this.recordTransaction({
+        // 2. Parse transaction for Coin Events (Deposit/Withdraw)
+        const events = tx.events || [];
+        for (const event of events) {
+          if (event.type.includes('coin::DepositEvent')) {
+            // This is a CREDIT
+            const amount = event.data?.amount || '0';
+            const recorded = await this.recordTransaction({
               walletId,
-              txHash,
+              txHash: tx.hash,
               txType: 'CREDIT',
-              amount: balanceChange.toString(),
+              amount: amount.toString(),
               tokenAddress: this.TEST_TOKEN_ADDRESS,
-              tokenSymbol: updatedBalance.tokenSymbol,
-              fromAddress: undefined, // Could be fetched from transaction details
+              tokenSymbol: 'MOVE',
               toAddress: wallet.address,
-              description: `Funding detected: +${balanceChange.toString()} ${updatedBalance.tokenSymbol}`,
+              description: `On-chain deposit detected: +${amount} units`,
+              metadata: { version: tx.version, sender: tx.sender }
             });
-
-            this.logger.log(`✅ Detected funding for wallet ${wallet.address}: +${balanceChange.toString()} ${updatedBalance.tokenSymbol}`);
+            newTransactions.push(recorded);
+          } else if (event.type.includes('coin::WithdrawEvent') && tx.sender === wallet.address) {
+            // This is a DEBIT (only if the wallet was the sender)
+            const amount = event.data?.amount || '0';
+            const recorded = await this.recordTransaction({
+              walletId,
+              txHash: tx.hash,
+              txType: 'DEBIT',
+              amount: amount.toString(),
+              tokenAddress: this.TEST_TOKEN_ADDRESS,
+              tokenSymbol: 'MOVE',
+              fromAddress: wallet.address,
+              description: `On-chain withdrawal detected: -${amount} units`,
+              metadata: { version: tx.version }
+            });
+            newTransactions.push(recorded);
           }
         }
       }
 
-      return [];
+      // 3. Always sync the final balance at the end
+      await this.syncWalletBalance(walletId, undefined, isTestnet);
+
+      if (newTransactions.length > 0) {
+        this.logger.log(`✅ Processed ${newTransactions.length} new transactions for ${wallet.address}`);
+      }
+
+      return newTransactions;
     } catch (error: any) {
       this.logger.error(`Failed to poll for transactions: ${error.message}`);
       throw error;
@@ -440,82 +444,38 @@ export class MovementWalletService {
   /**
    * Sync all Movement wallets (called by cron job)
    */
-  async syncAllWallets(isTestnet: boolean = true): Promise<{ synced: number; funded: number }> {
+  async syncAllWallets(isTestnet: boolean = true): Promise<{ synced: number; newTxs: number }> {
     try {
       const movementWallets = await this.prisma.wallet.findMany({
         where: { blockchain: 'MOVEMENT' },
       });
 
       let synced = 0;
-      let funded = 0;
+      let newTxsCount = 0;
 
       for (const wallet of movementWallets) {
         try {
-          const oldBalance = await this.prisma.walletBalance.findUnique({
-            where: {
-              walletId_tokenAddress: {
-                walletId: wallet.id,
-                tokenAddress: this.TEST_TOKEN_ADDRESS,
-              },
-            },
-          });
-
-          const oldBalanceValue = oldBalance ? BigInt(oldBalance.balance) : BigInt(0);
-
-          // Sync balance
-          await this.syncWalletBalance(wallet.id, undefined, isTestnet);
-
-          // Check for funding
-          const newBalance = await this.prisma.walletBalance.findUnique({
-            where: {
-              walletId_tokenAddress: {
-                walletId: wallet.id,
-                tokenAddress: this.TEST_TOKEN_ADDRESS,
-              },
-            },
-          });
-
-          if (newBalance) {
-            const newBalanceValue = BigInt(newBalance.balance);
-            if (newBalanceValue > oldBalanceValue) {
-              funded++;
-              // Record funding transaction
-              const txHash = await this.getLatestTransactionHash(wallet.address || '', isTestnet);
-              if (txHash) {
-                const existingTx = await this.prisma.walletTransaction.findUnique({
-                  where: { txHash },
-                });
-
-                if (!existingTx) {
-                  await this.recordTransaction({
-                    walletId: wallet.id,
-                    txHash,
-                    txType: 'CREDIT',
-                    amount: (newBalanceValue - oldBalanceValue).toString(),
-                    tokenAddress: this.TEST_TOKEN_ADDRESS,
-                    tokenSymbol: newBalance.tokenSymbol,
-                    toAddress: wallet.address || undefined,
-                    description: `Funding detected: +${(newBalanceValue - oldBalanceValue).toString()} ${newBalance.tokenSymbol}`,
-                  });
-                }
-              }
-            }
-          }
-
+          // Use the robust transaction polling logic
+          const newTransactions = await this.pollForTransactions(wallet.id, isTestnet);
+          newTxsCount += newTransactions.length;
           synced++;
         } catch (error: any) {
           this.logger.warn(`Failed to sync wallet ${wallet.id}: ${error.message}`);
         }
       }
 
-      this.logger.log(`✅ Synced ${synced} Movement wallets, detected ${funded} funding events`);
-      return { synced, funded };
+      if (synced > 0) {
+        this.logger.log(`✅ Synced ${synced} Movement wallets, processed ${newTxsCount} new transactions`);
+      }
+      
+      return { synced, newTxs: newTxsCount };
     } catch (error: any) {
       this.logger.error(`Failed to sync all wallets: ${error.message}`);
       throw error;
     }
   }
 }
+
 
 
 

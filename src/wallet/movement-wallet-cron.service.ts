@@ -25,7 +25,7 @@ export class MovementWalletCronService {
       const isTestnet = process.env.MOVEMENT_NETWORK !== 'mainnet';
       const result = await this.movementWalletService.syncAllWallets(isTestnet);
       
-      this.logger.log(`✅ Movement wallet sync complete: ${result.synced} synced, ${result.funded} funding events detected`);
+      this.logger.log(`✅ Movement wallet sync complete: ${result.synced} synced, ${result.newTxs} new transactions processed`);
     } catch (error: any) {
       this.logger.error(`❌ Movement wallet sync failed: ${error.message}`);
     }
