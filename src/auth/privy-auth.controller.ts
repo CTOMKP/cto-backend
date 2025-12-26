@@ -107,10 +107,24 @@ export class PrivyAuthController {
             id: { type: 'number', example: 5 },
             email: { type: 'string', example: 'user@example.com' },
             walletAddress: { type: 'string', example: '0x1234...' },
+            walletId: { type: 'string', nullable: true, example: 'cmhx1234567890' },
             role: { type: 'string', example: 'USER' },
             privyUserId: { type: 'string', example: 'did:privy:...' },
             walletsCount: { type: 'number', example: 3 },
-            avatarUrl: { type: 'string', nullable: true, example: 'https://example.com/avatar.png' }
+            avatarUrl: { type: 'string', nullable: true, example: 'https://example.com/avatar.png' },
+            wallets: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  address: { type: 'string' },
+                  blockchain: { type: 'string' },
+                  walletClient: { type: 'string' },
+                  isPrimary: { type: 'boolean' }
+                }
+              }
+            }
           }
         },
         token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },

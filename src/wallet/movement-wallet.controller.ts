@@ -149,8 +149,8 @@ export class MovementWalletController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
-    summary: 'Poll for new transactions (detect funding)',
-    description: 'Manually trigger funding detection by comparing current balance with stored balance. If balance increased, records CREDIT transaction automatically.'
+    summary: 'Poll for new transactions (Event Indexing)',
+    description: 'Manually trigger transaction discovery by indexing on-chain events (DepositEvent/WithdrawEvent). This is used to detect funding and external payments.'
   })
   @ApiResponse({ 
     status: 200, 
