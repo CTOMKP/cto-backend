@@ -90,20 +90,22 @@ export class MovementPaymentService {
       );
 
       if (!hasBalance) {
-        this.logger.log(`Balance check failed, syncing balance for wallet: ${movementWallet.address}`);
-        // Sync balance first to get latest
+        this.logger.log(`[BALANCE_RESCUE] DB says insufficient balance for ${movementWallet.address}. Performing direct blockchain check...`);
+        
+        // SYNC FRESH FROM BLOCKCHAIN RIGHT NOW
+        const freshBalanceData = await this.movementWalletService.getWalletBalance(movementWallet.address, undefined, true);
+        this.logger.log(`[BALANCE_RESCUE] Blockchain reports: ${freshBalanceData.balance} units`);
+
+        // Update DB immediately with this fresh info
         await this.movementWalletService.syncWalletBalance(movementWallet.id, undefined, true);
         
-        // Check again
-        const stillInsufficient = !(await this.movementWalletService.hasSufficientBalance(
-          movementWallet.id,
-          paymentAmount,
-        ));
+        const nowHasBalance = BigInt(freshBalanceData.balance) >= BigInt(paymentAmount);
 
-        if (stillInsufficient) {
-          this.logger.warn(`❌ Insufficient balance for user ${userId}: wallet ${movementWallet.address} has less than ${paymentAmount} units`);
+        if (!nowHasBalance) {
+          const humanBalance = parseFloat(freshBalanceData.balance) / 1e8;
+          this.logger.warn(`❌ Insufficient balance confirmed for user ${userId}: ${humanBalance} MOVE`);
           throw new BadRequestException(
-            `Insufficient balance. Your Movement wallet (${movementWallet.address.substring(0, 6)}...) has less than 1 MOVE. Please fund it with test tokens.`
+            `Insufficient balance. Your Movement wallet (${movementWallet.address.substring(0, 6)}...) has exactly ${humanBalance} MOVE on Bardock. You need 1.0 MOVE. (System Time: ${new Date().toISOString()})`
           );
         }
       }
