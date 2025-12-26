@@ -25,10 +25,15 @@ export class AuthService {
     privyDid: true,
     lastLoginAt: true,
     avatarUrl: true,
-    bio: true, // Column exists in DB - Prisma client must be regenerated
+    bio: true,
     createdAt: true,
     updatedAt: true,
-  };
+    wallets: {
+      orderBy: {
+        isPrimary: 'desc' as const
+      }
+    }
+  } as const;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -179,6 +184,11 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload, { expiresIn: '24h' }); // Extended for testing
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
+    const moveWallet = user.wallets?.find((w: any) => 
+      w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
+      w.blockchain?.toString().toUpperCase() === 'APTOS'
+    );
+
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
@@ -189,6 +199,8 @@ export class AuthService {
         avatarUrl: user.avatarUrl || null,
         name: user.name || null,
         bio: user.bio || null,
+        walletId: moveWallet?.id || null, // Primary Movement wallet ID
+        wallets: user.wallets || [], // Full list of wallets
       },
     };
   }

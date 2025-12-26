@@ -98,15 +98,23 @@ export class AuthController {
       }
     }
 
+    const moveWallet = user.wallets?.find((w: any) => 
+      w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
+      w.blockchain?.toString().toUpperCase() === 'APTOS'
+    );
+
     return { 
       id: user.id, 
       email: user.email,
       avatarUrl: user.avatarUrl || null,
       name: user.name || null,
       bio: user.bio || null,
+      role: user.role, // EXPOSING ROLE
       createdAt: user.createdAt.toISOString(),
       accountAgeDays: ageInDays,
       accountAge,
+      walletId: moveWallet?.id || null, // EXPOSING WALLET ID
+      wallets: user.wallets || [], // EXPOSING WALLETS ARRAY
     };
   }
 

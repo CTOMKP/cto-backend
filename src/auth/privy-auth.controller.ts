@@ -323,22 +323,30 @@ export class PrivyAuthController {
       const allUserWallets = await this.aptosWalletService.getUserWallets(user.id);
       this.logToFile(`Step 7: Retrieved ${allUserWallets?.length || 0} total wallets from database`);
 
-      // Refresh user data to get latest avatarUrl
-      const updatedUser = await this.authService.getUserById(user.id);
+      // Refresh user data to get latest avatarUrl and wallets
+      const userFull = await this.authService.getUserById(user.id);
       
+      const moveWallet = (userFull as any)?.wallets?.find((w: any) => 
+        w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
+        w.blockchain?.toString().toUpperCase() === 'APTOS'
+      );
+
       const response = {
         success: true,
         user: {
           id: user.id,
           email: user.email,
-          walletAddress: primaryWallet?.address,
+          walletAddress: moveWallet?.address || primaryWallet?.address,
+          walletId: moveWallet?.id || null, // ADDING WALLET ID FOR DASHBOARD
           role: user.role,
           privyUserId: (privyUser as any).userId,
-          walletsCount: allUserWallets?.length || 0,
-          avatarUrl: (updatedUser as any).avatarUrl || null,
+          walletsCount: (userFull as any)?.wallets?.length || 0,
+          avatarUrl: (userFull as any).avatarUrl || null,
+          wallets: (userFull as any).wallets || [], // ADDING FULL WALLETS ARRAY
         },
         token: jwtToken.access_token,
-        wallets: allUserWallets?.map(w => ({
+        wallets: (userFull as any).wallets?.map(w => ({
+          id: w.id,
           address: w.address,
           chainType: w.walletClient === 'APTOS_EMBEDDED' ? 'aptos' : (w.blockchain || 'UNKNOWN').toLowerCase(),
           walletClient: w.walletClient,
