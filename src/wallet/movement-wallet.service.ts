@@ -14,6 +14,7 @@ import axios from 'axios';
 @Injectable()
 export class MovementWalletService {
   private readonly logger = new Logger(MovementWalletService.name);
+  private readonly SERVICE_VERSION = '1.0.3-BARDOCK-LOGS';
   
   // Movement RPC endpoints
   private readonly MOVEMENT_TESTNET_RPC = this.configService.get(
@@ -55,6 +56,8 @@ export class MovementWalletService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
   ) {
+    this.logger.log(`🚀 MovementWalletService initialized (Version: ${this.SERVICE_VERSION})`);
+    this.logger.log(`📡 Using Movement Testnet RPC: ${this.MOVEMENT_TESTNET_RPC}`);
     if (!this.ADMIN_WALLET) {
       this.logger.warn('⚠️ MOVEMENT_ADMIN_WALLET not set - payments will fail');
     }
@@ -88,13 +91,21 @@ export class MovementWalletService {
         this.logger.debug(`Fetching Movement balance for ${walletAddress} from ${rpcUrl}`);
 
         const response = await axios.get(`${rpcUrl}/accounts/${walletAddress}/resources`, {
-          timeout: 5000,
+          timeout: 10000,
         });
 
         const resources = response.data || [];
+        this.logger.debug(`Found ${resources.length} resources for ${walletAddress} on ${rpcUrl}`);
+        
+        // Log all resource types to help debug Bardock specifics
+        if (resources.length > 0) {
+          const types = resources.map((r: any) => r.type).join(', ');
+          this.logger.debug(`Resource types for ${walletAddress.substring(0, 6)}: ${types}`);
+        }
+
         const coinStore = resources.find((r: any) => 
           r.type?.includes('coin::CoinStore') && 
-          (tokenAddr === '0x1::aptos_coin::AptosCoin' || r.type?.includes(tokenAddr))
+          (tokenAddr === '0x1::aptos_coin::AptosCoin' || r.type?.includes(tokenAddr) || r.type?.includes('0x1::move_coin::MoveCoin'))
         );
 
         if (!coinStore) {
