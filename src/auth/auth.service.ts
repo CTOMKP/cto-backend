@@ -33,7 +33,7 @@ export class AuthService {
         isPrimary: 'desc' as const
       }
     }
-  } as const;
+  }; // Removed 'as const' to prevent strict type requirements on every DB operation
 
   constructor(
     private readonly jwtService: JwtService,
@@ -127,6 +127,7 @@ export class AuthService {
           providerId: providerIdStr,
           lastLoginAt: new Date(),
         },
+        include: { wallets: true } // Include wallets so it matches the expected type
       });
     } else {
       // Ensure provider fields are set for existing users
@@ -134,12 +135,14 @@ export class AuthService {
         user = await this.prisma.user.update({
           where: { id: user.id },
           data: { provider: 'google', providerId: providerIdStr },
+          include: { wallets: true } // Include wallets so it matches the expected type
         });
       }
       // Update last login timestamp on Google auth
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
+        include: { wallets: true } // Include wallets so it matches the expected type
       });
     }
 
