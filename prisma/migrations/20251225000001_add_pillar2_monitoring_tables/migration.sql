@@ -66,3 +66,4 @@ CREATE INDEX "Alert_detected_idx" ON "Alert"("detected");
 -- CreateIndex
 CREATE INDEX "Alert_createdAt_idx" ON "Alert"("createdAt");
 
+
