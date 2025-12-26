@@ -194,6 +194,13 @@ export class MovementWalletService {
 
       this.logger.log(`✅ Synced balance for wallet ${wallet.address}: ${balanceData.balance} ${balanceData.tokenSymbol}`);
 
+      // STRATEGIC ADDITION: Also poll for transactions to ensure history (CREDITS/DEBITS) is updated
+      try {
+        await this.pollForTransactions(walletId, isTestnet);
+      } catch (pollError) {
+        this.logger.warn(`Balance synced but transaction polling failed: ${pollError.message}`);
+      }
+
       return balance;
     } catch (error: any) {
       this.logger.error(`Failed to sync wallet balance: ${error.message}`);
@@ -427,7 +434,29 @@ export class MovementWalletService {
       }
 
       // 3. Always sync the final balance at the end
-      await this.syncWalletBalance(walletId, undefined, isTestnet);
+      // STRATEGIC FIX: Use a direct DB update here to avoid circular dependency with syncWalletBalance
+      const balanceData = await this.getWalletBalance(wallet.address, undefined, isTestnet);
+      await this.prisma.walletBalance.upsert({
+        where: {
+          walletId_tokenAddress: {
+            walletId,
+            tokenAddress: balanceData.tokenAddress,
+          },
+        },
+        create: {
+          walletId,
+          tokenAddress: balanceData.tokenAddress,
+          tokenSymbol: balanceData.tokenSymbol,
+          tokenName: 'Movement Network Token',
+          decimals: balanceData.decimals,
+          balance: balanceData.balance,
+          lastUpdated: new Date(),
+        },
+        update: {
+          balance: balanceData.balance,
+          lastUpdated: new Date(),
+        },
+      });
 
       if (newTransactions.length > 0) {
         this.logger.log(`✅ Processed ${newTransactions.length} new transactions for ${wallet.address}`);
