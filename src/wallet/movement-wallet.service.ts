@@ -233,38 +233,6 @@ export class MovementWalletService {
         },
       });
 
-      // STRATEGIC FIX: If balance increased or is new and > 0, create a history entry
-      // This ensures user sees the +USDC even if the event indexer is slow
-      const currentVal = BigInt(balanceData.balance);
-      const prevVal = existingBalance ? BigInt(existingBalance.balance) : BigInt(0);
-
-      if (currentVal > prevVal) {
-        const diff = (currentVal - prevVal).toString();
-        const latestTx = await (this.prisma as any).walletTransaction.findFirst({
-          where: { walletId: wallet.id, txType: 'CREDIT', tokenAddress: balanceData.tokenAddress },
-          orderBy: { createdAt: 'desc' }
-        });
-
-        // Only create if last credit was more than 10 mins ago or amount is different
-        // OR if this is the very first time we see a balance (existingBalance is null)
-        if (!existingBalance || !latestTx || latestTx.amount !== diff) {
-          try {
-            await this.recordTransaction({
-              walletId: wallet.id,
-              txHash: `sync-${Date.now()}-${wallet.address.substring(0, 6)}`,
-              txType: 'CREDIT',
-              amount: diff,
-              tokenAddress: balanceData.tokenAddress,
-              tokenSymbol: isUSDC ? 'USDC.e' : balanceData.tokenSymbol,
-              description: `${isUSDC ? 'USDC' : 'Token'} deposit detected via sync`,
-              status: 'COMPLETED'
-            });
-          } catch (e) {
-            this.logger.warn('Failed to record virtual sync tx');
-          }
-        }
-      }
-
       this.logger.log(`✅ Synced balance for wallet ${wallet.address}: ${balanceData.balance} ${balanceData.tokenSymbol}`);
 
       // STRATEGIC ADDITION: Also poll for transactions to ensure history (CREDITS/DEBITS) is updated
@@ -607,7 +575,7 @@ export class MovementWalletService {
       }
     }
 
-    // 3. Always sync BOTH MOVE and USDC balances at the end
+      // 3. Always sync BOTH MOVE and USDC balances at the end
       const tokensToSync = [this.NATIVE_TOKEN_ADDRESS, this.TEST_TOKEN_ADDRESS];
       
       for (const tokenAddr of tokensToSync) {
@@ -615,15 +583,6 @@ export class MovementWalletService {
           const balanceData = await this.getWalletBalance(wallet.address, tokenAddr, isTestnet);
           const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
           
-          const existingBalance = await (this.prisma as any).walletBalance.findUnique({
-            where: {
-              walletId_tokenAddress: {
-                walletId,
-                tokenAddress: balanceData.tokenAddress,
-              },
-            },
-          });
-
           await (this.prisma as any).walletBalance.upsert({
             where: {
               walletId_tokenAddress: {
@@ -645,27 +604,6 @@ export class MovementWalletService {
               lastUpdated: new Date(),
             },
           });
-
-          // STRATEGIC FALLBACK: If balance increased but no TX recorded in the loop above
-          if (existingBalance && BigInt(balanceData.balance) > BigInt(existingBalance.balance)) {
-            const diff = (BigInt(balanceData.balance) - BigInt(existingBalance.balance)).toString();
-            // Check if we already recorded a tx with this exact amount in this poll
-            const alreadyRecorded = newTransactions.find(t => t.amount === diff && t.tokenAddress === tokenAddr);
-            
-            if (!alreadyRecorded) {
-              const recorded = await this.recordTransaction({
-                walletId,
-                txHash: `poll-sync-${Date.now()}-${tokenAddr.substring(0, 6)}`,
-                txType: 'CREDIT',
-                amount: diff,
-                tokenAddress: tokenAddr,
-                tokenSymbol: balanceData.tokenSymbol,
-                description: `${balanceData.tokenSymbol} deposit detected via balance change`,
-                status: 'COMPLETED'
-              });
-              newTransactions.push(recorded);
-            }
-          }
         } catch (err) {
           this.logger.warn(`Failed to sync balance for token ${tokenAddr}: ${err.message}`);
         }
