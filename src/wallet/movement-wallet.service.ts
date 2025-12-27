@@ -41,11 +41,11 @@ export class MovementWalletService {
   // Native token for gas payments
   private readonly NATIVE_TOKEN_ADDRESS = '0x1::aptos_coin::AptosCoin';
 
-  // Admin wallet to receive payments (must be set in environment)
-  private readonly ADMIN_WALLET = this.configService.get(
-    'MOVEMENT_ADMIN_WALLET',
-    '0x1745a447b0571a69c19d779db9ef05cfeffaa67ca74c8947aca81e0482e10523' // Client's funded Nightly address
-  );
+  // Admin wallet to receive payments (Hardcoded to client's funded Nightly address for reliability)
+  private readonly ADMIN_WALLET = '0x1745a447b0571a69c19d779db9ef05cfeffaa67ca74c8947aca81e0482e10523';
+  
+  // Alternative admin wallet (for backward compatibility)
+  private readonly LEGACY_ADMIN_WALLET = '0x64c2df62cb5a217fb8b358fe8e5e8d183a9a592d89bfd1a2839680e9e70991a2';
   
   // Payment amount in token units
   // For USDC (6 decimals): 1,000,000 = 1.0 USDC
@@ -407,6 +407,7 @@ export class MovementWalletService {
    * Query Movement Indexer for USDC (Fungible Asset) activities
    */
   async queryIndexerForUSDC(walletAddress: string): Promise<any[]> {
+    const usdcMetadata = this.TEST_TOKEN_ADDRESS.toLowerCase();
     const query = {
       query: `
         query GetUserUSDCHistory($owner: String!, $assetType: String!) {
@@ -416,10 +417,9 @@ export class MovementWalletService {
               asset_type: { _eq: $assetType }
             }
             order_by: { transaction_timestamp: desc }
-            limit: 20
+            limit: 25
           ) {
             transaction_version
-            transaction_hash
             amount
             type
             transaction_timestamp
@@ -428,23 +428,50 @@ export class MovementWalletService {
         }
       `,
       variables: {
-        owner: walletAddress,
-        assetType: this.TEST_TOKEN_ADDRESS
+        owner: walletAddress.toLowerCase(),
+        assetType: usdcMetadata
       }
     };
 
     try {
-      this.logger.debug(`Querying Movement Indexer for USDC: ${walletAddress}`);
+      this.logger.debug(`📡 [INDEXER] Querying USDC History for: ${walletAddress}`);
       const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
       
       if (response.data?.errors) {
-        this.logger.warn(`Indexer GraphQL errors: ${JSON.stringify(response.data.errors)}`);
+        this.logger.warn(`❌ [INDEXER] GraphQL Errors: ${JSON.stringify(response.data.errors)}`);
         return [];
       }
 
-      return response.data?.data?.fungible_asset_activities || [];
+      const activities = response.data?.data?.fungible_asset_activities || [];
+      this.logger.debug(`✅ [INDEXER] Found ${activities.length} activities for USDC`);
+      
+      // Log raw activities for diagnostic purposes
+      if (activities.length > 0) {
+        this.logger.debug(`📄 [INDEXER] Raw Result: ${JSON.stringify(activities[0])}...`);
+      }
+
+      const detailedActivities: any[] = [];
+      const rpcUrl = this.getRpcUrl();
+
+      for (const activity of activities) {
+        try {
+          // Fetch real hash from version
+          const txRes = await axios.get(`${rpcUrl}/transactions/by_version/${activity.transaction_version}`);
+          if (txRes.data?.hash) {
+            detailedActivities.push({
+              ...activity,
+              transaction_hash: txRes.data.hash,
+              requestor_address: txRes.data.sender || activity.requestor_address
+            });
+          }
+        } catch (e) {
+          this.logger.warn(`⚠️ [INDEXER] Could not fetch hash for version ${activity.transaction_version}`);
+        }
+      }
+
+      return detailedActivities;
     } catch (error: any) {
-      this.logger.warn(`Failed to query Movement Indexer: ${error.message}`);
+      this.logger.error(`❌ [INDEXER] Failed: ${error.message}`);
       return [];
     }
   }
