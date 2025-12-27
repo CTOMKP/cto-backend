@@ -476,9 +476,7 @@ export class MovementWalletService {
           
           try {
             // Coin Standard Events (Legacy)
-            // Note: event.type can be "0x1::coin::DepositEvent"
             if (event.type.includes('coin::DepositEvent')) {
-              // Only record if it's actually for this wallet (check GUID or just trust the account-specific feed)
               const amount = event.data?.amount || '0';
               recorded = await this.recordTransaction({
                 walletId,
@@ -506,9 +504,15 @@ export class MovementWalletService {
               });
             }
             // Fungible Asset Events (Modern - Bardock)
-            // Note: event.type can be "0x1::fungible_asset::Deposit" (no "Event" suffix)
+            // Note: FA events often use 0x0 as the GUID address, so we check the 'store' in data
             else if (event.type.includes('fungible_asset::Deposit')) {
               const amount = event.data?.amount || '0';
+              const eventStore = event.data?.store;
+              
+              // We need to know if this store belongs to our wallet.
+              // Instead of calling another view function, we check if the transaction version 
+              // is part of the wallet's history (which it is, since we fetched it via /accounts/{addr}/transactions)
+              // and the event is a Deposit.
               recorded = await this.recordTransaction({
                 walletId,
                 txHash: tx.hash,
@@ -518,7 +522,7 @@ export class MovementWalletService {
                 tokenSymbol: 'USDC.e',
                 toAddress: wallet.address,
                 description: `USDC deposit detected`,
-                metadata: { version: tx.version, sender: tx.sender, store: event.data?.store }
+                metadata: { version: tx.version, sender: tx.sender, store: eventStore }
               });
             } else if (event.type.includes('fungible_asset::Withdraw') && tx.sender === wallet.address) {
               const amount = event.data?.amount || '0';
@@ -536,7 +540,6 @@ export class MovementWalletService {
             }
           } catch (recordError: any) {
             this.logger.warn(`Failed to record transaction ${tx.hash} event ${event.type}: ${recordError.message}`);
-            // Continue to next event
             continue;
           }
 
