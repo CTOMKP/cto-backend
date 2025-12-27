@@ -21,6 +21,7 @@ export class MovementWalletService {
     'MOVEMENT_TESTNET_RPC',
     'https://testnet.movementnetwork.xyz/v1' // Movement Bardock (Latest Testnet)
   );
+  private readonly MOVEMENT_INDEXER_URL = 'https://indexer.testnet.movementnetwork.xyz/v1/graphql';
   private readonly MOVEMENT_TESTNET_RPC_FALLBACK = this.configService.get(
     'MOVEMENT_TESTNET_RPC_FALLBACK',
     'https://aptos.testnet.bardock.movementnetwork.xyz/v1'
@@ -403,6 +404,52 @@ export class MovementWalletService {
   }
 
   /**
+   * Query Movement Indexer for USDC (Fungible Asset) activities
+   */
+  async queryIndexerForUSDC(walletAddress: string): Promise<any[]> {
+    const query = {
+      query: `
+        query GetUserUSDCHistory($owner: String!, $assetType: String!) {
+          fungible_asset_activities(
+            where: {
+              owner_address: { _eq: $owner },
+              asset_type: { _eq: $assetType }
+            }
+            order_by: { transaction_timestamp: desc }
+            limit: 20
+          ) {
+            transaction_version
+            transaction_hash
+            amount
+            type
+            transaction_timestamp
+            requestor_address
+          }
+        }
+      `,
+      variables: {
+        owner: walletAddress,
+        assetType: this.TEST_TOKEN_ADDRESS
+      }
+    };
+
+    try {
+      this.logger.debug(`Querying Movement Indexer for USDC: ${walletAddress}`);
+      const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
+      
+      if (response.data?.errors) {
+        this.logger.warn(`Indexer GraphQL errors: ${JSON.stringify(response.data.errors)}`);
+        return [];
+      }
+
+      return response.data?.data?.fungible_asset_activities || [];
+    } catch (error: any) {
+      this.logger.warn(`Failed to query Movement Indexer: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
    * Poll for new transactions and update balances
    * Detects funding by parsing actual transaction history
    */
@@ -417,16 +464,51 @@ export class MovementWalletService {
       }
 
       this.logger.debug(`Polling transactions for wallet: ${wallet.address}`);
+      const newTransactions: any[] = [];
+      const processedHashesInLoop = new Set<string>();
 
-      // 1. Fetch transactions from blockchain
+      // 1. Fetch activities from INDEXER (Modern approach for USDC)
+      const usdcActivities = await this.queryIndexerForUSDC(wallet.address);
+      for (const activity of usdcActivities) {
+        if (processedHashesInLoop.has(activity.transaction_hash)) continue;
+
+        const existingTx = await (this.prisma as any).walletTransaction.findUnique({
+          where: { txHash: activity.transaction_hash },
+        });
+
+        if (!existingTx) {
+          try {
+            const txType = activity.type.toUpperCase().includes('DEPOSIT') ? 'CREDIT' : 'DEBIT';
+            const recorded = await this.recordTransaction({
+              walletId,
+              txHash: activity.transaction_hash,
+              txType: txType as any,
+              amount: activity.amount.toString(),
+              tokenAddress: this.TEST_TOKEN_ADDRESS,
+              tokenSymbol: 'USDC.e',
+              fromAddress: txType === 'CREDIT' ? activity.requestor_address : wallet.address,
+              toAddress: txType === 'DEBIT' ? activity.requestor_address : wallet.address,
+              description: `USDC ${txType === 'CREDIT' ? 'deposit' : 'withdrawal'} detected via indexer`,
+              status: 'COMPLETED',
+              metadata: { version: activity.transaction_version, timestamp: activity.transaction_timestamp }
+            });
+            newTransactions.push(recorded);
+            processedHashesInLoop.add(activity.transaction_hash);
+          } catch (e) {
+            this.logger.warn(`Failed to record indexed USDC tx: ${e.message}`);
+          }
+        } else {
+          processedHashesInLoop.add(activity.transaction_hash);
+        }
+      }
+
+      // 2. Fetch transactions from RPC (Fallback and for native MOVE)
       const rpcUrl = this.getRpcUrl(isTestnet);
       const response = await axios.get(`${rpcUrl}/accounts/${wallet.address}/transactions?limit=10`, {
         timeout: 10000,
       });
 
       const blockchainTxs = response.data || [];
-      const newTransactions: any[] = [];
-      const processedHashesInLoop = new Set<string>();
 
       for (const tx of blockchainTxs) {
         if (tx.type !== 'user_transaction' || !tx.success || processedHashesInLoop.has(tx.hash)) continue;
@@ -441,16 +523,15 @@ export class MovementWalletService {
           continue;
         }
 
-      // 2. Parse transaction for Events (Coin or Fungible Asset)
+      // 2.1 Parse transaction for Events (Coin or Fungible Asset Fallback)
       const events = tx.events || [];
       for (const event of events) {
         let recorded = null;
         
         try {
-          // Coin Standard Events (Legacy)
+          // Coin Standard Events (Legacy - for MOVE)
           if (event.type.includes('coin::DepositEvent')) {
             const amount = event.data?.amount || '0';
-            // We record it even if the user isn't the signer
             recorded = await this.recordTransaction({
               walletId,
               txHash: tx.hash,
@@ -478,14 +559,10 @@ export class MovementWalletService {
               metadata: { version: tx.version }
             });
           }
-          // Fungible Asset Events (Modern - Bardock)
-          // Note: FA events use 'fungible_asset::Deposit' and 'fungible_asset::Withdraw'
+          // Fungible Asset Events (Modern Fallback)
           else if (event.type.includes('fungible_asset::Deposit')) {
             const amount = event.data?.amount || '0';
             const eventStore = event.data?.store;
-            
-            // Strategic Check: Is this deposit for our user?
-            // We fetch the store address once per poll if needed
             const storeAddr = await this.getPrimaryStoreAddress(wallet.address, this.TEST_TOKEN_ADDRESS, isTestnet);
             
             if (eventStore && storeAddr && eventStore.toLowerCase() === storeAddr.toLowerCase()) {
@@ -497,25 +574,11 @@ export class MovementWalletService {
                 tokenAddress: this.TEST_TOKEN_ADDRESS,
                 tokenSymbol: 'USDC.e',
                 toAddress: wallet.address,
-                description: `USDC deposit detected`,
+                description: `USDC deposit detected via event scan`,
                 status: 'COMPLETED',
                 metadata: { version: tx.version, sender: tx.sender, store: eventStore }
               });
             }
-          } else if (event.type.includes('fungible_asset::Withdraw') && tx.sender === wallet.address) {
-            const amount = event.data?.amount || '0';
-            recorded = await this.recordTransaction({
-              walletId,
-              txHash: tx.hash,
-              txType: 'DEBIT',
-              amount: amount.toString(),
-              tokenAddress: this.TEST_TOKEN_ADDRESS,
-              tokenSymbol: 'USDC.e',
-              fromAddress: wallet.address,
-              description: `USDC withdrawal detected`,
-              status: 'COMPLETED',
-              metadata: { version: tx.version, store: event.data?.store }
-            });
           }
         } catch (recordError: any) {
           this.logger.warn(`Failed to record transaction ${tx.hash} event ${event.type}: ${recordError.message}`);
@@ -525,13 +588,11 @@ export class MovementWalletService {
         if (recorded) {
           newTransactions.push(recorded);
           processedHashesInLoop.add(tx.hash);
-          // Don't break, check other events in same TX if any
         }
       }
     }
 
-    // 2.5 STRATEGIC FALLBACK: Scan Admin Wallet for transfers to this user
-    // This catches incoming transfers that don't appear in the user's own history
+    // 2.5 SECONDARY FALLBACK: Scan Admin Wallet
     if (this.ADMIN_WALLET) {
       try {
         const adminTxsRes = await axios.get(`${rpcUrl}/accounts/${this.ADMIN_WALLET}/transactions?limit=20`, { timeout: 10000 });
@@ -546,10 +607,7 @@ export class MovementWalletService {
             if (event.type.includes('fungible_asset::Deposit') && 
                 event.data?.store?.toLowerCase() === storeAddr?.toLowerCase()) {
               
-              // We found a payment from admin to this user!
               const amount = event.data?.amount || '0';
-              
-              // Double check if already in DB
               const existing = await (this.prisma as any).walletTransaction.findUnique({ where: { txHash: tx.hash } });
               if (!existing) {
                 const recorded = await this.recordTransaction({
@@ -560,7 +618,7 @@ export class MovementWalletService {
                   tokenAddress: this.TEST_TOKEN_ADDRESS,
                   tokenSymbol: 'USDC.e',
                   toAddress: wallet.address,
-                  description: `USDC payment received`,
+                  description: `USDC payment received (admin scan)`,
                   status: 'COMPLETED',
                   metadata: { version: tx.version, sender: tx.sender, isFromAdmin: true }
                 });
@@ -575,7 +633,7 @@ export class MovementWalletService {
       }
     }
 
-      // 3. Always sync BOTH MOVE and USDC balances at the end
+    // 3. Always sync BOTH MOVE and USDC balances at the end
       const tokensToSync = [this.NATIVE_TOKEN_ADDRESS, this.TEST_TOKEN_ADDRESS];
       
       for (const tokenAddr of tokensToSync) {
