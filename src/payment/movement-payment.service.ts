@@ -78,9 +78,9 @@ export class MovementPaymentService {
       this.logger.log(`✅ Using Movement wallet: ${movementWallet.address}`);
 
       // Get payment amount (in native token units with decimals)
-      // This is the fixed amount users pay for listing (configurable via env)
-      const paymentAmount = this.configService.get('MOVEMENT_LISTING_PAYMENT_AMOUNT', '100000000'); // Default: 1 MOV (8 decimals)
-      this.logger.log(`Required payment amount: ${paymentAmount} units`);
+      // For USDC (6 decimals): 1,000,000 = 1.0 USDC
+      const paymentAmount = this.configService.get('MOVEMENT_LISTING_PAYMENT_AMOUNT', '1000000'); 
+      this.logger.log(`Required payment amount: ${paymentAmount} units (USDC)`);
 
       // Check if wallet has sufficient balance
       this.logger.log(`Checking balance for wallet ID: ${movementWallet.id}`);
@@ -102,28 +102,26 @@ export class MovementPaymentService {
         const nowHasBalance = BigInt(freshBalanceData.balance) >= BigInt(paymentAmount);
 
         if (!nowHasBalance) {
-          const humanBalance = parseFloat(freshBalanceData.balance) / 1e8;
-          this.logger.warn(`❌ Insufficient balance confirmed for user ${userId}: ${humanBalance} MOVE`);
+          const humanBalance = parseFloat(freshBalanceData.balance) / 1e6;
+          this.logger.warn(`❌ Insufficient balance confirmed for user ${userId}: ${humanBalance} USDC`);
           throw new BadRequestException(
-            `Insufficient balance. Your Movement wallet (${movementWallet.address.substring(0, 6)}...) has exactly ${humanBalance} MOVE on Bardock. You need 1.0 MOVE. (System Time: ${new Date().toISOString()})`
+            `Insufficient balance. Your Movement wallet (${movementWallet.address.substring(0, 6)}...) has exactly ${humanBalance} USDC on Bardock. You need 1.0 USDC. (System Time: ${new Date().toISOString()})`
           );
         }
       }
 
       this.logger.log(`✅ Sufficient balance confirmed`);
 
-      // Get admin wallet - use fallback for testing
-      const adminWallet = this.configService.get('MOVEMENT_ADMIN_WALLET', '0x1');
-      if (!adminWallet || adminWallet === '0x1') {
-        this.logger.warn('⚠️ MOVEMENT_ADMIN_WALLET not set or using fallback 0x1');
-      }
+      // Get admin wallet
+      const adminWallet = this.configService.get('MOVEMENT_ADMIN_WALLET', '0x1745a447b0571a69c19d779db9ef05cfeffaa67ca74c8947aca81e0482e10523');
+      const usdcAddress = this.configService.get('MOVEMENT_TEST_TOKEN_ADDRESS', '0xb89077cfd2a82a0c1450534d49cfd5f2707643155273069bc23a912bcfefdee7');
 
       // Create payment record in database
       const payment = await this.prisma.payment.create({
         data: {
           userId: user.id,
-          amount: parseFloat(paymentAmount) / 1e8, // Convert from native units to human-readable
-          currency: 'MOVE', // Movement native token
+          amount: parseFloat(paymentAmount) / 1e6, // Convert from units to USDC (6 decimals)
+          currency: 'USDC', 
           paymentType: 'LISTING',
           listingId: listingId,
           status: 'PENDING',
@@ -133,7 +131,7 @@ export class MovementPaymentService {
             chain: 'MOVEMENT',
             fromWallet: movementWallet.address,
             toWallet: adminWallet,
-            tokenAddress: this.configService.get('MOVEMENT_TEST_TOKEN_ADDRESS', '0x1::aptos_coin::AptosCoin'),
+            tokenAddress: usdcAddress,
             paymentMethod: 'MOVEMENT_WALLET',
             amountInNativeUnits: paymentAmount,
           },
@@ -149,16 +147,14 @@ export class MovementPaymentService {
         chain: 'movement',
         fromAddress: movementWallet.address,
         toAddress: adminWallet,
-        amount: paymentAmount, // Amount in native units (with decimals)
-        amountDisplay: parseFloat(paymentAmount) / 1e8, // Human-readable amount
-        tokenSymbol: 'MOVE',
+        amount: paymentAmount, 
+        amountDisplay: parseFloat(paymentAmount) / 1e6, 
+        tokenSymbol: 'USDC.e',
         transactionData: {
-          // Frontend will use Privy to sign and send this transaction
-          // Movement uses Aptos-compatible transaction format
           type: 'entry_function_payload',
-          function: '0x1::coin::transfer',
-          type_arguments: ['0x1::aptos_coin::AptosCoin'],
-          arguments: [adminWallet, paymentAmount],
+          function: '0x1::primary_fungible_store::transfer',
+          type_arguments: ['0x1::fungible_asset::Metadata'],
+          arguments: [usdcAddress, adminWallet, paymentAmount],
         },
         message: 'Transaction ready. Please sign with your Privy Movement wallet.',
       };

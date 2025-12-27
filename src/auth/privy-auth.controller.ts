@@ -344,7 +344,7 @@ export class PrivyAuthController {
         w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
         w.blockchain?.toString().toUpperCase() === 'APTOS'
       );
-
+      
       const response = {
         success: true,
         user: {

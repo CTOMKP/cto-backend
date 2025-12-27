@@ -140,7 +140,7 @@ export class AnalyticsService {
     // Skip Helius for holder counts and rely on Solscan which is more reliable.
     // Returning null allows the fallback chain to proceed to Solscan.
     this.logger.debug(`Skipping Helius for holder count (not available via token-metadata API), will try Solscan`);
-    return null;
+      return null;
   }
 
   /**

@@ -1027,12 +1027,12 @@ export class RefreshWorker {
         // Always try to fetch fresh holder data (feed data might be stale or missing)
         // This ensures holders are updated even if they were previously null or outdated
         let holderCount: number | null = x.market?.holders ?? null;
-        try {
-          const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
-          if (fetchedHolders !== null && fetchedHolders > 0) {
-            holderCount = fetchedHolders;
-            console.log(`👥 Fetched holders for ${x.symbol || address}: ${holderCount}`);
-          } else {
+          try {
+            const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
+            if (fetchedHolders !== null && fetchedHolders > 0) {
+              holderCount = fetchedHolders;
+              console.log(`👥 Fetched holders for ${x.symbol || address}: ${holderCount}`);
+            } else {
             // If fetch returned null/0, preserve existing value if it exists, otherwise set to null
             if (holderCount === null || holderCount === 0) {
               holderCount = null;
@@ -1041,9 +1041,9 @@ export class RefreshWorker {
               // Keep existing holder count if fetch failed but we have an existing value
               console.log(`⚠️ Failed to fetch fresh holders for ${x.symbol || address}, preserving existing value: ${holderCount}`);
             }
-          }
-        } catch (error) {
-          console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          } catch (error) {
+            console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error instanceof Error ? error.message : String(error)}`);
           // On error, preserve existing value if available, otherwise set to null
           if (holderCount === null || holderCount === 0) {
             holderCount = null;

@@ -84,7 +84,7 @@ export class PrivyAuthService {
             // Some wallets might not have 'type: wallet' but have an 'address' and 'chainType'
             const isWallet = account.type === 'wallet' || !!account.address;
             return isWallet && !!account.address;
-          }
+            }
         );
         
         this.logger.log(`🔍 Found ${linkedWallets.length} potential wallets in linkedAccounts for ${userId}`);
@@ -103,7 +103,7 @@ export class PrivyAuthService {
           } else {
             blockchain = 'OTHER';
           }
-          
+
           const walletKey = `${walletAddress}-${blockchain}`;
           
           if (addedWallets.has(walletKey)) {
@@ -124,7 +124,7 @@ export class PrivyAuthService {
             walletType = 'PRIVY_SMART_WALLET';
             walletClient = 'privy_smart_wallet';
           }
-
+          
           wallets.push({
             id: w.id,
             address: w.address,

@@ -31,25 +31,26 @@ export class MovementWalletService {
     'https://mainnet.movementlabs.xyz/v1'
   );
   
-  // Movement test token (default to native MOVE, can be overridden via env)
-  // For Movement (L1 native), native token resource is 0x1::aptos_coin::AptosCoin
-  // Note: Movement is now L1 (not Aptos-compatible), but uses similar resource structure
+  // Movement test token (default to official USDC FA)
   private readonly TEST_TOKEN_ADDRESS = this.configService.get(
     'MOVEMENT_TEST_TOKEN_ADDRESS',
-    '0x1::aptos_coin::AptosCoin' // Default to native MOVE token (Movement native resource)
+    '0xb89077cfd2a82a0c1450534d49cfd5f2707643155273069bc23a912bcfefdee7' // Official USDC.e on Bardock
   );
   
+  // Native token for gas payments
+  private readonly NATIVE_TOKEN_ADDRESS = '0x1::aptos_coin::AptosCoin';
+
   // Admin wallet to receive payments (must be set in environment)
   private readonly ADMIN_WALLET = this.configService.get(
     'MOVEMENT_ADMIN_WALLET',
-    '' // REQUIRED: Set this in .env file
+    '0x1745a447b0571a69c19d779db9ef05cfeffaa67ca74c8947aca81e0482e10523' // Client's funded Nightly address
   );
   
-  // Payment amount in native token units (with decimals)
-  // Example: 100000000 = 1 MOVE (if 8 decimals)
+  // Payment amount in token units
+  // For USDC (6 decimals): 1,000,000 = 1.0 USDC
   private readonly LISTING_PAYMENT_AMOUNT = this.configService.get(
     'MOVEMENT_LISTING_PAYMENT_AMOUNT',
-    '100000000' // 1 MOVE (8 decimals) - adjust based on your pricing
+    '1000000' // 1.0 USDC
   );
 
   constructor(
@@ -88,26 +89,52 @@ export class MovementWalletService {
         ]
       : [this.MOVEMENT_MAINNET_RPC];
     
+    const tokenAddr = tokenAddress || this.TEST_TOKEN_ADDRESS;
+    const isFungibleAsset = !tokenAddr.includes('::'); // FA addresses are hex, Coins have ::
+    
     let lastError: any;
 
     for (const rpcUrl of urls) {
       try {
-        const tokenAddr = tokenAddress || this.TEST_TOKEN_ADDRESS;
-        this.logger.debug(`Fetching Movement balance for ${walletAddress} from ${rpcUrl}`);
+        this.logger.debug(`Fetching Movement balance for ${walletAddress} (Token: ${tokenAddr}) from ${rpcUrl}`);
 
+        if (isFungibleAsset) {
+          // Use View Function for Fungible Asset (FA)
+          try {
+            const response = await axios.post(`${rpcUrl}/view`, {
+              function: '0x1::primary_fungible_store::balance',
+              type_arguments: ['0x1::fungible_asset::Metadata'],
+              arguments: [walletAddress, tokenAddr]
+            }, { timeout: 10000 });
+
+            const balance = response.data[0] || '0';
+            const isUSDC = tokenAddr.toLowerCase() === '0xb89077cfd2a82a0c1450534d49cfd5f2707643155273069bc23a912bcfefdee7'.toLowerCase();
+            
+            return {
+              balance: balance.toString(),
+              tokenAddress: tokenAddr,
+              tokenSymbol: isUSDC ? 'USDC.e' : 'FA',
+              decimals: isUSDC ? 6 : 8,
+            };
+          } catch (faError: any) {
+            this.logger.debug(`FA View call failed, account might not have a store yet: ${faError.message}`);
+            // If account has no store, balance is 0
+            return {
+              balance: '0',
+              tokenAddress: tokenAddr,
+              tokenSymbol: 'USDC.e',
+              decimals: 6,
+            };
+          }
+        }
+
+        // Legacy Coin Standard Check
         const response = await axios.get(`${rpcUrl}/accounts/${walletAddress}/resources`, {
           timeout: 10000,
         });
 
         const resources = response.data || [];
-        this.logger.debug(`Found ${resources.length} resources for ${walletAddress} on ${rpcUrl}`);
         
-        // Log all resource types to help debug Bardock specifics
-        if (resources.length > 0) {
-          const types = resources.map((r: any) => r.type).join(', ');
-          this.logger.debug(`Resource types for ${walletAddress.substring(0, 6)}: ${types}`);
-        }
-
         const coinStore = resources.find((r: any) => 
           r.type?.includes('coin::CoinStore') && 
           (tokenAddr === '0x1::aptos_coin::AptosCoin' || r.type?.includes(tokenAddr) || r.type?.includes('0x1::move_coin::MoveCoin'))
@@ -117,7 +144,7 @@ export class MovementWalletService {
           return {
             balance: '0',
             tokenAddress: tokenAddr,
-            tokenSymbol: 'MOVE',
+            tokenSymbol: tokenAddr.includes('AptosCoin') ? 'MOVE' : 'COIN',
             decimals: 8,
           };
         }
@@ -126,7 +153,7 @@ export class MovementWalletService {
         return {
           balance: balance.toString(),
           tokenAddress: tokenAddr,
-          tokenSymbol: 'MOVE',
+          tokenSymbol: tokenAddr.includes('AptosCoin') ? 'MOVE' : 'COIN',
           decimals: 8,
         };
       } catch (error: any) {
@@ -134,9 +161,9 @@ export class MovementWalletService {
         if (error.response?.status === 404) {
           return {
             balance: '0',
-            tokenAddress: tokenAddress || this.TEST_TOKEN_ADDRESS,
-            tokenSymbol: 'MOVE',
-            decimals: 8,
+            tokenAddress: tokenAddr,
+            tokenSymbol: isFungibleAsset ? 'USDC.e' : 'MOVE',
+            decimals: isFungibleAsset ? 6 : 8,
           };
         }
         this.logger.warn(`Failed to reach Movement RPC ${rpcUrl}: ${error.message}`);
@@ -167,22 +194,27 @@ export class MovementWalletService {
       }
 
       // Fetch balance from blockchain
+      // STRATEGIC FIX: If this is the admin's wallet ID, we can optionally 
+      // check their Nightly address as well to show the total "Admin Funds"
       const balanceData = await this.getWalletBalance(wallet.address, tokenAddress, isTestnet);
 
-      // Upsert balance in database
-      const balance = await this.prisma.walletBalance.upsert({
-        where: {
-          walletId_tokenAddress: {
-            walletId: wallet.id,
-            tokenAddress: balanceData.tokenAddress,
-          },
+      // If this is the admin wallet address, we use USDC.e defaults
+      const isUSDC = balanceData.tokenAddress.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
+      
+    // Upsert balance in database
+    const balance = await (this.prisma as any).walletBalance.upsert({
+      where: {
+        walletId_tokenAddress: {
+          walletId: wallet.id,
+          tokenAddress: balanceData.tokenAddress,
         },
+      },
         create: {
           walletId: wallet.id,
           tokenAddress: balanceData.tokenAddress,
-          tokenSymbol: balanceData.tokenSymbol,
-          tokenName: 'Movement Network Token',
-          decimals: balanceData.decimals,
+          tokenSymbol: isUSDC ? 'USDC.e' : balanceData.tokenSymbol,
+          tokenName: isUSDC ? 'USDC.e (Fungible Asset)' : 'Movement Network Token',
+          decimals: isUSDC ? 6 : 8,
           balance: balanceData.balance,
           lastUpdated: new Date(),
         },
@@ -212,7 +244,7 @@ export class MovementWalletService {
    * Get all balances for a wallet
    */
   async getWalletBalances(walletId: string): Promise<any[]> {
-    const balances = await this.prisma.walletBalance.findMany({
+    const balances = await (this.prisma as any).walletBalance.findMany({
       where: { walletId },
       orderBy: { lastUpdated: 'desc' },
     });
@@ -224,7 +256,7 @@ export class MovementWalletService {
    * Get transaction history for a wallet
    */
   async getWalletTransactions(walletId: string, limit: number = 50): Promise<any[]> {
-    const transactions = await this.prisma.walletTransaction.findMany({
+    const transactions = await (this.prisma as any).walletTransaction.findMany({
       where: { walletId },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -250,7 +282,7 @@ export class MovementWalletService {
     description?: string;
     metadata?: any;
   }): Promise<any> {
-    return this.prisma.walletTransaction.create({
+    return (this.prisma as any).walletTransaction.create({
       data: {
         walletId: data.walletId,
         txHash: data.txHash,
@@ -272,7 +304,7 @@ export class MovementWalletService {
    * Check if wallet has sufficient balance
    */
   async hasSufficientBalance(walletId: string, requiredAmount: string, tokenAddress?: string): Promise<boolean> {
-    const balance = await this.prisma.walletBalance.findUnique({
+    const balance = await (this.prisma as any).walletBalance.findUnique({
       where: {
         walletId_tokenAddress: {
           walletId,
@@ -304,7 +336,7 @@ export class MovementWalletService {
   ): Promise<any> {
     try {
       // Get current balance
-      const balance = await this.prisma.walletBalance.findUnique({
+      const balance = await (this.prisma as any).walletBalance.findUnique({
         where: {
           walletId_tokenAddress: {
             walletId,
@@ -327,7 +359,7 @@ export class MovementWalletService {
       // Update balance
       const newBalance = (currentBalance - debitAmount).toString();
 
-      await this.prisma.walletBalance.update({
+      await (this.prisma as any).walletBalance.update({
         where: { id: balance.id },
         data: {
           balance: newBalance,
@@ -385,78 +417,127 @@ export class MovementWalletService {
 
       const blockchainTxs = response.data || [];
       const newTransactions: any[] = [];
+      const processedHashesInLoop = new Set<string>();
 
       for (const tx of blockchainTxs) {
-        if (tx.type !== 'user_transaction' || !tx.success) continue;
+        if (tx.type !== 'user_transaction' || !tx.success || processedHashesInLoop.has(tx.hash)) continue;
 
-        // Check if we already have this transaction
-        const existingTx = await this.prisma.walletTransaction.findUnique({
+        // Check if we already have this transaction in DB
+        const existingTx = await (this.prisma as any).walletTransaction.findUnique({
           where: { txHash: tx.hash },
         });
 
-        if (existingTx) continue;
+        if (existingTx) {
+          processedHashesInLoop.add(tx.hash);
+          continue;
+        }
 
-        // 2. Parse transaction for Coin Events (Deposit/Withdraw)
+        // 2. Parse transaction for Events (Coin or Fungible Asset)
         const events = tx.events || [];
         for (const event of events) {
+          let recorded = null;
+          
+          // Coin Standard Events (Legacy)
+          // Note: event.type can be "0x1::coin::DepositEvent"
           if (event.type.includes('coin::DepositEvent')) {
-            // This is a CREDIT
+            // Only record if it's actually for this wallet (check GUID or just trust the account-specific feed)
             const amount = event.data?.amount || '0';
-            const recorded = await this.recordTransaction({
+            recorded = await this.recordTransaction({
+              walletId,
+              txHash: tx.hash,
+              txType: 'CREDIT',
+              amount: amount.toString(),
+              tokenAddress: this.NATIVE_TOKEN_ADDRESS,
+              tokenSymbol: 'MOVE',
+              toAddress: wallet.address,
+              description: `MOVE deposit detected`,
+              metadata: { version: tx.version, sender: tx.sender }
+            });
+          } else if (event.type.includes('coin::WithdrawEvent') && tx.sender === wallet.address) {
+            const amount = event.data?.amount || '0';
+            recorded = await this.recordTransaction({
+              walletId,
+              txHash: tx.hash,
+              txType: 'DEBIT',
+              amount: amount.toString(),
+              tokenAddress: this.NATIVE_TOKEN_ADDRESS,
+              tokenSymbol: 'MOVE',
+              fromAddress: wallet.address,
+              description: `MOVE withdrawal detected`,
+              metadata: { version: tx.version }
+            });
+          }
+          // Fungible Asset Events (Modern - Bardock)
+          // Note: event.type can be "0x1::fungible_asset::Deposit" (no "Event" suffix)
+          else if (event.type.includes('fungible_asset::Deposit')) {
+            const amount = event.data?.amount || '0';
+            recorded = await this.recordTransaction({
               walletId,
               txHash: tx.hash,
               txType: 'CREDIT',
               amount: amount.toString(),
               tokenAddress: this.TEST_TOKEN_ADDRESS,
-              tokenSymbol: 'MOVE',
+              tokenSymbol: 'USDC.e',
               toAddress: wallet.address,
-              description: `On-chain deposit detected: +${amount} units`,
-              metadata: { version: tx.version, sender: tx.sender }
+              description: `USDC deposit detected`,
+              metadata: { version: tx.version, sender: tx.sender, store: event.data?.store }
             });
-            newTransactions.push(recorded);
-          } else if (event.type.includes('coin::WithdrawEvent') && tx.sender === wallet.address) {
-            // This is a DEBIT (only if the wallet was the sender)
+          } else if (event.type.includes('fungible_asset::Withdraw') && tx.sender === wallet.address) {
             const amount = event.data?.amount || '0';
-            const recorded = await this.recordTransaction({
+            recorded = await this.recordTransaction({
               walletId,
               txHash: tx.hash,
               txType: 'DEBIT',
               amount: amount.toString(),
               tokenAddress: this.TEST_TOKEN_ADDRESS,
-              tokenSymbol: 'MOVE',
+              tokenSymbol: 'USDC.e',
               fromAddress: wallet.address,
-              description: `On-chain withdrawal detected: -${amount} units`,
-              metadata: { version: tx.version }
+              description: `USDC withdrawal detected`,
+              metadata: { version: tx.version, store: event.data?.store }
             });
+          }
+
+          if (recorded) {
             newTransactions.push(recorded);
+            processedHashesInLoop.add(tx.hash);
+            break; // Move to next transaction once we've recorded this one
           }
         }
       }
 
-      // 3. Always sync the final balance at the end
-      // STRATEGIC FIX: Use a direct DB update here to avoid circular dependency with syncWalletBalance
-      const balanceData = await this.getWalletBalance(wallet.address, undefined, isTestnet);
-      await this.prisma.walletBalance.upsert({
-        where: {
-          walletId_tokenAddress: {
-            walletId,
-            tokenAddress: balanceData.tokenAddress,
-          },
-        },
-        create: {
-          walletId,
-          tokenAddress: balanceData.tokenAddress,
-          tokenSymbol: balanceData.tokenSymbol,
-          tokenName: 'Movement Network Token',
-          decimals: balanceData.decimals,
-          balance: balanceData.balance,
-          lastUpdated: new Date(),
-        },
-        update: {
-          balance: balanceData.balance,
-          lastUpdated: new Date(),
-        },
-      });
+      // 3. Always sync BOTH MOVE and USDC balances at the end
+      const tokensToSync = [this.NATIVE_TOKEN_ADDRESS, this.TEST_TOKEN_ADDRESS];
+      
+      for (const tokenAddr of tokensToSync) {
+        try {
+          const balanceData = await this.getWalletBalance(wallet.address, tokenAddr, isTestnet);
+          const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
+          
+          await (this.prisma as any).walletBalance.upsert({
+            where: {
+              walletId_tokenAddress: {
+                walletId,
+                tokenAddress: balanceData.tokenAddress,
+              },
+            },
+            create: {
+              walletId,
+              tokenAddress: balanceData.tokenAddress,
+              tokenSymbol: balanceData.tokenSymbol,
+              tokenName: isUSDC ? 'USDC.e (Fungible Asset)' : 'Movement Network Token',
+              decimals: balanceData.decimals,
+              balance: balanceData.balance,
+              lastUpdated: new Date(),
+            },
+            update: {
+              balance: balanceData.balance,
+              lastUpdated: new Date(),
+            },
+          });
+        } catch (err) {
+          this.logger.warn(`Failed to sync balance for token ${tokenAddr}: ${err.message}`);
+        }
+      }
 
       if (newTransactions.length > 0) {
         this.logger.log(`✅ Processed ${newTransactions.length} new transactions for ${wallet.address}`);
