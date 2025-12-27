@@ -437,64 +437,70 @@ export class MovementWalletService {
         for (const event of events) {
           let recorded = null;
           
-          // Coin Standard Events (Legacy)
-          // Note: event.type can be "0x1::coin::DepositEvent"
-          if (event.type.includes('coin::DepositEvent')) {
-            // Only record if it's actually for this wallet (check GUID or just trust the account-specific feed)
-            const amount = event.data?.amount || '0';
-            recorded = await this.recordTransaction({
-              walletId,
-              txHash: tx.hash,
-              txType: 'CREDIT',
-              amount: amount.toString(),
-              tokenAddress: this.NATIVE_TOKEN_ADDRESS,
-              tokenSymbol: 'MOVE',
-              toAddress: wallet.address,
-              description: `MOVE deposit detected`,
-              metadata: { version: tx.version, sender: tx.sender }
-            });
-          } else if (event.type.includes('coin::WithdrawEvent') && tx.sender === wallet.address) {
-            const amount = event.data?.amount || '0';
-            recorded = await this.recordTransaction({
-              walletId,
-              txHash: tx.hash,
-              txType: 'DEBIT',
-              amount: amount.toString(),
-              tokenAddress: this.NATIVE_TOKEN_ADDRESS,
-              tokenSymbol: 'MOVE',
-              fromAddress: wallet.address,
-              description: `MOVE withdrawal detected`,
-              metadata: { version: tx.version }
-            });
-          }
-          // Fungible Asset Events (Modern - Bardock)
-          // Note: event.type can be "0x1::fungible_asset::Deposit" (no "Event" suffix)
-          else if (event.type.includes('fungible_asset::Deposit')) {
-            const amount = event.data?.amount || '0';
-            recorded = await this.recordTransaction({
-              walletId,
-              txHash: tx.hash,
-              txType: 'CREDIT',
-              amount: amount.toString(),
-              tokenAddress: this.TEST_TOKEN_ADDRESS,
-              tokenSymbol: 'USDC.e',
-              toAddress: wallet.address,
-              description: `USDC deposit detected`,
-              metadata: { version: tx.version, sender: tx.sender, store: event.data?.store }
-            });
-          } else if (event.type.includes('fungible_asset::Withdraw') && tx.sender === wallet.address) {
-            const amount = event.data?.amount || '0';
-            recorded = await this.recordTransaction({
-              walletId,
-              txHash: tx.hash,
-              txType: 'DEBIT',
-              amount: amount.toString(),
-              tokenAddress: this.TEST_TOKEN_ADDRESS,
-              tokenSymbol: 'USDC.e',
-              fromAddress: wallet.address,
-              description: `USDC withdrawal detected`,
-              metadata: { version: tx.version, store: event.data?.store }
-            });
+          try {
+            // Coin Standard Events (Legacy)
+            // Note: event.type can be "0x1::coin::DepositEvent"
+            if (event.type.includes('coin::DepositEvent')) {
+              // Only record if it's actually for this wallet (check GUID or just trust the account-specific feed)
+              const amount = event.data?.amount || '0';
+              recorded = await this.recordTransaction({
+                walletId,
+                txHash: tx.hash,
+                txType: 'CREDIT',
+                amount: amount.toString(),
+                tokenAddress: this.NATIVE_TOKEN_ADDRESS,
+                tokenSymbol: 'MOVE',
+                toAddress: wallet.address,
+                description: `MOVE deposit detected`,
+                metadata: { version: tx.version, sender: tx.sender }
+              });
+            } else if (event.type.includes('coin::WithdrawEvent') && tx.sender === wallet.address) {
+              const amount = event.data?.amount || '0';
+              recorded = await this.recordTransaction({
+                walletId,
+                txHash: tx.hash,
+                txType: 'DEBIT',
+                amount: amount.toString(),
+                tokenAddress: this.NATIVE_TOKEN_ADDRESS,
+                tokenSymbol: 'MOVE',
+                fromAddress: wallet.address,
+                description: `MOVE withdrawal detected`,
+                metadata: { version: tx.version }
+              });
+            }
+            // Fungible Asset Events (Modern - Bardock)
+            // Note: event.type can be "0x1::fungible_asset::Deposit" (no "Event" suffix)
+            else if (event.type.includes('fungible_asset::Deposit')) {
+              const amount = event.data?.amount || '0';
+              recorded = await this.recordTransaction({
+                walletId,
+                txHash: tx.hash,
+                txType: 'CREDIT',
+                amount: amount.toString(),
+                tokenAddress: this.TEST_TOKEN_ADDRESS,
+                tokenSymbol: 'USDC.e',
+                toAddress: wallet.address,
+                description: `USDC deposit detected`,
+                metadata: { version: tx.version, sender: tx.sender, store: event.data?.store }
+              });
+            } else if (event.type.includes('fungible_asset::Withdraw') && tx.sender === wallet.address) {
+              const amount = event.data?.amount || '0';
+              recorded = await this.recordTransaction({
+                walletId,
+                txHash: tx.hash,
+                txType: 'DEBIT',
+                amount: amount.toString(),
+                tokenAddress: this.TEST_TOKEN_ADDRESS,
+                tokenSymbol: 'USDC.e',
+                fromAddress: wallet.address,
+                description: `USDC withdrawal detected`,
+                metadata: { version: tx.version, store: event.data?.store }
+              });
+            }
+          } catch (recordError: any) {
+            this.logger.warn(`Failed to record transaction ${tx.hash} event ${event.type}: ${recordError.message}`);
+            // Continue to next event
+            continue;
           }
 
           if (recorded) {
