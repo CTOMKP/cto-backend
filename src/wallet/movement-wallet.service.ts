@@ -542,19 +542,23 @@ export class MovementWalletService {
 
             const events = tx.events || [];
             for (const event of events) {
-              // Look for the specific modern FA DepositEvent or WithdrawEvent type
-              const isFADeposit = event.type === '0x1::fungible_asset::DepositEvent' || event.type.includes('fungible_asset::Deposit');
-              const isFAWithdraw = event.type === '0x1::fungible_asset::WithdrawEvent' || event.type.includes('fungible_asset::Withdraw');
+              // GEMINI FIX: Use exact modern FA names and check for both Withdraw and Deposit
+              const isFADeposit = event.type === '0x1::fungible_asset::Deposit' || event.type === '0x1::fungible_asset::DepositEvent';
+              const isFAWithdraw = event.type === '0x1::fungible_asset::Withdraw' || event.type === '0x1::fungible_asset::WithdrawEvent';
               
-              const isMatch = (isFADeposit || isFAWithdraw) && event.data?.store?.toLowerCase() === storeAddr.toLowerCase();
+              const eventStore = event.data?.store?.toLowerCase();
+              const targetStore = storeAddr.toLowerCase();
+              
+              if ((isFADeposit || isFAWithdraw) && eventStore === targetStore) {
+                this.logger.log(`[LEDGER SCAN] Match found! Tx: ${tx.hash.substring(0, 10)}... Event: ${event.type}, Store: ${eventStore}`);
 
-              if (isMatch) {
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
                   where: { txHash: tx.hash },
                 });
 
                 if (!existingTx) {
                   const amount = event.data?.amount || '0';
+                  // CREDIT for Deposit, DEBIT for Withdraw
                   const txType = isFADeposit ? 'CREDIT' : 'DEBIT';
                   const description = isFADeposit 
                     ? `USDC deposit detected via global ledger scan` 
@@ -571,10 +575,15 @@ export class MovementWalletService {
                     fromAddress: isFAWithdraw ? wallet.address : tx.sender,
                     description: description,
                     status: 'COMPLETED',
-                    metadata: { version: tx.version, store: storeAddr }
+                    metadata: { 
+                      version: tx.version, 
+                      store: storeAddr,
+                      eventType: event.type 
+                    }
                   });
                   newTransactions.push(recorded);
                   processedHashesInLoop.add(tx.hash);
+                  this.logger.log(`[LEDGER SCAN] Successfully recorded ${txType} for ${walletId}`);
                 }
               }
             }
