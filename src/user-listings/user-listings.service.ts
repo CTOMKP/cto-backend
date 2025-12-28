@@ -123,7 +123,7 @@ export class UserListingsService {
     });
 
     if (!payment) {
-      throw new BadRequestException('Payment required. Please pay 50 USDC to publish this listing.');
+      throw new BadRequestException('Payment required. Please pay 1.0 USDC to publish this listing.');
     }
 
     // After payment, listing goes to PENDING_APPROVAL (not PUBLISHED)

@@ -45,7 +45,7 @@ export class PaymentController {
   }
 
   @Post('listing')
-  @ApiOperation({ summary: 'Pay for token listing (50 USDC)' })
+  @ApiOperation({ summary: 'Pay for token listing (1.0 USDC)' })
   @ApiResponse({ status: 200, description: 'Payment initiated successfully' })
   @ApiResponse({ status: 400, description: 'Insufficient balance or invalid request' })
   async payForListing(@Body() dto: CreateListingPaymentDto) {
