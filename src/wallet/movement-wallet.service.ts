@@ -523,46 +523,47 @@ export class MovementWalletService {
         }
       }
 
-      // 2. Fetch transactions from RPC (Fallback and for native MOVE)
+      // 2. Fetch transactions from RPC (Master Event Scan)
       const rpcUrl = this.getRpcUrl(isTestnet);
       
       // STRATEGIC FIX (GEMINI RECOMMENDED): Global Ledger Polling for FA Events
-      // Since incoming FA transfers don't show up in the receiver's account tx list,
-      // we must scan the latest global transactions for matching DepositEvents.
+      // This is now the MASTER source for USDC transfers to avoid "competition" between logic sections.
       const storeAddr = await this.getPrimaryStoreAddress(wallet.address, this.TEST_TOKEN_ADDRESS, isTestnet);
       if (storeAddr) {
         try {
-          this.logger.debug(`📡 [RPC-GLOBAL] Scanning ledger for USDC events matching store: ${storeAddr}`);
-          // Query the latest global transactions from the ledger
-          const ledgerRes = await axios.get(`${rpcUrl}/transactions?limit=25`);
+          this.logger.debug(`📡 [MASTER-SCAN] Scanning ledger for USDC events matching store: ${storeAddr}`);
+          // Query the latest global transactions from the ledger (Limit 30 for extra safety)
+          const ledgerRes = await axios.get(`${rpcUrl}/transactions?limit=30`);
           const globalTxs = ledgerRes.data || [];
           
           for (const tx of globalTxs) {
             if (tx.type !== 'user_transaction' || !tx.success || processedHashesInLoop.has(tx.hash)) continue;
 
             const events = tx.events || [];
+            // GEMINI FIX: Iterate through ALL events to avoid Gas Fee noise
             for (const event of events) {
-              // GEMINI FIX: Use exact modern FA names and check for both Withdraw and Deposit
-              const isFADeposit = event.type === '0x1::fungible_asset::Deposit' || event.type === '0x1::fungible_asset::DepositEvent';
-              const isFAWithdraw = event.type === '0x1::fungible_asset::Withdraw' || event.type === '0x1::fungible_asset::WithdrawEvent';
+              const isDeposit = event.type.includes('fungible_asset::Deposit');
+              const isWithdraw = event.type.includes('fungible_asset::Withdraw');
               
               const eventStore = event.data?.store?.toLowerCase();
               const targetStore = storeAddr.toLowerCase();
               
-              if ((isFADeposit || isFAWithdraw) && eventStore === targetStore) {
-                this.logger.log(`[LEDGER SCAN] Match found! Tx: ${tx.hash.substring(0, 10)}... Event: ${event.type}, Store: ${eventStore}`);
-
+              if ((isDeposit || isWithdraw) && eventStore === targetStore) {
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
                   where: { txHash: tx.hash },
                 });
 
                 if (!existingTx) {
                   const amount = event.data?.amount || '0';
-                  // CREDIT for Deposit, DEBIT for Withdraw
-                  const txType = isFADeposit ? 'CREDIT' : 'DEBIT';
-                  const description = isFADeposit 
-                    ? `USDC deposit detected via global ledger scan` 
-                    : `USDC payment detected via global ledger scan`;
+                  const txType = isDeposit ? 'CREDIT' : 'DEBIT';
+                  
+                  // For the Receiver (Deposit), the "from" is the tx sender.
+                  // For the Sender (Withdraw), the "to" is determined by finding the matching Deposit in the SAME tx.
+                  let counterpart = 'External';
+                  if (isWithdraw) {
+                    const receiverEvent = events.find(e => e.type.includes('fungible_asset::Deposit') && e.data?.store?.toLowerCase() !== targetStore);
+                    if (receiverEvent) counterpart = '0x' + receiverEvent.data?.store?.split('0x')[1]?.substring(0, 40) || 'External';
+                  }
 
                   const recorded = await this.recordTransaction({
                     walletId,
@@ -571,25 +572,24 @@ export class MovementWalletService {
                     amount: amount.toString(),
                     tokenAddress: this.TEST_TOKEN_ADDRESS,
                     tokenSymbol: 'USDC.e',
-                    toAddress: isFADeposit ? wallet.address : 'External',
-                    fromAddress: isFAWithdraw ? wallet.address : tx.sender,
-                    description: description,
+                    toAddress: isDeposit ? wallet.address : counterpart,
+                    fromAddress: isWithdraw ? wallet.address : tx.sender,
+                    description: `USDC ${isDeposit ? 'deposit' : 'payment'} detected via master scan`,
                     status: 'COMPLETED',
-                    metadata: { 
-                      version: tx.version, 
-                      store: storeAddr,
-                      eventType: event.type 
-                    }
+                    metadata: { version: tx.version, store: storeAddr, eventType: event.type }
                   });
+                  
                   newTransactions.push(recorded);
                   processedHashesInLoop.add(tx.hash);
-                  this.logger.log(`[LEDGER SCAN] Successfully recorded ${txType} for ${walletId}`);
+                  this.logger.log(`[MASTER-SCAN] Recorded ${txType} for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
+                } else {
+                  processedHashesInLoop.add(tx.hash);
                 }
               }
             }
           }
         } catch (globalErr: any) {
-          this.logger.warn(`⚠️ [RPC-GLOBAL] Ledger scan failed: ${globalErr.message}`);
+          this.logger.warn(`⚠️ [MASTER-SCAN] Ledger scan failed: ${globalErr.message}`);
         }
       }
 
