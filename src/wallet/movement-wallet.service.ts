@@ -423,7 +423,6 @@ export class MovementWalletService {
             amount
             type
             transaction_timestamp
-            requestor_address
           }
         }
       `,
@@ -445,23 +444,18 @@ export class MovementWalletService {
       const activities = response.data?.data?.fungible_asset_activities || [];
       this.logger.debug(`✅ [INDEXER] Found ${activities.length} activities for USDC`);
       
-      // Log raw activities for diagnostic purposes
-      if (activities.length > 0) {
-        this.logger.debug(`📄 [INDEXER] Raw Result: ${JSON.stringify(activities[0])}...`);
-      }
-
       const detailedActivities: any[] = [];
       const rpcUrl = this.getRpcUrl();
 
       for (const activity of activities) {
         try {
-          // Fetch real hash from version
+          // Fetch real hash and sender from version since indexer fields vary
           const txRes = await axios.get(`${rpcUrl}/transactions/by_version/${activity.transaction_version}`);
           if (txRes.data?.hash) {
             detailedActivities.push({
               ...activity,
               transaction_hash: txRes.data.hash,
-              requestor_address: txRes.data.sender || activity.requestor_address
+              requestor_address: txRes.data.sender || walletAddress // Fallback to walletAddress if sender unknown
             });
           }
         } catch (e) {
