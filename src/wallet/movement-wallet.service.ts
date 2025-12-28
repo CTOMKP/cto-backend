@@ -550,71 +550,81 @@ export class MovementWalletService {
           continue;
         }
 
-      // 2.1 Parse transaction for Events (Coin or Fungible Asset Fallback)
+      // 2.1 Parse transaction for Events
       const events = tx.events || [];
-      for (const event of events) {
-        let recorded = null;
-        
-        try {
-          // Coin Standard Events (Legacy - for MOVE)
-          if (event.type.includes('coin::DepositEvent')) {
-            const amount = event.data?.amount || '0';
-            recorded = await this.recordTransaction({
-              walletId,
-              txHash: tx.hash,
-              txType: 'CREDIT',
-              amount: amount.toString(),
-              tokenAddress: this.NATIVE_TOKEN_ADDRESS,
-              tokenSymbol: 'MOVE',
-              toAddress: wallet.address,
-              description: `MOVE deposit detected`,
-              status: 'COMPLETED',
-              metadata: { version: tx.version, sender: tx.sender }
-            });
-          } else if (event.type.includes('coin::WithdrawEvent') && tx.sender === wallet.address) {
-            const amount = event.data?.amount || '0';
-            recorded = await this.recordTransaction({
-              walletId,
-              txHash: tx.hash,
-              txType: 'DEBIT',
-              amount: amount.toString(),
-              tokenAddress: this.NATIVE_TOKEN_ADDRESS,
-              tokenSymbol: 'MOVE',
-              fromAddress: wallet.address,
-              description: `MOVE withdrawal detected`,
-              status: 'COMPLETED',
-              metadata: { version: tx.version }
-            });
-          }
-          // Fungible Asset Events (Modern Fallback)
-          else if (event.type.includes('fungible_asset::Deposit')) {
-            const amount = event.data?.amount || '0';
-            const eventStore = event.data?.store;
-            const storeAddr = await this.getPrimaryStoreAddress(wallet.address, this.TEST_TOKEN_ADDRESS, isTestnet);
-            
-            if (eventStore && storeAddr && eventStore.toLowerCase() === storeAddr.toLowerCase()) {
-              recorded = await this.recordTransaction({
-                walletId,
-                txHash: tx.hash,
-                txType: 'CREDIT',
-                amount: amount.toString(),
-                tokenAddress: this.TEST_TOKEN_ADDRESS,
-                tokenSymbol: 'USDC.e',
-                toAddress: wallet.address,
-                description: `USDC deposit detected via event scan`,
-                status: 'COMPLETED',
-                metadata: { version: tx.version, sender: tx.sender, store: eventStore }
-              });
-            }
-          }
-        } catch (recordError: any) {
-          this.logger.warn(`Failed to record transaction ${tx.hash} event ${event.type}: ${recordError.message}`);
-          continue;
-        }
+      
+      // STRATEGIC IMPROVEMENT: Find the most "important" event in the transaction
+      // This prevents Gas Fees (MOVE) from "blocking" the actual transfer (USDC) in the unique txHash table
+      let mainEventRecord = null;
+      let mainType: 'CREDIT' | 'DEBIT' | 'TRANSFER' = 'TRANSFER';
+      let mainToken = 'MOVE';
+      let mainTokenAddr = this.NATIVE_TOKEN_ADDRESS;
+      let mainAmount = '0';
+      let mainDesc = '';
 
-        if (recorded) {
+      // First pass: look for USDC (Fungible Asset)
+      const storeAddr = await this.getPrimaryStoreAddress(wallet.address, this.TEST_TOKEN_ADDRESS, isTestnet);
+      const usdcDeposit = events.find(e => e.type.includes('fungible_asset::Deposit') && e.data?.store?.toLowerCase() === storeAddr?.toLowerCase());
+      const usdcWithdraw = events.find(e => e.type.includes('fungible_asset::Withdraw') && e.data?.store?.toLowerCase() === storeAddr?.toLowerCase());
+
+      if (usdcDeposit) {
+        mainType = 'CREDIT';
+        mainToken = 'USDC.e';
+        mainTokenAddr = this.TEST_TOKEN_ADDRESS;
+        mainAmount = usdcDeposit.data?.amount || '0';
+        mainDesc = 'USDC deposit detected via event scan';
+        mainEventRecord = usdcDeposit;
+      } else if (usdcWithdraw) {
+        mainType = 'DEBIT';
+        mainToken = 'USDC.e';
+        mainTokenAddr = this.TEST_TOKEN_ADDRESS;
+        mainAmount = usdcWithdraw.data?.amount || '0';
+        mainDesc = 'USDC transfer detected via event scan';
+        mainEventRecord = usdcWithdraw;
+      } 
+      // Second pass: look for MOVE (Coin Standard) if no USDC found
+      else {
+        const moveDeposit = events.find(e => e.type.includes('coin::DepositEvent'));
+        const moveWithdraw = events.find(e => e.type.includes('coin::WithdrawEvent') && tx.sender === wallet.address);
+
+        if (moveDeposit) {
+          mainType = 'CREDIT';
+          mainToken = 'MOVE';
+          mainTokenAddr = this.NATIVE_TOKEN_ADDRESS;
+          mainAmount = moveDeposit.data?.amount || '0';
+          mainDesc = 'MOVE deposit detected';
+          mainEventRecord = moveDeposit;
+        } else if (moveWithdraw) {
+          const amountValue = BigInt(moveWithdraw.data?.amount || '0');
+          // If it's a tiny amount (like gas), we still record it but label it clearly
+          mainType = 'DEBIT';
+          mainToken = 'MOVE';
+          mainTokenAddr = this.NATIVE_TOKEN_ADDRESS;
+          mainAmount = moveWithdraw.data?.amount || '0';
+          mainDesc = amountValue < 500000n ? 'Gas fee' : 'MOVE withdrawal detected';
+          mainEventRecord = moveWithdraw;
+        }
+      }
+
+      if (mainEventRecord) {
+        try {
+          const recorded = await this.recordTransaction({
+            walletId,
+            txHash: tx.hash,
+            txType: mainType,
+            amount: mainAmount.toString(),
+            tokenAddress: mainTokenAddr,
+            tokenSymbol: mainToken,
+            fromAddress: mainType === 'CREDIT' ? tx.sender : wallet.address,
+            toAddress: mainType === 'DEBIT' ? tx.sender : wallet.address,
+            description: mainDesc,
+            status: 'COMPLETED',
+            metadata: { version: tx.version, sender: tx.sender }
+          });
           newTransactions.push(recorded);
           processedHashesInLoop.add(tx.hash);
+        } catch (recordError: any) {
+          this.logger.warn(`Failed to record main event for ${tx.hash}: ${recordError.message}`);
         }
       }
     }
