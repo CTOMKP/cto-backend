@@ -516,12 +516,9 @@ export class MovementWalletService {
               metadata: { version: activity.transaction_version, timestamp: activity.transaction_timestamp }
             });
             newTransactions.push(recorded);
-            processedHashesInLoop.add(activity.transaction_hash);
           } catch (e) {
             this.logger.warn(`Failed to record indexed USDC tx: ${e.message}`);
           }
-        } else {
-          processedHashesInLoop.add(activity.transaction_hash);
         }
       }
 
@@ -610,15 +607,19 @@ export class MovementWalletService {
       const blockchainTxs = response.data || [];
 
       for (const tx of blockchainTxs) {
-        if (tx.type !== 'user_transaction' || !tx.success || processedHashesInLoop.has(tx.hash)) continue;
+        if (tx.type !== 'user_transaction' || !tx.success) continue;
 
         // Check if we already have this transaction in DB
         const existingTx = await (this.prisma as any).walletTransaction.findUnique({
-          where: { txHash: tx.hash },
+          where: { 
+            walletId_txHash: {
+              walletId: walletId,
+              txHash: tx.hash
+            }
+          },
         });
 
         if (existingTx) {
-          processedHashesInLoop.add(tx.hash);
           continue;
         }
 
@@ -694,7 +695,6 @@ export class MovementWalletService {
             metadata: { version: tx.version, sender: tx.sender }
           });
           newTransactions.push(recorded);
-          processedHashesInLoop.add(tx.hash);
         } catch (recordError: any) {
           this.logger.warn(`Failed to record main event for ${tx.hash}: ${recordError.message}`);
         }
@@ -709,7 +709,7 @@ export class MovementWalletService {
         const storeAddr = await this.getPrimaryStoreAddress(wallet.address, this.TEST_TOKEN_ADDRESS, isTestnet);
 
         for (const tx of adminTxs) {
-          if (!tx.success || processedHashesInLoop.has(tx.hash)) continue;
+          if (!tx.success) continue;
 
           const events = tx.events || [];
           for (const event of events) {
@@ -717,7 +717,14 @@ export class MovementWalletService {
                 event.data?.store?.toLowerCase() === storeAddr?.toLowerCase()) {
               
               const amount = event.data?.amount || '0';
-              const existing = await (this.prisma as any).walletTransaction.findUnique({ where: { txHash: tx.hash } });
+              const existing = await (this.prisma as any).walletTransaction.findUnique({ 
+                where: { 
+                  walletId_txHash: {
+                    walletId: walletId,
+                    txHash: tx.hash
+                  }
+                } 
+              });
               if (!existing) {
                 const recorded = await this.recordTransaction({
                   walletId,
@@ -732,7 +739,6 @@ export class MovementWalletService {
                   metadata: { version: tx.version, sender: tx.sender, isFromAdmin: true }
                 });
                 newTransactions.push(recorded);
-                processedHashesInLoop.add(tx.hash);
               }
             }
           }
