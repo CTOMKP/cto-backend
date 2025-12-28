@@ -525,6 +525,57 @@ export class MovementWalletService {
 
       // 2. Fetch transactions from RPC (Fallback and for native MOVE)
       const rpcUrl = this.getRpcUrl(isTestnet);
+      
+      // STRATEGIC ADDITION: Explicitly fetch USDC Events from RPC to bypass slow Indexer
+      const storeAddr = await this.getPrimaryStoreAddress(wallet.address, this.TEST_TOKEN_ADDRESS, isTestnet);
+      if (storeAddr) {
+        try {
+          this.logger.debug(`📡 [RPC] Fetching USDC Events for store: ${storeAddr}`);
+          // On Movement/Aptos, we can query events for the specific FungibleStore
+          const eventsRes = await axios.get(`${rpcUrl}/accounts/${storeAddr}/events/0x1::fungible_asset::FungibleStore/deposit_events?limit=10`);
+          const depositEvents = eventsRes.data || [];
+          
+          for (const event of depositEvents) {
+            const txHash = event.transaction_hash || event.version; // Use version as fallback
+            if (processedHashesInLoop.has(txHash)) continue;
+
+            const existingTx = await (this.prisma as any).walletTransaction.findUnique({
+              where: { txHash: txHash },
+            });
+
+            if (!existingTx) {
+              const amount = event.data?.amount || '0';
+              // Fetch full tx for sender/real hash if needed
+              let realHash = txHash;
+              let sender = 'Unknown';
+              try {
+                const txRes = await axios.get(`${rpcUrl}/transactions/by_version/${event.version}`);
+                realHash = txRes.data.hash || txHash;
+                sender = txRes.data.sender || 'Unknown';
+              } catch (e) {}
+
+              const recorded = await this.recordTransaction({
+                walletId,
+                txHash: realHash,
+                txType: 'CREDIT',
+                amount: amount.toString(),
+                tokenAddress: this.TEST_TOKEN_ADDRESS,
+                tokenSymbol: 'USDC.e',
+                toAddress: wallet.address,
+                fromAddress: sender,
+                description: `USDC deposit detected via direct RPC event scan`,
+                status: 'COMPLETED',
+                metadata: { version: event.version }
+              });
+              newTransactions.push(recorded);
+              processedHashesInLoop.add(realHash);
+            }
+          }
+        } catch (eventErr: any) {
+          this.logger.warn(`⚠️ [RPC] Failed to fetch USDC events: ${eventErr.message}`);
+        }
+      }
+
       const response = await axios.get(`${rpcUrl}/accounts/${wallet.address}/transactions?limit=10`, {
         timeout: 10000,
       });
