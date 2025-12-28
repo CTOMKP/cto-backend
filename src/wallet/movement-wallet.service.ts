@@ -486,15 +486,17 @@ export class MovementWalletService {
 
       this.logger.debug(`Polling transactions for wallet: ${wallet.address}`);
       const newTransactions: any[] = [];
-      const processedHashesInLoop = new Set<string>();
 
       // 1. Fetch activities from INDEXER (Modern approach for USDC)
       const usdcActivities = await this.queryIndexerForUSDC(wallet.address);
       for (const activity of usdcActivities) {
-        if (processedHashesInLoop.has(activity.transaction_hash)) continue;
-
         const existingTx = await (this.prisma as any).walletTransaction.findUnique({
-          where: { txHash: activity.transaction_hash },
+          where: { 
+            walletId_txHash: {
+              walletId: walletId,
+              txHash: activity.transaction_hash
+            }
+          },
         });
 
         if (!existingTx) {
@@ -537,7 +539,7 @@ export class MovementWalletService {
           const globalTxs = ledgerRes.data || [];
           
           for (const tx of globalTxs) {
-            if (tx.type !== 'user_transaction' || !tx.success || processedHashesInLoop.has(tx.hash)) continue;
+            if (tx.type !== 'user_transaction' || !tx.success) continue;
 
             const events = tx.events || [];
             // GEMINI FIX: Iterate through ALL events to avoid Gas Fee noise
@@ -550,10 +552,12 @@ export class MovementWalletService {
               
               if ((isDeposit || isWithdraw) && eventStore === targetStore) {
                 // GEMINI FIX: Check for BOTH Wallet and Hash (allow same hash for different users)
-                const existingTx = await (this.prisma as any).walletTransaction.findFirst({
+                const existingTx = await (this.prisma as any).walletTransaction.findUnique({
                   where: { 
-                    walletId: walletId,
-                    txHash: tx.hash 
+                    walletId_txHash: {
+                      walletId: walletId,
+                      txHash: tx.hash 
+                    }
                   },
                 });
 
@@ -588,10 +592,7 @@ export class MovementWalletService {
                   });
                   
                   newTransactions.push(recorded);
-                  processedHashesInLoop.add(tx.hash);
                   this.logger.log(`[MASTER-SCAN] Recorded ${txType} for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
-                } else {
-                  processedHashesInLoop.add(tx.hash);
                 }
               }
             }
