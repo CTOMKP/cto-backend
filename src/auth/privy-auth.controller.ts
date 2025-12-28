@@ -187,9 +187,15 @@ export class PrivyAuthController {
         userWallets = await this.retryWithBackoff(
           async () => {
             const wallets = await this.privyAuthService.getUserWallets((privyUser as any).userId);
+            // SAFETY RETRY: If 0 wallets found, wait 1s and try once more
+            if (!wallets || wallets.length === 0) {
+              this.logger.log('⚠️ 0 wallets found, waiting 1s for Privy indexing...');
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              return await this.privyAuthService.getUserWallets((privyUser as any).userId);
+            }
             return wallets;
           },
-          3, // Reduced retries since we aren't waiting for a specific chain anymore
+          2, // Reduced retries
           1000,
           1.5
         );
@@ -727,7 +733,14 @@ export class PrivyAuthController {
       
       // Get user details from Privy
       const userDetails = await this.privyAuthService.getUserById(user.privyUserId);
-      const userWallets = await this.privyAuthService.getUserWallets(user.privyUserId);
+      let userWallets = await this.privyAuthService.getUserWallets(user.privyUserId);
+      
+      // SAFETY RETRY: If 0 wallets found, wait 1s and try once more
+      if (!userWallets || (userWallets as any).length === 0) {
+        this.logger.log('⚠️ 0 wallets found in manual sync, waiting 1s for Privy indexing...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        userWallets = await this.privyAuthService.getUserWallets(user.privyUserId);
+      }
       
       this.logger.log(`📊 Privy API returned ${(userWallets as any)?.length || 0} wallets`);
       
