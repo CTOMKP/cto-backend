@@ -181,32 +181,20 @@ export class PrivyAuthController {
       
       let userWallets;
       try {
+        // STRATEGIC FIX: We no longer FORCE wait for MOVEMENT here.
+        // For new users, they won't have a Movement wallet yet.
+        // We just get whatever wallets are available from Privy.
         userWallets = await this.retryWithBackoff(
           async () => {
             const wallets = await this.privyAuthService.getUserWallets((privyUser as any).userId);
-            if (!wallets || wallets.length === 0) {
-              this.logger.warn(`Privy reported 0 wallets for ${(privyUser as any).userId}, triggering retry...`);
-              throw new Error('No wallets found in Privy yet');
-            }
-
-            // FORCE WAIT FOR MOVEMENT: If we have some wallets but NOT Movement yet,
-            // we should keep retrying because we know Movement is required for this app.
-            const hasMovement = wallets.some(w => w.blockchain === 'MOVEMENT');
-            if (!hasMovement) {
-              this.logger.warn(`Found ${wallets.length} wallets but MOVEMENT is missing. Retrying to wait for Privy...`);
-              this.logToFile(`Found ${wallets.length} wallets but MOVEMENT is missing. Retrying to wait for Privy...`);
-              throw new Error('MOVEMENT wallet not ready in Privy API yet');
-            }
-
             return wallets;
           },
-          8, // Increased retries to 8 (total ~30-40 seconds)
-          2000, // 2s initial delay
-          1.5 // Gentler backoff
+          3, // Reduced retries since we aren't waiting for a specific chain anymore
+          1000,
+          1.5
         );
       } catch (error) {
-        this.logger.error(`Failed to get full wallet set even after retries: ${error.message}`);
-        // Fallback: If we still don't have Movement after 40 seconds, take what we have
+        this.logger.error(`Failed to get wallets: ${error.message}`);
         userWallets = await this.privyAuthService.getUserWallets((privyUser as any).userId);
       }
 
