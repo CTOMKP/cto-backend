@@ -726,8 +726,30 @@ export class PrivyAuthController {
       this.logger.log(`🔄 Manually syncing wallets for user ${userId} (Privy ID: ${user.privyUserId})`);
       
       // Get user details from Privy
+      this.logger.log(`Step 1: Getting user details from Privy...`);
       const userDetails = await this.privyAuthService.getUserById(user.privyUserId);
-      const userWallets = await this.privyAuthService.getUserWallets(user.privyUserId);
+      
+      this.logger.log(`Step 2: Getting user wallets from Privy (with retry/wait for MOVEMENT)...`);
+      let userWallets;
+      try {
+        userWallets = await this.retryWithBackoff(
+          async () => {
+            const wallets = await this.privyAuthService.getUserWallets(user.privyUserId);
+            const hasMovement = wallets.some(w => w.blockchain === 'MOVEMENT' || w.chainType === 'aptos');
+            if (!hasMovement) {
+              this.logger.warn(`MOVEMENT wallet not found in Privy yet, retrying...`);
+              throw new Error('MOVEMENT wallet not ready in Privy API yet');
+            }
+            return wallets;
+          },
+          5, // 5 retries (total ~15-20 seconds)
+          1500, // 1.5s initial delay
+          1.5 // 1.5x backoff
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to find MOVEMENT wallet after retries, syncing available wallets: ${error.message}`);
+        userWallets = await this.privyAuthService.getUserWallets(user.privyUserId);
+      }
       
       this.logger.log(`📊 Privy API returned ${(userWallets as any)?.length || 0} wallets`);
       
@@ -740,7 +762,7 @@ export class PrivyAuthController {
             privyWalletId: (wallet as any).id,
             address: (wallet as any).address,
             blockchain: this.mapChainType((wallet as any).chainType),
-            type: (wallet as any).id === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL',
+            type: (wallet as any).id === 'embedded' || (wallet as any).connectorType === 'embedded' ? 'PRIVY_EMBEDDED' : 'PRIVY_EXTERNAL',
             walletClient: (wallet as any).walletClient || 'privy',
             isPrimary: (userWallets as any)[0].id === (wallet as any).id,
           });
