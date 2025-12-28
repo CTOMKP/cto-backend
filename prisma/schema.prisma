@@ -331,7 +331,7 @@ model WalletTransaction {
   wallet        Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
   
   // Transaction details
-  txHash        String   @unique // Movement transaction hash
+  txHash        String   // Movement transaction hash
   txType        String   // CREDIT | DEBIT | TRANSFER
   amount        String   // Amount as string
   tokenAddress  String   // Token contract address
@@ -357,6 +357,7 @@ model WalletTransaction {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   
+  @@unique([walletId, txHash])
   @@index([walletId])
   @@index([txHash])
   @@index([paymentId])

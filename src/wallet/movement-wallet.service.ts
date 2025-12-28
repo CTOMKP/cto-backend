@@ -549,20 +549,28 @@ export class MovementWalletService {
               const targetStore = storeAddr.toLowerCase();
               
               if ((isDeposit || isWithdraw) && eventStore === targetStore) {
-                const existingTx = await (this.prisma as any).walletTransaction.findUnique({
-                  where: { txHash: tx.hash },
+                // GEMINI FIX: Check for BOTH Wallet and Hash (allow same hash for different users)
+                const existingTx = await (this.prisma as any).walletTransaction.findFirst({
+                  where: { 
+                    walletId: walletId,
+                    txHash: tx.hash 
+                  },
                 });
 
                 if (!existingTx) {
                   const amount = event.data?.amount || '0';
                   const txType = isDeposit ? 'CREDIT' : 'DEBIT';
                   
-                  // For the Receiver (Deposit), the "from" is the tx sender.
-                  // For the Sender (Withdraw), the "to" is determined by finding the matching Deposit in the SAME tx.
-                  let counterpart = 'External';
+                  // GEMINI FIX: Correct asymmetric counterparty logic
+                  let counterparty = 'Unknown';
                   if (isWithdraw) {
-                    const receiverEvent = events.find(e => e.type.includes('fungible_asset::Deposit') && e.data?.store?.toLowerCase() !== targetStore);
-                    if (receiverEvent) counterpart = '0x' + receiverEvent.data?.store?.split('0x')[1]?.substring(0, 40) || 'External';
+                      // I am sending: find who received it (the store that IS NOT mine)
+                      const rec = events.find(e => e.type.includes('fungible_asset::Deposit') && e.data?.store?.toLowerCase() !== targetStore);
+                      counterparty = rec ? rec.data.store : 'External';
+                  } else {
+                      // I am receiving: find who sent it (the one who Withdrew)
+                      const sen = events.find(e => e.type.includes('fungible_asset::Withdraw') && e.data?.store?.toLowerCase() !== targetStore);
+                      counterparty = sen ? sen.data.store : tx.sender; 
                   }
 
                   const recorded = await this.recordTransaction({
@@ -572,8 +580,8 @@ export class MovementWalletService {
                     amount: amount.toString(),
                     tokenAddress: this.TEST_TOKEN_ADDRESS,
                     tokenSymbol: 'USDC.e',
-                    toAddress: isDeposit ? wallet.address : counterpart,
-                    fromAddress: isWithdraw ? wallet.address : tx.sender,
+                    toAddress: isDeposit ? wallet.address : counterparty,
+                    fromAddress: isWithdraw ? wallet.address : counterparty,
                     description: `USDC ${isDeposit ? 'deposit' : 'payment'} detected via master scan`,
                     status: 'COMPLETED',
                     metadata: { version: tx.version, store: storeAddr, eventType: event.type }
