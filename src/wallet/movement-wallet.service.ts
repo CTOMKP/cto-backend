@@ -542,26 +542,34 @@ export class MovementWalletService {
 
             const events = tx.events || [];
             for (const event of events) {
-              // Look for the specific modern FA DepositEvent type
+              // Look for the specific modern FA DepositEvent or WithdrawEvent type
               const isFADeposit = event.type === '0x1::fungible_asset::DepositEvent' || event.type.includes('fungible_asset::Deposit');
+              const isFAWithdraw = event.type === '0x1::fungible_asset::WithdrawEvent' || event.type.includes('fungible_asset::Withdraw');
               
-              if (isFADeposit && event.data?.store?.toLowerCase() === storeAddr.toLowerCase()) {
+              const isMatch = (isFADeposit || isFAWithdraw) && event.data?.store?.toLowerCase() === storeAddr.toLowerCase();
+
+              if (isMatch) {
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
                   where: { txHash: tx.hash },
                 });
 
                 if (!existingTx) {
                   const amount = event.data?.amount || '0';
+                  const txType = isFADeposit ? 'CREDIT' : 'DEBIT';
+                  const description = isFADeposit 
+                    ? `USDC deposit detected via global ledger scan` 
+                    : `USDC payment detected via global ledger scan`;
+
                   const recorded = await this.recordTransaction({
                     walletId,
                     txHash: tx.hash,
-                    txType: 'CREDIT',
+                    txType: txType as any,
                     amount: amount.toString(),
                     tokenAddress: this.TEST_TOKEN_ADDRESS,
                     tokenSymbol: 'USDC.e',
-                    toAddress: wallet.address,
-                    fromAddress: tx.sender,
-                    description: `USDC deposit detected via global ledger scan`,
+                    toAddress: isFADeposit ? wallet.address : 'External',
+                    fromAddress: isFAWithdraw ? wallet.address : tx.sender,
+                    description: description,
                     status: 'COMPLETED',
                     metadata: { version: tx.version, store: storeAddr }
                   });
