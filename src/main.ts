@@ -32,14 +32,30 @@ async function bootstrap() {
   app.use(compression());
 
   // CORS configuration
-  // Support both CORS_ORIGIN and CORS_ORIGINS for compatibility
-  const corsOrigin = configService.get('CORS_ORIGIN') || configService.get('CORS_ORIGINS') || 'http://localhost:3000';
-  const corsOrigins = corsOrigin.split(',').map(origin => origin.trim());
+  const corsOrigins = [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://cto-frontend.vercel.app',
+    'https://cto-vineyard-frontend.vercel.app',
+    'https://api.ctomarketplace.com',
+    'https://www.ctomarketplace.com',
+  ];
+
+  const extraOrigins = configService.get('CORS_ORIGIN') || configService.get('CORS_ORIGINS');
+  if (extraOrigins) {
+    extraOrigins.split(',').forEach(origin => {
+      const trimmed = origin.trim();
+      if (trimmed && !corsOrigins.includes(trimmed)) {
+        corsOrigins.push(trimmed);
+      }
+    });
+  }
+
   app.enableCors({
     origin: corsOrigins,
-    credentials: configService.get('CORS_CREDENTIALS', true),
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   });
   logger.log(`✅ CORS enabled for origins: ${corsOrigins.join(', ')}`);
 
