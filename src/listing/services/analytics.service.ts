@@ -135,6 +135,41 @@ export class AnalyticsService {
   }
 
   /**
+   * Helius API - Get Solana token holder count
+   */
+  private async getHeliusHolders(contractAddress: string): Promise<number | null> {
+    try {
+      const url = `https://mainnet.helius-rpc.com/?api-key=${this.heliusApiKey}`;
+      const response = await axios.post(url, {
+        jsonrpc: '2.0',
+        id: 'get-holders',
+        method: 'getTokenAccounts',
+        params: [
+          {
+            mint: contractAddress,
+          },
+          {
+            page: 1,
+            limit: 1,
+            displayOptions: {
+              showSummary: true,
+            },
+          },
+        ],
+      }, { timeout: 5000 });
+
+      if (response.data?.result?.total) {
+        return response.data.result.total;
+      }
+
+      return null;
+    } catch (error: any) {
+      this.logger.debug(`Helius API error: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Solscan API - Get Solana token holders
    */
   private async getSolscanHolders(contractAddress: string): Promise<number | null> {
