@@ -30,12 +30,18 @@ export class ScanService {
   // Scans a single token, optionally persists result if userId provided
   async scanToken(contractAddress: string, userId?: number, chain: 'SOLANA' | 'EVM' | 'NEAR' | 'OSMOSIS' | 'OTHER' = 'SOLANA') {
     try {
+      this.logger.log(`📥 scanToken called: address=${contractAddress}, chain=${chain}, userId=${userId}`);
       if (!contractAddress) {
         throw new HttpException('Contract address is required', HttpStatus.BAD_REQUEST);
       }
 
       // Check for BYPASS_VETTING environment variable
-      const bypassVetting = this.configService.get('BYPASS_VETTING') === 'true';
+      const configVal = this.configService.get('BYPASS_VETTING');
+      const envVal = process.env.BYPASS_VETTING;
+      const bypassVetting = configVal === 'true' || configVal === true || envVal === 'true' || envVal === true;
+      
+      this.logger.debug(`[ScanService] BYPASS_VETTING check: config=${configVal}, env=${envVal}, result=${bypassVetting}`);
+
       if (bypassVetting) {
         this.logger.warn(`⚠️ BYPASS_VETTING is enabled. Returning high-trust result for ${contractAddress}`);
         const mockVettingResults = {
