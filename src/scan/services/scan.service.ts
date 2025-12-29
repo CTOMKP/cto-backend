@@ -30,67 +30,8 @@ export class ScanService {
   // Scans a single token, optionally persists result if userId provided
   async scanToken(contractAddress: string, userId?: number, chain: 'SOLANA' | 'EVM' | 'NEAR' | 'OSMOSIS' | 'OTHER' = 'SOLANA') {
     try {
-      this.logger.log(`📥 scanToken called: address=${contractAddress}, chain=${chain}, userId=${userId}`);
       if (!contractAddress) {
         throw new HttpException('Contract address is required', HttpStatus.BAD_REQUEST);
-      }
-
-      // Check for BYPASS_VETTING environment variable
-      const configVal = this.configService.get('BYPASS_VETTING');
-      const envVal = process.env.BYPASS_VETTING;
-      // Convert to string before comparison to satisfy TypeScript and handle both 'true' and true
-      const bypassVetting = String(configVal).toLowerCase() === 'true' || String(envVal).toLowerCase() === 'true';
-      
-      this.logger.debug(`[ScanService] BYPASS_VETTING check: config=${configVal}, env=${envVal}, result=${bypassVetting}`);
-
-      if (bypassVetting) {
-        this.logger.warn(`⚠️ BYPASS_VETTING is enabled. Returning high-trust result for ${contractAddress}`);
-        const mockVettingResults = {
-          overallScore: 95,
-          dataSufficient: true,
-          missingData: [],
-          riskLevel: 'low',
-          eligibleTier: 'stellar',
-          allFlags: ['BYPASS_VETTING enabled (Testing Mode)'],
-          calculatedAt: new Date().toISOString(),
-        };
-
-        const mockResult = {
-          tier: 'stellar',
-          risk_score: 95,
-          risk_level: 'LOW',
-          eligible: true,
-          summary: `[BYPASS MODE] This token ${contractAddress} is verified as high-trust for testing purposes.`,
-          metadata: {
-            token_symbol: 'BYPASS',
-            token_name: 'Bypass Testing Token',
-            project_age_days: 100,
-            age_display: '100 days',
-            age_display_short: '100d',
-            lp_amount_usd: 1000000,
-            token_price: 1.0,
-            volume_24h: 500000,
-            market_cap: 10000000,
-            holder_count: 5000,
-            scan_timestamp: new Date().toISOString(),
-            vetting_results: mockVettingResults,
-          },
-        };
-
-        // Persist in DB if userId provided
-        if (userId) {
-          try {
-            await this.prisma.scanResult.create({
-              data: {
-                contractAddress,
-                resultData: mockResult as any,
-                userId,
-              },
-            });
-          } catch (dbError) {}
-        }
-
-        return mockResult;
       }
 
       if (chain !== 'SOLANA') {
