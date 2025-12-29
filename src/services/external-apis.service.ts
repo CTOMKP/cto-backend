@@ -174,7 +174,7 @@ export class ExternalApisService {
    */
   async fetchMoralisData(contractAddress: string, chain: string = 'solana') {
     try {
-      const apiKey = this.configService.get('MORALIS_API_KEY');
+      const apiKey = this.configService.get('MORALIS_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI');
       if (!apiKey) {
         this.logger.debug('Moralis API key not configured');
         return null;
@@ -216,7 +216,7 @@ export class ExternalApisService {
    */
   async fetchSolscanData(contractAddress: string) {
     try {
-      const apiKey = this.configService.get('SOLSCAN_API_KEY');
+      const apiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0');
       if (!apiKey) {
         this.logger.debug('Solscan API key not configured');
         return null;

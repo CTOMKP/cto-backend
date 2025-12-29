@@ -84,9 +84,9 @@ export class CronService implements OnModuleInit {
 
   /**
    * Token Discovery Cron Job (Phase 1)
-   * Runs every 2 minutes to discover new tokens
+   * Runs every 20 minutes to discover new tokens (increased from 2 minutes)
    */
-  @Cron('0 */2 * * * *', {
+  @Cron('0 */20 * * * *', {
     name: 'token-discovery',
     timeZone: 'UTC',
   })
@@ -117,9 +117,9 @@ export class CronService implements OnModuleInit {
 
   /**
    * Token Monitoring Cron Job (Phase 2)
-   * Runs every 5 minutes to monitor existing tokens
+   * Runs every 30 minutes to monitor existing tokens (increased from 5 minutes)
    */
-  @Cron('0 */5 * * * *', {
+  @Cron('0 */30 * * * *', {
     name: 'token-monitoring',
     timeZone: 'UTC',
   })
@@ -427,7 +427,7 @@ export class CronService implements OnModuleInit {
    */
   private async fetchHeliusData(contractAddress: string) {
     try {
-      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1a00b566-9c85-4b19-b219-d3875fbcb8d3');
+      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
       const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
 
       // Fetch token metadata and creation date
@@ -534,7 +534,7 @@ export class CronService implements OnModuleInit {
    */
   private async fetchHeliusBearTreeData(contractAddress: string) {
     try {
-      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '99b6e8db-d86a-4d3d-a5ee-88afa8015074');
+      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
       // Note: BearTree API endpoint may need to be configured
       const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
 

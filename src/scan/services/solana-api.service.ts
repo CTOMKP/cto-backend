@@ -12,7 +12,8 @@ export class SolanaApiService {
   private readonly MORALIS_API_URL = 'https://deep-index.moralis.io/api/v2.2';
 
   constructor(private readonly configService: ConfigService) {
-    this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${this.configService.get('HELIUS_API_KEY')}`;
+    const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
+    this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
   }
 
   /**
@@ -204,7 +205,7 @@ export class SolanaApiService {
       // Try to get holder count from Solscan API (with API key if present)
       let holderCount = null;
       try {
-        const apiKey = process.env.SOLSCAN_API_KEY;
+        const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
         const solscanResponse = await axios.get(`${this.SOLSCAN_API_URL}/token/meta`, {
           params: { tokenAddress: contractAddress },
           timeout: 5000,
@@ -252,7 +253,7 @@ export class SolanaApiService {
           // Try to get holder count from Solscan API even for DexScreener fallback
           let holderCount = null;
           try {
-            const apiKey = process.env.SOLSCAN_API_KEY;
+            const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
             const solscanResponse = await axios.get(`${this.SOLSCAN_API_URL}/token/meta`, {
               params: { tokenAddress: contractAddress },
               timeout: 5000,
@@ -597,7 +598,7 @@ export class SolanaApiService {
   private async fetchHolderData(contractAddress: string) {
     try {
       console.log('Fetching holder distribution from Solscan API...');
-      const apiKey = process.env.SOLSCAN_API_KEY;
+      const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
 
       // Try Solscan Pro holders endpoint if API key is present
       if (apiKey) {
@@ -858,7 +859,7 @@ export class SolanaApiService {
   // Fetch Moralis token market metadata/price
   private async fetchMoralisMarket(contractAddress: string) {
     try {
-      const apiKey = process.env.MORALIS_API_KEY;
+      const apiKey = process.env.MORALIS_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI';
       if (!apiKey) return null;
 
       // SPL support in Moralis may vary; try endpoints gracefully

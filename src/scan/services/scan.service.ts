@@ -503,7 +503,7 @@ export class ScanService {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1a00b566-9c85-4b19-b219-d3875fbcb8d3');
+      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
       const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
 
       const [assetResponse, holdersResponse] = await Promise.allSettled([
@@ -624,7 +624,7 @@ export class ScanService {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '99b6e8db-d86a-4d3d-a5ee-88afa8015074');
+      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
       const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
 
       const response = await firstValueFrom(

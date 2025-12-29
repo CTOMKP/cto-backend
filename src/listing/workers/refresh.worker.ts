@@ -94,7 +94,7 @@ export class RefreshWorker {
    * Process existing unvetted tokens in batches
    * Runs every 10 minutes to vet tokens that were added before n8n integration
    */
-  @Cron('0 */5 * * * *', {
+  @Cron('0 */30 * * * *', {
     name: 'vet-existing-tokens',
     timeZone: 'UTC',
   })
@@ -1188,9 +1188,9 @@ export class RefreshWorker {
     await this.enforceTokenLimit();
   }
 
-  // Phase 1 live updating: refresh all listings every 5 minutes using scan enrichment
-  // Reduced from 60 minutes to 5 minutes to ensure tokens get updated with fixes quickly
-  @Cron('0 */5 * * * *') // Every 5 minutes to keep data fresh
+  // Phase 1 live updating: refresh all listings every 30 minutes using scan enrichment
+  // Increased from 5 minutes to 30 minutes to reduce API usage and prevent rate limiting
+  @Cron('0 */30 * * * *') // Every 30 minutes to keep data fresh
   async scheduledRefreshAll() {
     const client = (this.repo as any)['prisma'] as any;
     const rows: { contractAddress: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' }[] = await client.listing.findMany({ select: { contractAddress: true, chain: true } });
@@ -1556,7 +1556,7 @@ export class RefreshWorker {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1a00b566-9c85-4b19-b219-d3875fbcb8d3');
+      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
       const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
 
       const [assetResponse, holdersResponse] = await Promise.allSettled([

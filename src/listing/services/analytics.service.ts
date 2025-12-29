@@ -19,9 +19,9 @@ export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
   
   private readonly etherscanApiKey = process.env.ETHERSCAN_API_KEY;
-  private readonly moralisApiKey = process.env.MORALIS_API_KEY;
-  private readonly heliusApiKey = process.env.HELIUS_API_KEY;
-  private readonly solscanApiKey = process.env.SOLSCAN_API_KEY;
+  private readonly moralisApiKey = process.env.MORALIS_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI';
+  private readonly heliusApiKey = process.env.HELIUS_API_KEY || '1485e891-c87d-40e1-8850-a578511c4b92';
+  private readonly solscanApiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
   private readonly bitqueryToken = process.env.BITQUERY_ACCESS_TOKEN;
 
   /**
