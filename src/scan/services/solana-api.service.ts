@@ -206,18 +206,24 @@ export class SolanaApiService {
       let holderCount = null;
       try {
         const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
-        const solscanResponse = await axios.get(`${this.SOLSCAN_API_URL}/token/meta`, {
-          params: { tokenAddress: contractAddress },
+        const isV2 = apiKey?.startsWith('eyJ');
+        const url = isV2 
+          ? `https://pro-api.solscan.io/v2/token/holders?address=${contractAddress}&page=1&page_size=1`
+          : `${this.SOLSCAN_API_URL}/token/meta?tokenAddress=${contractAddress}`;
+        
+        const solscanResponse = await axios.get(url, {
           timeout: 5000,
           headers: {
             'User-Agent': 'CTO-Vetting-System/1.0',
-            ...(apiKey ? { 'x-api-key': apiKey, token: apiKey } : {}),
+            ...(isV2 ? { 'x-api-key': apiKey } : { token: apiKey }),
           }
         });
         
         if (solscanResponse.data) {
-          const raw = (solscanResponse.data.holder ?? solscanResponse.data.holders);
-          const parsed = raw != null ? parseInt(raw, 10) : NaN;
+          const raw = isV2 
+            ? (solscanResponse.data?.data?.total || solscanResponse.data?.total)
+            : (solscanResponse.data.holder ?? solscanResponse.data.holders);
+          const parsed = raw != null ? parseInt(String(raw), 10) : NaN;
           if (Number.isFinite(parsed)) holderCount = parsed;
         }
       } catch (solscanError) {
@@ -254,18 +260,24 @@ export class SolanaApiService {
           let holderCount = null;
           try {
             const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
-            const solscanResponse = await axios.get(`${this.SOLSCAN_API_URL}/token/meta`, {
-              params: { tokenAddress: contractAddress },
+            const isV2 = apiKey?.startsWith('eyJ');
+            const url = isV2 
+              ? `https://pro-api.solscan.io/v2/token/holders?address=${contractAddress}&page=1&page_size=1`
+              : `${this.SOLSCAN_API_URL}/token/meta?tokenAddress=${contractAddress}`;
+            
+            const solscanResponse = await axios.get(url, {
               timeout: 5000,
               headers: {
                 'User-Agent': 'CTO-Vetting-System/1.0',
-                ...(apiKey ? { 'x-api-key': apiKey, token: apiKey } : {}),
+                ...(isV2 ? { 'x-api-key': apiKey } : { token: apiKey }),
               }
             });
             
             if (solscanResponse.data) {
-              const raw = (solscanResponse.data.holder ?? solscanResponse.data.holders);
-              const parsed = raw != null ? parseInt(raw, 10) : NaN;
+              const raw = isV2 
+                ? (solscanResponse.data?.data?.total || solscanResponse.data?.total)
+                : (solscanResponse.data.holder ?? solscanResponse.data.holders);
+              const parsed = raw != null ? parseInt(String(raw), 10) : NaN;
               if (Number.isFinite(parsed)) holderCount = parsed;
             }
           } catch (solscanError) {
@@ -599,22 +611,31 @@ export class SolanaApiService {
     try {
       console.log('Fetching holder distribution from Solscan API...');
       const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
+      const isV2 = apiKey?.startsWith('eyJ');
 
       // Try Solscan Pro holders endpoint if API key is present
       if (apiKey) {
         try {
-          const res = await axios.get(`${this.SOLSCAN_API_URL}/token/holders`, {
-            params: { tokenAddress: contractAddress, limit: 20, offset: 0 },
+          const url = isV2 
+            ? `https://pro-api.solscan.io/v2/token/holders?address=${contractAddress}&page=1&page_size=20`
+            : `${this.SOLSCAN_API_URL}/token/holders?tokenAddress=${contractAddress}&limit=20&offset=0`;
+
+          const res = await axios.get(url, {
             timeout: 8000,
             headers: {
               'User-Agent': 'CTO-Vetting-System/1.0',
-              'token': apiKey,
-              'x-api-key': apiKey,
+              ...(isV2 ? { 'x-api-key': apiKey } : { 'token': apiKey, 'x-api-key': apiKey }),
             },
           });
-          const list = Array.isArray(res.data?.data) ? res.data.data : [];
-          const total = typeof res.data?.total === 'number' ? res.data.total : list.length;
-          const topHolders = list.map((h: any) => ({ address: h.owner, amount: h.amount, share: h.share }));
+          
+          const list = isV2 ? (res.data?.data || []) : (Array.isArray(res.data?.data) ? res.data.data : []);
+          const total = isV2 ? (res.data?.data?.total || res.data?.total || list.length) : (typeof res.data?.total === 'number' ? res.data.total : list.length);
+          
+          const topHolders = list.map((h: any) => ({ 
+            address: isV2 ? h.address : h.owner, 
+            amount: isV2 ? h.amount : h.amount, 
+            share: isV2 ? (h.percentage / 100) : h.share 
+          }));
 
           return {
             total_holders: total,

@@ -107,22 +107,26 @@ export class AnalyticsService {
 
       const moralisChain = chainMap[chain] || 'eth';
       
-      // Use the token holders endpoint
-      const url = `https://deep-index.moralis.io/api/v2.2/erc20/${contractAddress}/owners?chain=${moralisChain}&limit=1`;
+      // Use different endpoint for Solana
+      const url = moralisChain === 'solana' 
+        ? `https://solana-mainnet.g.alchemy.com/v2/tokens/${contractAddress}/owners` // This was a placeholder, correcting to actual Moralis Solana
+        : `https://deep-index.moralis.io/api/v2.2/erc20/${contractAddress}/owners?chain=${moralisChain}&limit=1`;
       
-      const response = await axios.get(url, {
+      // Correct Moralis Solana Holder Count URL
+      const solanaUrl = `https://solana-gateway.moralis.io/token/mainnet/${contractAddress}/owners?limit=1`;
+      const targetUrl = moralisChain === 'solana' ? solanaUrl : url;
+
+      const response = await axios.get(targetUrl, {
         headers: {
           'X-API-Key': this.moralisApiKey,
         },
         timeout: 5000,
       });
 
-      // Moralis returns total count in the response
-      if (response.data?.total) {
-        return response.data.total;
-      }
+      // Moralis returns total count in different fields based on API
+      if (response.data?.total) return response.data.total;
+      if (response.data?.count) return response.data.count;
 
-      this.logger.debug(`Moralis API returned no holder data`);
       return null;
     } catch (error: any) {
       this.logger.debug(`Moralis API error: ${error.message}`);
@@ -131,37 +135,28 @@ export class AnalyticsService {
   }
 
   /**
-   * Helius API - Get Solana token holders
-   * Note: Helius token-metadata API doesn't provide holder count directly.
-   * This method returns null to allow fallback to Solscan which is more reliable for holder counts.
-   */
-  private async getHeliusHolders(contractAddress: string): Promise<number | null> {
-    // Helius token-metadata API doesn't return holder count in a reliable way.
-    // Skip Helius for holder counts and rely on Solscan which is more reliable.
-    // Returning null allows the fallback chain to proceed to Solscan.
-    this.logger.debug(`Skipping Helius for holder count (not available via token-metadata API), will try Solscan`);
-      return null;
-  }
-
-  /**
    * Solscan API - Get Solana token holders
    */
   private async getSolscanHolders(contractAddress: string): Promise<number | null> {
     try {
-      const url = `https://api.solscan.io/token/holders?token=${contractAddress}&offset=0&size=1`;
+      // Use Solscan V2 API if it's a Pro key (starts with eyJ...)
+      const isV2 = this.solscanApiKey?.startsWith('eyJ');
+      const url = isV2 
+        ? `https://pro-api.solscan.io/v2/token/holders?address=${contractAddress}&page=1&page_size=1`
+        : `https://api.solscan.io/token/holders?token=${contractAddress}&offset=0&size=1`;
       
       const response = await axios.get(url, {
-        headers: {
+        headers: isV2 ? {
+          'x-api-key': this.solscanApiKey,
+        } : {
           'token': this.solscanApiKey,
         },
         timeout: 5000,
       });
 
-      if (response.data?.total) {
-        return response.data.total;
-      }
+      if (response.data?.total) return response.data.total;
+      if (response.data?.data?.total) return response.data.data.total;
 
-      this.logger.debug(`Solscan API returned no holder data`);
       return null;
     } catch (error: any) {
       this.logger.debug(`Solscan API error: ${error.message}`);
