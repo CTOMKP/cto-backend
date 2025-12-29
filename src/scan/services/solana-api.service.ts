@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
+import { createSafeFetcher } from '../../utils/safe-fetcher';
 
 @Injectable()
 export class SolanaApiService {
@@ -11,9 +12,27 @@ export class SolanaApiService {
   private readonly RUGCHECK_API_URL = 'https://api.rugcheck.xyz/v1/tokens';
   private readonly MORALIS_API_URL = 'https://deep-index.moralis.io/api/v2.2';
 
+  // Safe Fetchers
+  private helius: AxiosInstance;
+  private moralis: AxiosInstance;
+  private solscan: AxiosInstance;
+
   constructor(private readonly configService: ConfigService) {
     const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
+    const moralisApiKey = this.configService.get('MORALIS_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI');
+    const solscanApiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0');
+
     this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+    
+    this.helius = createSafeFetcher('https://mainnet.helius-rpc.com', heliusApiKey, 'api-key');
+    this.moralis = createSafeFetcher('https://solana-gateway.moralis.io', moralisApiKey, 'X-API-Key');
+    
+    const isSolscanV2 = solscanApiKey?.startsWith('eyJ');
+    this.solscan = createSafeFetcher(
+      isSolscanV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
+      solscanApiKey,
+      isSolscanV2 ? 'x-api-key' : 'token'
+    );
   }
 
   /**
@@ -115,9 +134,9 @@ export class SolanaApiService {
    */
   private async fetchHeliusTokenData(contractAddress: string) {
     try {
-      console.log('Calling Helius RPC API...');
+      console.log('Calling Helius RPC API via SafeFetcher...');
       
-      const response = await axios.post(this.HELIUS_RPC_URL, {
+      const response = await this.helius.post('', {
         jsonrpc: '2.0',
         id: 'get-token-info',
         method: 'getAccountInfo',
@@ -125,16 +144,7 @@ export class SolanaApiService {
           contractAddress,
           { encoding: 'jsonParsed' }
         ]
-      }, {
-        timeout: 10000,
-        headers: {
-          'Content-Type': 'application/json'
-        }
       });
-
-      if (response.data.error) {
-        throw new Error(`Helius API error: ${response.data.error.message}`);
-      }
 
       const accountInfo = response.data.result?.value;
       if (!accountInfo) {
@@ -165,9 +175,9 @@ export class SolanaApiService {
     } catch (error) {
       console.error('Helius API error:', error.message);
       
-      // Log error but continue - we can get token data from other sources
-      console.error('Helius API error:', error.message);
-      
+      // If it's a known SafeFetcher error, rethrow it to trigger "Service Busy" in ScanService
+      if (error instanceof HttpException) throw error;
+
       // Return minimal data structure so other APIs can still work
       return {
         source: 'helius_error',
@@ -202,27 +212,14 @@ export class SolanaApiService {
 
       const tokenMeta = response.data;
       
-      // Try to get holder count from Solscan API (with API key if present)
+      // Try to get holder count from Solscan API (with SafeFetcher)
       let holderCount = null;
       try {
-        const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
-        const isV2 = apiKey?.startsWith('eyJ');
-        const url = isV2 
-          ? `https://pro-api.solscan.io/v2/token/holders?address=${contractAddress}&page=1&page_size=1`
-          : `${this.SOLSCAN_API_URL}/token/meta?tokenAddress=${contractAddress}`;
-        
-        const solscanResponse = await axios.get(url, {
-          timeout: 5000,
-          headers: {
-            'User-Agent': 'CTO-Vetting-System/1.0',
-            ...(isV2 ? { 'x-api-key': apiKey } : { token: apiKey }),
-          }
-        });
+        const solscanResponse = await this.solscan.get(`/token/meta?address=${contractAddress}`);
         
         if (solscanResponse.data) {
-          const raw = isV2 
-            ? (solscanResponse.data?.data?.total || solscanResponse.data?.total)
-            : (solscanResponse.data.holder ?? solscanResponse.data.holders);
+          // Handle both V1 and V2 response formats
+          const raw = solscanResponse.data.data?.total || solscanResponse.data.total || solscanResponse.data.holder || solscanResponse.data.holders;
           const parsed = raw != null ? parseInt(String(raw), 10) : NaN;
           if (Number.isFinite(parsed)) holderCount = parsed;
         }
@@ -259,24 +256,10 @@ export class SolanaApiService {
           // Try to get holder count from Solscan API even for DexScreener fallback
           let holderCount = null;
           try {
-            const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
-            const isV2 = apiKey?.startsWith('eyJ');
-            const url = isV2 
-              ? `https://pro-api.solscan.io/v2/token/holders?address=${contractAddress}&page=1&page_size=1`
-              : `${this.SOLSCAN_API_URL}/token/meta?tokenAddress=${contractAddress}`;
-            
-            const solscanResponse = await axios.get(url, {
-              timeout: 5000,
-              headers: {
-                'User-Agent': 'CTO-Vetting-System/1.0',
-                ...(isV2 ? { 'x-api-key': apiKey } : { token: apiKey }),
-              }
-            });
+            const solscanResponse = await this.solscan.get(`/token/meta?address=${contractAddress}`);
             
             if (solscanResponse.data) {
-              const raw = isV2 
-                ? (solscanResponse.data?.data?.total || solscanResponse.data?.total)
-                : (solscanResponse.data.holder ?? solscanResponse.data.holders);
+              const raw = solscanResponse.data.data?.total || solscanResponse.data.total || solscanResponse.data.holder || solscanResponse.data.holders;
               const parsed = raw != null ? parseInt(String(raw), 10) : NaN;
               if (Number.isFinite(parsed)) holderCount = parsed;
             }
@@ -609,89 +592,38 @@ export class SolanaApiService {
    */
   private async fetchHolderData(contractAddress: string) {
     try {
-      console.log('Fetching holder distribution from Solscan API...');
-      const apiKey = process.env.SOLSCAN_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0';
-      const isV2 = apiKey?.startsWith('eyJ');
+      console.log('Fetching holder distribution from Solscan API via SafeFetcher...');
+      
+      const res = await this.solscan.get(`/token/holders?address=${contractAddress}&page=1&page_size=20`);
+      
+      // Handle Solscan V2 response structure
+      const list = res.data?.data || [];
+      const total = res.data?.data?.total || res.data?.total || list.length;
+      
+      const topHolders = list.map((h: any) => ({ 
+        address: h.address || h.owner, 
+        amount: h.amount, 
+        share: h.percentage ? (h.percentage / 100) : (h.share || 0)
+      }));
 
-      // Try Solscan Pro holders endpoint if API key is present
-      if (apiKey) {
-        try {
-          const url = isV2 
-            ? `https://pro-api.solscan.io/v2/token/holders?address=${contractAddress}&page=1&page_size=20`
-            : `${this.SOLSCAN_API_URL}/token/holders?tokenAddress=${contractAddress}&limit=20&offset=0`;
-
-          const res = await axios.get(url, {
-            timeout: 8000,
-            headers: {
-              'User-Agent': 'CTO-Vetting-System/1.0',
-              ...(isV2 ? { 'x-api-key': apiKey } : { 'token': apiKey, 'x-api-key': apiKey }),
-            },
-          });
-          
-          const list = isV2 ? (res.data?.data || []) : (Array.isArray(res.data?.data) ? res.data.data : []);
-          const total = isV2 ? (res.data?.data?.total || res.data?.total || list.length) : (typeof res.data?.total === 'number' ? res.data.total : list.length);
-          
-          const topHolders = list.map((h: any) => ({ 
-            address: isV2 ? h.address : h.owner, 
-            amount: isV2 ? h.amount : h.amount, 
-            share: isV2 ? (h.percentage / 100) : h.share 
-          }));
-
-          return {
-            total_holders: total,
-            active_wallets: 0, // will be estimated elsewhere
-            top_holders: topHolders,
-            suspicious_activity: {},
-            distribution_metrics: {
-              top10_share: topHolders.slice(0, 10).reduce((s: number, x: any) => s + (x.share || 0), 0),
-            },
-            whale_analysis: {},
-            wallet_activity: [],
-            activity_summary: {},
-          };
-        } catch (e) {
-          console.log('Solscan holders failed, falling back to minimal holders:', e.message);
-        }
-      }
-
-      // Public Solscan fallback to at least fetch aggregate holder count
-      try {
-        const res = await axios.get(`${this.SOLSCAN_API_URL}/token/meta`, {
-          params: { tokenAddress: contractAddress },
-          timeout: 6000,
-          headers: { 'User-Agent': 'CTO-Vetting-System/1.0' }
-        });
-        let total = 0;
-        if (res.data) {
-          const raw = (res.data.holder ?? res.data.holders);
-          const parsed = raw != null ? parseInt(raw, 10) : NaN;
-          if (Number.isFinite(parsed)) total = parsed;
-        }
-        return {
-          total_holders: total,
-          active_wallets: 0,
-          top_holders: [],
-          suspicious_activity: {},
-          distribution_metrics: {},
-          whale_analysis: {},
-          wallet_activity: [],
-          activity_summary: {},
-        };
-      } catch (_) {
-        // Minimal fallback when public API unavailable
-        return {
-          total_holders: 0,
-          active_wallets: 0,
-          top_holders: [],
-          suspicious_activity: {},
-          distribution_metrics: {},
-          whale_analysis: {},
-          wallet_activity: [],
-          activity_summary: {},
-        };
-      }
+      return {
+        total_holders: total,
+        active_wallets: 0, // will be estimated elsewhere
+        top_holders: topHolders,
+        suspicious_activity: {},
+        distribution_metrics: {
+          top10_share: topHolders.slice(0, 10).reduce((s: number, x: any) => s + (x.share || 0), 0),
+        },
+        whale_analysis: {},
+        wallet_activity: [],
+        activity_summary: {},
+      };
     } catch (error) {
-      console.error('Error fetching holder data:', error);
+      console.error('Error fetching holder data:', error.message);
+      
+      // Rethrow SafeFetcher errors
+      if (error instanceof HttpException) throw error;
+
       return {
         total_holders: 0,
         active_wallets: 0,
@@ -880,21 +812,12 @@ export class SolanaApiService {
   // Fetch Moralis token market metadata/price
   private async fetchMoralisMarket(contractAddress: string) {
     try {
-      const apiKey = process.env.MORALIS_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI';
-      if (!apiKey) return null;
-
-      // Use Solana specialized gateway for Moralis
-      const baseUrl = 'https://solana-gateway.moralis.io/token/mainnet';
+      console.log('Fetching Moralis market data via SafeFetcher...');
       
-      const priceRes = await axios.get(`${baseUrl}/${contractAddress}/price`, {
-        timeout: 8000,
-        headers: { 'X-API-Key': apiKey },
-      }).catch(() => ({ data: null } as any));
-
-      const metaRes = await axios.get(`${baseUrl}/${contractAddress}/metadata`, {
-        timeout: 8000,
-        headers: { 'X-API-Key': apiKey },
-      }).catch(() => ({ data: null } as any));
+      const [priceRes, metaRes] = await Promise.all([
+        this.moralis.get(`/${contractAddress}/price`).catch(() => ({ data: null })),
+        this.moralis.get(`/${contractAddress}/metadata`).catch(() => ({ data: null }))
+      ]);
 
       const price_usd = priceRes?.data?.usdPrice ?? null;
       const meta = metaRes?.data ?? null;
@@ -911,6 +834,10 @@ export class SolanaApiService {
       };
     } catch (e: any) {
       console.log('Moralis market fetch failed:', e.message);
+      
+      // Rethrow SafeFetcher errors
+      if (e instanceof HttpException) throw e;
+      
       return null;
     }
   }

@@ -52,21 +52,57 @@ export class ScanService {
       // Use the SAME comprehensive data fetching approach as RefreshWorker (Pillar 1)
       this.logger.debug(`🔍 Fetching comprehensive data for user listing scan: ${contractAddress} on ${chain}`);
       
-      // Fetch data from multiple sources in parallel (same as RefreshWorker)
-      const [dexScreenerData, combinedData, imageUrl] = await Promise.all([
-        this.externalApisService.fetchDexScreenerData(contractAddress, chain.toLowerCase()),
-        this.externalApisService.fetchCombinedTokenData(contractAddress, chain.toLowerCase()),
-        this.tokenImageService.fetchTokenImage(contractAddress, chain),
-      ]);
+      let dexScreenerData, combinedData, imageUrl, heliusData, alchemyData, bearTreeData;
 
-      // Fetch Helius data (token metadata, holders, creation date)
-      const heliusData = await this.fetchHeliusData(contractAddress);
-      
-      // Fetch Alchemy data (if available)
-      const alchemyData = await this.fetchAlchemyData(contractAddress);
-      
-      // Fetch Helius BearTree data (developer info)
-      const bearTreeData = await this.fetchHeliusBearTreeData(contractAddress);
+      try {
+        // Fetch data from multiple sources
+        [dexScreenerData, combinedData, imageUrl] = await Promise.all([
+          this.externalApisService.fetchDexScreenerData(contractAddress, chain.toLowerCase())
+            .catch(e => { this.logger.warn(`DexScreener fetch failed: ${e.message}`); return null; }),
+          this.externalApisService.fetchCombinedTokenData(contractAddress, chain.toLowerCase())
+            .catch(e => { this.logger.warn(`Combined data fetch failed: ${e.message}`); return null; }),
+          this.tokenImageService.fetchTokenImage(contractAddress, chain)
+            .catch(e => { this.logger.warn(`Image fetch failed: ${e.message}`); return null; }),
+        ]);
+
+        // Fetch Helius data (token metadata, holders, creation date)
+        heliusData = await this.fetchHeliusData(contractAddress);
+        
+        // Fetch Alchemy data (if available)
+        alchemyData = await this.fetchAlchemyData(contractAddress)
+          .catch(e => { this.logger.warn(`Alchemy fetch failed: ${e.message}`); return null; });
+        
+        // Fetch Helius BearTree data (developer info)
+        bearTreeData = await this.fetchHeliusBearTreeData(contractAddress)
+          .catch(e => { this.logger.warn(`BearTree fetch failed: ${e.message}`); return null; });
+
+      } catch (error) {
+        // If it's an EXTERNAL_API_BUSY or BLOCK error, stop the scan and inform the user
+        if (error instanceof HttpException) {
+          const status = error.getStatus();
+          if (status === HttpStatus.TOO_MANY_REQUESTS || status === HttpStatus.FAILED_DEPENDENCY) {
+            this.logger.error(`🛑 Scan aborted for ${contractAddress}: External providers are busy or blocking.`);
+            throw new HttpException(
+              'External data providers are temporarily busy or hitting rate limits. Please try again in a few minutes.',
+              HttpStatus.SERVICE_UNAVAILABLE
+            );
+          }
+        }
+        throw error;
+      }
+
+      // Check if critical data was successfully fetched
+      // If we don't have liquidity or holders, we CANNOT calculate a fair score.
+      const hasLiquidity = !!(dexScreenerData?.liquidity?.usd || combinedData?.gmgn?.liquidity);
+      const hasHolders = !!(heliusData?.holderCount || combinedData?.gmgn?.holders);
+
+      if (!hasLiquidity || !hasHolders) {
+        this.logger.error(`🛑 Critical data missing for ${contractAddress} (Liquidity: ${hasLiquidity}, Holders: ${hasHolders}). Aborting to prevent 0-score.`);
+        throw new HttpException(
+          'Unable to fetch critical market data (liquidity/holders) from external providers. Please try again in a moment.',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
 
       // Extract token info
       const pair = dexScreenerData || combinedData?.dexScreener;

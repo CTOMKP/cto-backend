@@ -116,11 +116,16 @@ export class Pillar1RiskScoringService {
     if (liquidity.score === null) missingCriticalData.push('Liquidity');
     if (technical.score === null) missingCriticalData.push('Technical');
 
-    // Always calculate overall score (missing data is penalized, not blocking)
-    // Use 0 as fallback for null scores (heavily penalized)
-    const distributionScore = distribution.score ?? 0;
-    const liquidityScore = liquidity.score ?? 0;
-    const technicalScore = technical.score ?? 0;
+    // CRITICAL FIX: If critical data is missing, throw error instead of defaulting to 0
+    // This stops the "0/100" hallucinations caused by API rate limits
+    if (distribution.score === null || liquidity.score === null) {
+      this.logger.error(`❌ Critical data missing for ${data.contractAddress}. Scoring aborted to prevent 0-score hallucination.`);
+      throw new Error('MISSING_CRITICAL_DATA_FOR_SCORING');
+    }
+
+    const distributionScore = distribution.score;
+    const liquidityScore = liquidity.score;
+    const technicalScore = technical.score ?? 0; // Technical is less critical than Distribution/Liquidity
     const devAbandonmentScore = devAbandonment.score ?? 0;
 
     // Distribution: 25%, Liquidity: 35%, Dev: 20%, Technical: 20%

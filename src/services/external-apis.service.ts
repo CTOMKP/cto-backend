@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { AxiosResponse } from 'axios';
+import axios, { AxiosResponse, AxiosInstance } from 'axios';
+import { createSafeFetcher } from '../utils/safe-fetcher';
 
 export interface DexScreenerTokenData {
   chainId: string;
@@ -83,11 +84,25 @@ export interface GMGNTokenData {
 @Injectable()
 export class ExternalApisService {
   private readonly logger = new Logger(ExternalApisService.name);
+  private moralis: AxiosInstance;
+  private solscan: AxiosInstance;
 
   constructor(
     private configService: ConfigService,
     private httpService: HttpService,
-  ) {}
+  ) {
+    const moralisApiKey = this.configService.get('MORALIS_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI');
+    const solscanApiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0');
+
+    this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet', moralisApiKey, 'X-API-Key');
+    
+    const isSolscanV2 = solscanApiKey?.startsWith('eyJ');
+    this.solscan = createSafeFetcher(
+      isSolscanV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
+      solscanApiKey,
+      isSolscanV2 ? 'x-api-key' : 'token'
+    );
+  }
 
   /**
    * Fetch token data from DexScreener
@@ -174,39 +189,18 @@ export class ExternalApisService {
    */
   async fetchMoralisData(contractAddress: string, chain: string = 'solana') {
     try {
-      const apiKey = this.configService.get('MORALIS_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI');
-      if (!apiKey) {
-        this.logger.debug('Moralis API key not configured');
-        return null;
-      }
-
-      const apiUrl = this.configService.get('MORALIS_API_URL', 'https://deep-index.moralis.io/api/v2');
+      // Use Solana specialized gateway for Moralis if chain is Solana
+      const isSolana = chain.toLowerCase() === 'solana';
       
-      // Map chain names to Moralis chain IDs
-      const chainMap: Record<string, string> = {
-        'solana': 'solana',
-        'ethereum': 'eth',
-        'bsc': 'bsc',
-        'base': 'base',
-        'polygon': 'polygon',
-        'arbitrum': 'arbitrum',
-        'avalanche': 'avalanche',
-        'optimism': 'optimism',
-      };
+      const url = isSolana
+        ? `/${contractAddress}/metadata`
+        : `/token/${chain.toLowerCase()}/${contractAddress}/metadata`;
 
-      const moralisChain = chainMap[chain.toLowerCase()] || 'solana';
-      
-      const response: AxiosResponse = await firstValueFrom(
-        this.httpService.get(`${apiUrl}/token/${moralisChain}/${contractAddress}/metadata`, {
-          headers: {
-            'X-API-Key': apiKey,
-          },
-        })
-      );
-
+      const response = await this.moralis.get(url);
       return response.data;
     } catch (error) {
       this.logger.error(`Failed to fetch Moralis data for ${contractAddress}:`, error.message);
+      if (error instanceof HttpException) throw error;
       return null;
     }
   }
@@ -216,31 +210,11 @@ export class ExternalApisService {
    */
   async fetchSolscanData(contractAddress: string) {
     try {
-      const apiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0');
-      if (!apiKey) {
-        this.logger.debug('Solscan API key not configured');
-        return null;
-      }
-
-      const isV2 = apiKey?.startsWith('eyJ');
-      const apiUrl = isV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io';
-      
-      const response: AxiosResponse = await firstValueFrom(
-        this.httpService.get(isV2 ? `${apiUrl}/token/meta?address=${contractAddress}` : `${apiUrl}/token/meta`, {
-          headers: isV2 ? {
-            'x-api-key': apiKey,
-          } : {
-            'token': apiKey,
-          },
-          params: isV2 ? {} : {
-            token: contractAddress,
-          },
-        })
-      );
-
+      const response = await this.solscan.get(`/token/meta?address=${contractAddress}`);
       return response.data;
     } catch (error) {
       this.logger.error(`Failed to fetch Solscan data for ${contractAddress}:`, error.message);
+      if (error instanceof HttpException) throw error;
       return null;
     }
   }
