@@ -222,14 +222,17 @@ export class ExternalApisService {
         return null;
       }
 
-      const apiUrl = this.configService.get('SOLSCAN_API_URL', 'https://api.solscan.io');
+      const isV2 = apiKey?.startsWith('eyJ');
+      const apiUrl = isV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io';
       
       const response: AxiosResponse = await firstValueFrom(
-        this.httpService.get(`${apiUrl}/token/meta`, {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
+        this.httpService.get(isV2 ? `${apiUrl}/token/meta?address=${contractAddress}` : `${apiUrl}/token/meta`, {
+          headers: isV2 ? {
+            'x-api-key': apiKey,
+          } : {
+            'token': apiKey,
           },
-          params: {
+          params: isV2 ? {} : {
             token: contractAddress,
           },
         })
