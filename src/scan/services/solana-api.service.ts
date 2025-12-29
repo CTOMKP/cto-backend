@@ -883,20 +883,21 @@ export class SolanaApiService {
       const apiKey = process.env.MORALIS_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI';
       if (!apiKey) return null;
 
-      // SPL support in Moralis may vary; try endpoints gracefully
-      const priceRes = await axios.get(`${this.MORALIS_API_URL}/erc20/${contractAddress}/price`, {
+      // Use Solana specialized gateway for Moralis
+      const baseUrl = 'https://solana-gateway.moralis.io/token/mainnet';
+      
+      const priceRes = await axios.get(`${baseUrl}/${contractAddress}/price`, {
         timeout: 8000,
         headers: { 'X-API-Key': apiKey },
       }).catch(() => ({ data: null } as any));
 
-      const metaRes = await axios.get(`${this.MORALIS_API_URL}/erc20/metadata`, {
-        params: { addresses: contractAddress },
+      const metaRes = await axios.get(`${baseUrl}/${contractAddress}/metadata`, {
         timeout: 8000,
         headers: { 'X-API-Key': apiKey },
-      }).catch(() => ({ data: [] } as any));
+      }).catch(() => ({ data: null } as any));
 
       const price_usd = priceRes?.data?.usdPrice ?? null;
-      const meta = Array.isArray(metaRes?.data) ? metaRes.data[0] : null;
+      const meta = metaRes?.data ?? null;
 
       const market_cap_usd = meta?.marketCap ?? null;
       const volume_24h_usd = meta?.volume24h ?? null;
