@@ -38,7 +38,8 @@ export class ScanService {
       // Check for BYPASS_VETTING environment variable
       const configVal = this.configService.get('BYPASS_VETTING');
       const envVal = process.env.BYPASS_VETTING;
-      const bypassVetting = configVal === 'true' || configVal === true || envVal === 'true' || envVal === true;
+      // Convert to string before comparison to satisfy TypeScript and handle both 'true' and true
+      const bypassVetting = String(configVal).toLowerCase() === 'true' || String(envVal).toLowerCase() === 'true';
       
       this.logger.debug(`[ScanService] BYPASS_VETTING check: config=${configVal}, env=${envVal}, result=${bypassVetting}`);
 
