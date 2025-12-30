@@ -7,11 +7,18 @@ const logger = new Logger('SafeFetcher');
  * Creates a resilient axios instance with retry logic and error interceptors
  */
 export const createSafeFetcher = (baseURL: string, apiKey: string, headerName: string = 'x-api-key'): AxiosInstance => {
+  // CLEAN THE KEY: Strip any quotes or spaces that might have been pasted into Coolify
+  const cleanKey = apiKey?.replace(/['"]/g, '').trim();
+  
+  if (cleanKey && cleanKey !== apiKey) {
+    logger.warn(`🧹 Cleaned API key for ${baseURL} (removed quotes or spaces)`);
+  }
+
   const client = axios.create({
     baseURL,
     timeout: 15000,
     headers: {
-      [headerName]: apiKey,
+      [headerName]: cleanKey,
       'Accept': 'application/json',
     },
   });

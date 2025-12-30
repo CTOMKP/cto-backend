@@ -25,13 +25,13 @@ export class SolanaApiService {
     this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
     
     this.helius = createSafeFetcher('https://mainnet.helius-rpc.com', heliusApiKey, 'api-key');
-    this.moralis = createSafeFetcher('https://solana-gateway.moralis.io', moralisApiKey, 'X-API-Key');
+    this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet', moralisApiKey, 'X-API-Key');
     
-    const isSolscanV2 = solscanApiKey?.startsWith('eyJ');
+    // Solscan V2 Pro keys (JWT) work best with the 'token' header
     this.solscan = createSafeFetcher(
-      isSolscanV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
+      solscanApiKey?.startsWith('eyJ') ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
       solscanApiKey,
-      isSolscanV2 ? 'x-api-key' : 'token'
+      'token'
     );
   }
 

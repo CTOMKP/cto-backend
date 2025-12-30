@@ -96,11 +96,11 @@ export class ExternalApisService {
 
     this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet', moralisApiKey, 'X-API-Key');
     
-    const isSolscanV2 = solscanApiKey?.startsWith('eyJ');
+    // Solscan V2 Pro keys (JWT) work best with the 'token' header
     this.solscan = createSafeFetcher(
-      isSolscanV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
+      solscanApiKey?.startsWith('eyJ') ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
       solscanApiKey,
-      isSolscanV2 ? 'x-api-key' : 'token'
+      'token'
     );
   }
 
