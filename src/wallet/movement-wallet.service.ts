@@ -595,7 +595,7 @@ export class MovementWalletService {
             }
 
             // 2. Handle Native MOVE (Coin Standard) - Independent of storeAddr
-            const isMoveDeposit = event.type.includes('coin::DepositEvent') && event.type.includes('AptosCoin');
+            const isMoveDeposit = event.type.includes('coin::DepositEvent');
             const eventAccount = event.guid?.account_address;
             
             if (isMoveDeposit && eventAccount && tx.sender !== wallet.address) {
@@ -603,8 +603,8 @@ export class MovementWalletService {
               const normEventAcc = this.normalizeAddress(eventAccount);
               const normWalletAcc = this.normalizeAddress(wallet.address);
 
-              // Debug log to confirm comparison strings (requested by user/gemini)
-              this.logger.debug(`[MASTER-SCAN] Comparing MOVE deposit: Event Account(${normEventAcc.substring(0, 10)}...) vs Wallet(${normWalletAcc.substring(0, 10)}...)`);
+              // Debug log to confirm comparison strings
+              // this.logger.debug(`[MASTER-SCAN] Comparing MOVE deposit: Event Account(${normEventAcc.substring(0, 10)}...) vs Wallet(${normWalletAcc.substring(0, 10)}...)`);
 
               if (normEventAcc === normWalletAcc) {
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
@@ -613,6 +613,11 @@ export class MovementWalletService {
 
                 if (!existingTx) {
                   const amount = event.data?.amount || '0';
+                  
+                  // For MOVE deposits, the sender is usually the transaction signer (tx.sender)
+                  // unless it's a complex multi-agent tx, which we don't use yet.
+                  const fromAddr = tx.sender;
+
                   const recorded = await this.recordTransaction({
                     walletId,
                     txHash: tx.hash,
@@ -621,7 +626,7 @@ export class MovementWalletService {
                     tokenAddress: this.NATIVE_TOKEN_ADDRESS,
                     tokenSymbol: 'MOVE',
                     toAddress: wallet.address,
-                    fromAddress: tx.sender,
+                    fromAddress: fromAddr,
                     description: `MOVE deposit detected via master scan`,
                     status: 'COMPLETED',
                     metadata: { version: tx.version, eventType: event.type }
