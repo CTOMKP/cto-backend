@@ -24,6 +24,8 @@ export class UserListingsService {
       const passed = typeof score === 'number' && score >= this.MIN_QUALIFYING_SCORE && result?.eligible !== false;
       return {
         success: passed,
+        risk_score: score, // Added for frontend compatibility
+        tier: tier,       // Added for frontend compatibility
         vettingScore: score,
         vettingTier: tier,
         eligible: passed,
