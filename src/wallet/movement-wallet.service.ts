@@ -530,7 +530,7 @@ export class MovementWalletService {
       const storeAddr = await this.getPrimaryStoreAddress(wallet.address, this.TEST_TOKEN_ADDRESS, isTestnet);
       if (storeAddr) {
         try {
-          this.logger.debug(`📡 [MASTER-SCAN] Scanning ledger for USDC events matching store: ${storeAddr}`);
+          this.logger.debug(`📡 [MASTER-SCAN] Scanning ledger for USDC & MOVE events...`);
           // Query the latest global transactions from the ledger (Limit 30 for extra safety)
           const ledgerRes = await axios.get(`${rpcUrl}/transactions?limit=30`);
           const globalTxs = ledgerRes.data || [];
@@ -547,6 +547,7 @@ export class MovementWalletService {
               const eventStore = event.data?.store?.toLowerCase();
               const targetStore = storeAddr.toLowerCase();
               
+              // 1. Handle USDC (Fungible Asset)
               if ((isDeposit || isWithdraw) && eventStore === targetStore) {
                 // GEMINI FIX: Check for BOTH Wallet and Hash (allow same hash for different users)
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
@@ -589,7 +590,41 @@ export class MovementWalletService {
                   });
                   
                   newTransactions.push(recorded);
-                  this.logger.log(`[MASTER-SCAN] Recorded ${txType} for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
+                  this.logger.log(`[MASTER-SCAN] Recorded ${txType} USDC for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
+                }
+              }
+
+              // 2. Handle Native MOVE (Coin Standard) - Specifically for Receiver Visibility
+              const isMoveDeposit = event.type.includes('coin::DepositEvent') && event.type.includes('AptosCoin');
+              const eventAccount = event.guid?.account_address?.toLowerCase();
+              
+              if (isMoveDeposit && eventAccount === wallet.address.toLowerCase() && tx.sender !== wallet.address) {
+                const existingTx = await (this.prisma as any).walletTransaction.findUnique({
+                  where: { 
+                    walletId_txHash: {
+                      walletId: walletId,
+                      txHash: tx.hash 
+                    }
+                  },
+                });
+
+                if (!existingTx) {
+                  const amount = event.data?.amount || '0';
+                  const recorded = await this.recordTransaction({
+                    walletId,
+                    txHash: tx.hash,
+                    txType: 'CREDIT',
+                    amount: amount.toString(),
+                    tokenAddress: this.NATIVE_TOKEN_ADDRESS,
+                    tokenSymbol: 'MOVE',
+                    toAddress: wallet.address,
+                    fromAddress: tx.sender,
+                    description: `MOVE deposit detected via master scan`,
+                    status: 'COMPLETED',
+                    metadata: { version: tx.version, eventType: event.type }
+                  });
+                  newTransactions.push(recorded);
+                  this.logger.log(`[MASTER-SCAN] Recorded MOVE CREDIT for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
                 }
               }
             }
