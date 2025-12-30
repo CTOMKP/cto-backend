@@ -619,13 +619,13 @@ export class Pillar1RiskScoringService {
     }
 
     // Seed Tier: Entry-level tier for new CTO projects
-    // Age: >=1 day (Lowered from 14 days for testing), LP: >=$10k (no max), Lock: 6-12 months, Score: >=30
+    // Age: >=14 days, LP: >=$10k (no max), Lock: 6-12 months, Score: >=30
     // Allow tokens with liquidity >= $10k (no upper limit - high liquidity tokens can still be Seed if they don't meet higher tiers)
-    if (age >= 1 && 
+    if (age >= 14 && 
         liquidityUSD >= 10000 && 
         effectiveLockMonths >= 6 && effectiveLockMonths <= 12 && 
         score >= 30) {
-      this.logger.debug(`✅ Tier: seed (age ${age} >= 1 day, liquidity $${liquidityUSD} >= $10k, LP lock ${effectiveLockMonths} months [6-12], score ${score} >= 30)`);
+      this.logger.debug(`✅ Tier: seed (age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock ${effectiveLockMonths} months [6-12], score ${score} >= 30)`);
       return 'seed';
     }
 
@@ -633,16 +633,16 @@ export class Pillar1RiskScoringService {
     // If score >=50, the token is relatively safe despite missing LP lock data
     // The risk score calculation already penalized missing LP lock (-5 points), so trust the score
     // Allow tokens with liquidity >= $10k (no upper limit)
-    if (age >= 1 && 
+    if (age >= 14 && 
         liquidityUSD >= 10000 && 
         score >= 50 && effectiveLockMonths === 0) {
-      this.logger.debug(`✅ Tier: seed (score-based: score ${score} >= 50, age ${age} >= 1 day, liquidity $${liquidityUSD} >= $10k, LP lock waived)`);
+      this.logger.debug(`✅ Tier: seed (score-based: score ${score} >= 50, age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock waived)`);
       return 'seed';
     }
 
     // Log why tier wasn't assigned (check what's missing for Seed tier as minimum)
     const missingReqs: string[] = [];
-    if (age < 1) missingReqs.push(`age ${age} < 1 day (minimum for Seed)`);
+    if (age < 14) missingReqs.push(`age ${age} < 14 days (minimum for Seed)`);
     if (age > 21 && age < 30) missingReqs.push(`age ${age} days (outside Seed range 14-21, but below Sprout minimum 21)`);
     if (liquidityUSD < 10000) missingReqs.push(`liquidity $${liquidityUSD} < $10k (minimum for Seed)`);
     if (liquidityUSD > 20000 && liquidityUSD < 50000) missingReqs.push(`liquidity $${liquidityUSD} (outside Seed range $10k-$20k, but below Sprout minimum $20k)`);

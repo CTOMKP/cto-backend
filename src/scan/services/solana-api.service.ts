@@ -27,11 +27,12 @@ export class SolanaApiService {
     this.helius = createSafeFetcher('https://mainnet.helius-rpc.com', heliusApiKey, 'api-key');
     this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet', moralisApiKey, 'X-API-Key');
     
-    // Solscan V2 Pro keys (JWT) work best with the 'token' header
+    // Solscan V2 Pro keys (JWT) require 'x-api-key', Old V1 keys require 'token'
+    const isV2 = solscanApiKey?.startsWith('eyJ');
     this.solscan = createSafeFetcher(
-      solscanApiKey?.startsWith('eyJ') ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
+      isV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
       solscanApiKey,
-      'token'
+      isV2 ? 'x-api-key' : 'token'
     );
   }
 
@@ -215,7 +216,12 @@ export class SolanaApiService {
       // Try to get holder count from Solscan API (with SafeFetcher)
       let holderCount = null;
       try {
-        const solscanResponse = await this.solscan.get(`/token/meta?address=${contractAddress}`);
+        const isV2 = this.configService.get('SOLSCAN_API_KEY')?.startsWith('eyJ');
+        const url = isV2 
+          ? `token/meta?address=${contractAddress}`
+          : `token/meta?token=${contractAddress}`;
+          
+        const solscanResponse = await this.solscan.get(url);
         
         if (solscanResponse.data) {
           // Handle both V1 and V2 response formats
@@ -256,7 +262,12 @@ export class SolanaApiService {
           // Try to get holder count from Solscan API even for DexScreener fallback
           let holderCount = null;
           try {
-            const solscanResponse = await this.solscan.get(`/token/meta?address=${contractAddress}`);
+            const isV2 = this.configService.get('SOLSCAN_API_KEY')?.startsWith('eyJ');
+            const url = isV2 
+              ? `token/meta?address=${contractAddress}`
+              : `token/meta?token=${contractAddress}`;
+              
+            const solscanResponse = await this.solscan.get(url);
             
             if (solscanResponse.data) {
               const raw = solscanResponse.data.data?.total || solscanResponse.data.total || solscanResponse.data.holder || solscanResponse.data.holders;
@@ -594,7 +605,7 @@ export class SolanaApiService {
     try {
       console.log('Fetching holder distribution from Solscan API via SafeFetcher...');
       
-      const res = await this.solscan.get(`/token/holders?address=${contractAddress}&page=1&page_size=20`);
+      const res = await this.solscan.get(`token/holders?address=${contractAddress}&page=1&page_size=20`);
       
       // Handle Solscan V2 response structure
       const list = res.data?.data || [];
@@ -815,8 +826,8 @@ export class SolanaApiService {
       console.log('Fetching Moralis market data via SafeFetcher...');
       
       const [priceRes, metaRes] = await Promise.all([
-        this.moralis.get(`/${contractAddress}/price`).catch(() => ({ data: null })),
-        this.moralis.get(`/${contractAddress}/metadata`).catch(() => ({ data: null }))
+        this.moralis.get(`${contractAddress}/price`).catch(() => ({ data: null })),
+        this.moralis.get(`${contractAddress}/metadata`).catch(() => ({ data: null }))
       ]);
 
       const price_usd = priceRes?.data?.usdPrice ?? null;

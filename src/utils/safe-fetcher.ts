@@ -23,6 +23,13 @@ export const createSafeFetcher = (baseURL: string, apiKey: string, headerName: s
     },
   });
 
+  // Request Interceptor for logging
+  client.interceptors.request.use((config) => {
+    const fullUrl = `${config.baseURL}${config.url}`;
+    // logger.debug(`📡 [SafeFetcher] Sending request to: ${fullUrl}`);
+    return config;
+  });
+
   // Custom Retry Logic (to avoid new dependencies like axios-retry)
   client.interceptors.response.use(
     (response) => response,

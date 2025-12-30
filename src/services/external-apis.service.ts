@@ -96,11 +96,12 @@ export class ExternalApisService {
 
     this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet', moralisApiKey, 'X-API-Key');
     
-    // Solscan V2 Pro keys (JWT) work best with the 'token' header
+    // Solscan V2 Pro keys (JWT) require 'x-api-key', Old V1 keys require 'token'
+    const isV2 = solscanApiKey?.startsWith('eyJ');
     this.solscan = createSafeFetcher(
-      solscanApiKey?.startsWith('eyJ') ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
+      isV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
       solscanApiKey,
-      'token'
+      isV2 ? 'x-api-key' : 'token'
     );
   }
 
@@ -193,12 +194,12 @@ export class ExternalApisService {
       const isSolana = chain.toLowerCase() === 'solana';
       
       const url = isSolana
-        ? `/${contractAddress}/metadata`
-        : `/token/${chain.toLowerCase()}/${contractAddress}/metadata`;
+        ? `${contractAddress}/metadata`
+        : `token/${chain.toLowerCase()}/${contractAddress}/metadata`;
 
       const response = await this.moralis.get(url);
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Failed to fetch Moralis data for ${contractAddress}:`, error.message);
       if (error instanceof HttpException) throw error;
       return null;
@@ -210,9 +211,14 @@ export class ExternalApisService {
    */
   async fetchSolscanData(contractAddress: string) {
     try {
-      const response = await this.solscan.get(`/token/meta?address=${contractAddress}`);
+      const isV2 = this.solscanApiKey?.startsWith('eyJ');
+      const url = isV2 
+        ? `token/meta?address=${contractAddress}`
+        : `token/meta?token=${contractAddress}`;
+
+      const response = await this.solscan.get(url);
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Failed to fetch Solscan data for ${contractAddress}:`, error.message);
       if (error instanceof HttpException) throw error;
       return null;
