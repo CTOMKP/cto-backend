@@ -255,7 +255,7 @@ export class RefreshWorker {
   }
 
   private async getBirdEyeFeed() {
-    const apiKey = process.env.BIRDEYE_API_KEY;
+    const apiKey = this.configService.get('BIRDEYE_API_KEY');
     if (!apiKey) return null;
     const key = this.cache.cacheKey('feed:bird', { chain: 'solana' });
     const cached = await this.cache.get<any>(key);
@@ -270,7 +270,7 @@ export class RefreshWorker {
 
   // Enhanced Moralis feed fetching with better holder data and reduced cache time
   private async getMoralisFeed() {
-    const apiKey = process.env.MORALIS_API_KEY;
+    const apiKey = this.configService.get('MORALIS_API_KEY');
     if (!apiKey) return null;
  
     const key = this.cache.cacheKey('feed:moralis', { chain: 'solana' });
@@ -326,7 +326,7 @@ export class RefreshWorker {
 
 
   private async getSolscanFeed() {
-    const key = process.env.SOLSCAN_API_KEY;
+    const key = this.configService.get('SOLSCAN_API_KEY');
     if (!key) return null;
     const cacheKey = this.cache.cacheKey('feed:solscan', { chain: 'solana' });
     const cached = await this.cache.get<any>(cacheKey);
