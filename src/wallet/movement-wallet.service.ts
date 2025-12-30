@@ -657,17 +657,11 @@ export class MovementWalletService {
       } 
       // Second pass: look for MOVE (Coin Standard) if no USDC found
       else {
-        const moveDeposit = events.find(e => e.type.includes('coin::DepositEvent'));
         const moveWithdraw = events.find(e => e.type.includes('coin::WithdrawEvent') && tx.sender === wallet.address);
+        const moveDeposit = events.find(e => e.type.includes('coin::DepositEvent'));
 
-        if (moveDeposit) {
-          mainType = 'CREDIT';
-          mainToken = 'MOVE';
-          mainTokenAddr = this.NATIVE_TOKEN_ADDRESS;
-          mainAmount = moveDeposit.data?.amount || '0';
-          mainDesc = 'MOVE deposit detected';
-          mainEventRecord = moveDeposit;
-        } else if (moveWithdraw) {
+        // PRIORITIZE WITHDRAW: If I am the sender, it's a DEBIT (Payment)
+        if (moveWithdraw) {
           const amountValue = BigInt(moveWithdraw.data?.amount || '0');
           // If it's a tiny amount (like gas), we still record it but label it clearly
           mainType = 'DEBIT';
@@ -676,6 +670,13 @@ export class MovementWalletService {
           mainAmount = moveWithdraw.data?.amount || '0';
           mainDesc = amountValue < 500000n ? 'Gas fee' : 'MOVE withdrawal detected';
           mainEventRecord = moveWithdraw;
+        } else if (moveDeposit) {
+          mainType = 'CREDIT';
+          mainToken = 'MOVE';
+          mainTokenAddr = this.NATIVE_TOKEN_ADDRESS;
+          mainAmount = moveDeposit.data?.amount || '0';
+          mainDesc = 'MOVE deposit detected';
+          mainEventRecord = moveDeposit;
         }
       }
 
