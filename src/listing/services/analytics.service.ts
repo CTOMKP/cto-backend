@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import axios from 'axios';
 import { createSafeFetcher } from '../../utils/safe-fetcher';
 import { ConfigService } from '@nestjs/config';
