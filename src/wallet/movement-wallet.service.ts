@@ -67,13 +67,12 @@ export class MovementWalletService {
 
   /**
    * Normalize a hex address to a standard 64-character format for robust comparison
+   * Following Aptos/Movement standard: 0x + 64-char padded hex
    */
   private normalizeAddress(address: string): string {
     if (!address) return '';
-    let clean = address.toLowerCase().trim();
-    if (clean.startsWith('0x')) clean = clean.substring(2);
-    // Pad to 64 chars to ensure 0x1 match 0x000...1
-    return clean.padStart(64, '0');
+    const pureHex = address.startsWith('0x') ? address.slice(2) : address;
+    return '0x' + pureHex.padStart(64, '0').toLowerCase();
   }
 
   /**
@@ -604,6 +603,9 @@ export class MovementWalletService {
               const normEventAcc = this.normalizeAddress(eventAccount);
               const normWalletAcc = this.normalizeAddress(wallet.address);
 
+              // Debug log to confirm comparison strings (requested by user/gemini)
+              this.logger.debug(`[MASTER-SCAN] Comparing MOVE deposit: Event Account(${normEventAcc.substring(0, 10)}...) vs Wallet(${normWalletAcc.substring(0, 10)}...)`);
+
               if (normEventAcc === normWalletAcc) {
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
                   where: { walletId_txHash: { walletId: walletId, txHash: tx.hash } },
@@ -627,9 +629,6 @@ export class MovementWalletService {
                   newTransactions.push(recorded);
                   this.logger.log(`[MASTER-SCAN] ✅ Recorded MOVE CREDIT for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
                 }
-              } else {
-                // Debug log for failed matches to see formatting differences
-                this.logger.debug(`[MASTER-SCAN] MOVE Event skip: ${normEventAcc.substring(60)} != ${normWalletAcc.substring(60)}`);
               }
             }
           }
