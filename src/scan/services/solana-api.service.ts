@@ -24,13 +24,13 @@ export class SolanaApiService {
 
     this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
     
-    this.helius = createSafeFetcher('https://mainnet.helius-rpc.com', heliusApiKey, 'api-key');
-    this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet', moralisApiKey, 'X-API-Key');
+    this.helius = createSafeFetcher('https://mainnet.helius-rpc.com/', heliusApiKey, 'api-key');
+    this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet/', moralisApiKey, 'X-API-Key');
     
     // Solscan V2 Pro keys (JWT) require 'x-api-key', Old V1 keys require 'token'
     const isV2 = solscanApiKey?.startsWith('eyJ');
     this.solscan = createSafeFetcher(
-      isV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
+      isV2 ? 'https://pro-api.solscan.io/v2/' : 'https://api.solscan.io/',
       solscanApiKey,
       isV2 ? 'x-api-key' : 'token'
     );
@@ -826,8 +826,8 @@ export class SolanaApiService {
       console.log('Fetching Moralis market data via SafeFetcher...');
       
       const [priceRes, metaRes] = await Promise.all([
-        this.moralis.get(`${contractAddress}/price`).catch(() => ({ data: null })),
-        this.moralis.get(`${contractAddress}/metadata`).catch(() => ({ data: null }))
+        this.moralis.get(`/${contractAddress}/price`).catch(() => ({ data: null })),
+        this.moralis.get(`/${contractAddress}/metadata`).catch(() => ({ data: null }))
       ]);
 
       const price_usd = priceRes?.data?.usdPrice ?? null;

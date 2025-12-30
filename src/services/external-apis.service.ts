@@ -95,12 +95,12 @@ export class ExternalApisService {
     const moralisApiKey = this.configService.get('MORALIS_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI');
     this.solscanApiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0');
 
-    this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet', moralisApiKey, 'X-API-Key');
+    this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet/', moralisApiKey, 'X-API-Key');
     
     // Solscan V2 Pro keys (JWT) require 'x-api-key', Old V1 keys require 'token'
     const isV2 = solscanApiKey?.startsWith('eyJ');
     this.solscan = createSafeFetcher(
-      isV2 ? 'https://pro-api.solscan.io/v2' : 'https://api.solscan.io',
+      isV2 ? 'https://pro-api.solscan.io/v2/' : 'https://api.solscan.io/',
       solscanApiKey,
       isV2 ? 'x-api-key' : 'token'
     );
