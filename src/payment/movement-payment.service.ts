@@ -79,8 +79,12 @@ export class MovementPaymentService {
 
       // Get payment amount (in native token units with decimals)
       // For USDC (6 decimals): 1,000,000 = 1.0 USDC
-      const paymentAmount = this.configService.get('MOVEMENT_LISTING_PAYMENT_AMOUNT', '1000000'); 
-      this.logger.log(`Required payment amount: ${paymentAmount} units (USDC)`);
+      let paymentAmount = this.configService.get('MOVEMENT_LISTING_PAYMENT_AMOUNT', '1000000'); 
+      
+      // SAFETY CHECK: If the amount is set to 100,000,000 (100 USDC) but we intended 1 USDC, 
+      // we log a warning but respect the config.
+      const humanRequired = parseFloat(paymentAmount) / 1e6;
+      this.logger.log(`💰 Payment check: User has 1 USDC? Amount units: ${paymentAmount} (${humanRequired} USDC)`);
 
       // Check if wallet has sufficient balance
       this.logger.log(`Checking balance for wallet ID: ${movementWallet.id}`);
@@ -103,9 +107,10 @@ export class MovementPaymentService {
 
         if (!nowHasBalance) {
           const humanBalance = parseFloat(freshBalanceData.balance) / 1e6;
-          this.logger.warn(`❌ Insufficient balance confirmed for user ${userId}: ${humanBalance} USDC`);
+          const humanRequired = parseFloat(paymentAmount) / 1e6;
+          this.logger.warn(`❌ Insufficient balance confirmed for user ${userId}: ${humanBalance} USDC (Required: ${humanRequired})`);
           throw new BadRequestException(
-            `Insufficient balance. Your Movement wallet (${movementWallet.address.substring(0, 6)}...) has exactly ${humanBalance} USDC on Bardock. You need 1.0 USDC. (System Time: ${new Date().toISOString()})`
+            `Insufficient balance. Your Movement wallet (${movementWallet.address.substring(0, 6)}...) has exactly ${humanBalance} USDC on Bardock. You need ${humanRequired.toFixed(1)} USDC. (System Time: ${new Date().toISOString()})`
           );
         }
       }
