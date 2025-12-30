@@ -24,7 +24,12 @@ export class SolanaApiService {
 
     this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
     
-    this.helius = createSafeFetcher('https://mainnet.helius-rpc.com/', heliusApiKey, 'x-api-key');
+    // Helius free/low tiers work best with key in URL, not header
+    this.helius = axios.create({
+      baseURL: `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`,
+      timeout: 15000,
+    });
+
     this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet/', moralisApiKey, 'X-API-Key');
     
     // Solscan V2 Pro keys (JWT) require 'x-api-key', Old V1 keys require 'token'
@@ -135,7 +140,7 @@ export class SolanaApiService {
    */
   private async fetchHeliusTokenData(contractAddress: string) {
     try {
-      console.log('Calling Helius RPC API via SafeFetcher...');
+      console.log('Calling Helius RPC API...');
       
       const response = await this.helius.post('', {
         jsonrpc: '2.0',
@@ -176,9 +181,6 @@ export class SolanaApiService {
     } catch (error: any) {
       console.error('Helius API error:', error.message);
       
-      // If it's a known SafeFetcher error, rethrow it
-      if (error instanceof HttpException) throw error;
-
       // Return minimal data structure so other APIs can still work
       return {
         source: 'helius_error',
@@ -603,9 +605,13 @@ export class SolanaApiService {
    */
   private async fetchHolderData(contractAddress: string) {
     try {
-      console.log('Fetching holder distribution from Solscan API via SafeFetcher...');
+      console.log('Fetching holder distribution from Solscan API...');
       
-      const res = await this.solscan.get(`token/holders?address=${contractAddress}&page=1&page_size=20`);
+      const res = await this.solscan.get(`token/holders?address=${contractAddress}&page=1&page_size=20`)
+        .catch((e: any) => {
+          console.warn(`Solscan holder fetch failed: ${e.message}`);
+          return { data: { data: [], total: 0 } };
+        });
       
       // Handle Solscan V2 response structure
       const list = res.data?.data || [];
@@ -632,9 +638,6 @@ export class SolanaApiService {
     } catch (error: any) {
       console.error('Error fetching holder data:', error.message);
       
-      // Rethrow SafeFetcher errors
-      if (error instanceof HttpException) throw error;
-
       return {
         total_holders: 0,
         active_wallets: 0,
@@ -823,11 +826,17 @@ export class SolanaApiService {
   // Fetch Moralis token market metadata/price
   private async fetchMoralisMarket(contractAddress: string) {
     try {
-      console.log('Fetching Moralis market data via SafeFetcher...');
+      console.log('Fetching Moralis market data...');
       
       const [priceRes, metaRes] = await Promise.all([
-        this.moralis.get(`${contractAddress}/price`).catch(() => ({ data: null })),
-        this.moralis.get(`${contractAddress}/metadata`).catch(() => ({ data: null }))
+        this.moralis.get(`${contractAddress}/price`).catch((e: any) => {
+          console.warn(`Moralis price fetch failed: ${e.message}`);
+          return { data: null };
+        }),
+        this.moralis.get(`${contractAddress}/metadata`).catch((e: any) => {
+          console.warn(`Moralis meta fetch failed: ${e.message}`);
+          return { data: null };
+        })
       ]);
 
       const price_usd = priceRes?.data?.usdPrice ?? null;
@@ -845,10 +854,6 @@ export class SolanaApiService {
       };
     } catch (e: any) {
       console.log('Moralis market fetch failed:', e.message);
-      
-      // Rethrow SafeFetcher errors
-      if (e instanceof HttpException) throw e;
-      
       return null;
     }
   }
