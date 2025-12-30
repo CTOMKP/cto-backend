@@ -49,7 +49,44 @@ export class AnalyticsService {
   async getHolderCount(contractAddress: string, chain: string): Promise<number | null> {
     this.logger.log(`Fetching holder count for ${contractAddress} on ${chain}`);
 
-    // ... (rest of the method remains the same)
+    // Try Etherscan for Ethereum tokens
+    if (chain === 'ETHEREUM' && this.etherscanApiKey) {
+      const holders = await this.getEtherscanHolders(contractAddress);
+      if (holders !== null) {
+        this.logger.log(`✅ Etherscan returned ${holders} holders`);
+        return holders;
+      }
+    }
+
+    // Try Moralis for multi-chain support
+    if (this.moralisApiKey) {
+      const holders = await this.getMoralisHolders(contractAddress, chain);
+      if (holders !== null) {
+        this.logger.log(`✅ Moralis returned ${holders} holders`);
+        return holders;
+      }
+    }
+
+    // Try Helius for Solana tokens
+    if (chain === 'SOLANA' && this.heliusApiKey) {
+      const holders = await this.getHeliusHolders(contractAddress);
+      if (holders !== null) {
+        this.logger.log(`✅ Helius returned ${holders} holders`);
+        return holders;
+      }
+    }
+
+    // Try Solscan for Solana tokens (with API key)
+    if (chain === 'SOLANA' && this.solscanApiKey) {
+      const holders = await this.getSolscanHolders(contractAddress);
+      if (holders !== null) {
+        this.logger.log(`✅ Solscan (API key) returned ${holders} holders`);
+        return holders;
+      }
+    }
+
+    this.logger.warn(`❌ No holder data available for ${contractAddress} on ${chain}`);
+    return null;
   }
 
   /**
