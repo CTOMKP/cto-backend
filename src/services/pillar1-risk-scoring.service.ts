@@ -544,7 +544,7 @@ export class Pillar1RiskScoringService {
     lpLockPercentage: number, // LP lock percentage (0-100)
     lpLockMonths: number, // LP lock duration in months
     liquidityUSD: number // Liquidity in USD
-  ): 'stellar' | 'bloom' | 'sprout' | 'seed' | 'none' {
+  ): 'stellar' | 'bloom' | 'sprout' | 'seed' | 'new' | 'none' {
     // Log tier evaluation for debugging
     this.logger.debug(`🔍 Tier evaluation: score=${score}, age=${age} days, liquidity=$${liquidityUSD}, LP lock=${lpLockPercentage}%, LP lock months=${lpLockMonths}`);
     
