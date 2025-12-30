@@ -525,52 +525,42 @@ export class MovementWalletService {
       // 2. Fetch transactions from RPC (Master Event Scan)
       const rpcUrl = this.getRpcUrl(isTestnet);
       
-      // STRATEGIC FIX (GEMINI RECOMMENDED): Global Ledger Polling for FA Events
-      // This is now the MASTER source for USDC transfers to avoid "competition" between logic sections.
+      // STRATEGIC FIX: Move Master Scan outside of storeAddr requirement
+      // This ensures MOVE deposits are detected even if the user has no USDC store yet.
       const storeAddr = await this.getPrimaryStoreAddress(wallet.address, this.TEST_TOKEN_ADDRESS, isTestnet);
-      if (storeAddr) {
-        try {
-          this.logger.debug(`📡 [MASTER-SCAN] Scanning ledger for USDC & MOVE events...`);
-          // Query the latest global transactions from the ledger (Limit 30 for extra safety)
-          const ledgerRes = await axios.get(`${rpcUrl}/transactions?limit=30`);
-          const globalTxs = ledgerRes.data || [];
-          
-          for (const tx of globalTxs) {
-            if (tx.type !== 'user_transaction' || !tx.success) continue;
+      
+      try {
+        this.logger.debug(`📡 [MASTER-SCAN] Scanning ledger for USDC & MOVE events...`);
+        // Increased limit to 60 for better reliability during periods of high activity
+        const ledgerRes = await axios.get(`${rpcUrl}/transactions?limit=60`);
+        const globalTxs = ledgerRes.data || [];
+        
+        for (const tx of globalTxs) {
+          if (tx.type !== 'user_transaction' || !tx.success) continue;
 
-            const events = tx.events || [];
-            // GEMINI FIX: Iterate through ALL events to avoid Gas Fee noise
-            for (const event of events) {
+          const events = tx.events || [];
+          for (const event of events) {
+            // 1. Handle USDC (Fungible Asset) - Requires storeAddr
+            if (storeAddr) {
               const isDeposit = event.type.includes('fungible_asset::Deposit');
               const isWithdraw = event.type.includes('fungible_asset::Withdraw');
-              
               const eventStore = event.data?.store?.toLowerCase();
               const targetStore = storeAddr.toLowerCase();
               
-              // 1. Handle USDC (Fungible Asset)
               if ((isDeposit || isWithdraw) && eventStore === targetStore) {
-                // GEMINI FIX: Check for BOTH Wallet and Hash (allow same hash for different users)
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
-                  where: { 
-                    walletId_txHash: {
-                      walletId: walletId,
-                      txHash: tx.hash 
-                    }
-                  },
+                  where: { walletId_txHash: { walletId: walletId, txHash: tx.hash } },
                 });
 
                 if (!existingTx) {
                   const amount = event.data?.amount || '0';
                   const txType = isDeposit ? 'CREDIT' : 'DEBIT';
                   
-                  // GEMINI FIX: Correct asymmetric counterparty logic
                   let counterparty = 'Unknown';
                   if (isWithdraw) {
-                      // I am sending: find who received it (the store that IS NOT mine)
                       const rec = events.find(e => e.type.includes('fungible_asset::Deposit') && e.data?.store?.toLowerCase() !== targetStore);
                       counterparty = rec ? rec.data.store : 'External';
                   } else {
-                      // I am receiving: find who sent it (the one who Withdrew)
                       const sen = events.find(e => e.type.includes('fungible_asset::Withdraw') && e.data?.store?.toLowerCase() !== targetStore);
                       counterparty = sen ? sen.data.store : tx.sender; 
                   }
@@ -588,24 +578,24 @@ export class MovementWalletService {
                     status: 'COMPLETED',
                     metadata: { version: tx.version, store: storeAddr, eventType: event.type }
                   });
-                  
                   newTransactions.push(recorded);
-                  this.logger.log(`[MASTER-SCAN] Recorded ${txType} USDC for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
+                  this.logger.log(`[MASTER-SCAN] Recorded ${txType} USDC for ${wallet.address}`);
                 }
               }
+            }
 
-              // 2. Handle Native MOVE (Coin Standard) - Specifically for Receiver Visibility
-              const isMoveDeposit = event.type.includes('coin::DepositEvent') && event.type.includes('AptosCoin');
-              const eventAccount = event.guid?.account_address?.toLowerCase();
-              
-              if (isMoveDeposit && eventAccount === wallet.address.toLowerCase() && tx.sender !== wallet.address) {
+            // 2. Handle Native MOVE (Coin Standard) - Independent of storeAddr
+            const isMoveDeposit = event.type.includes('coin::DepositEvent') && event.type.includes('AptosCoin');
+            const eventAccount = event.guid?.account_address;
+            
+            if (isMoveDeposit && eventAccount && tx.sender !== wallet.address) {
+              // Normalize addresses for comparison
+              const normalizedEventAcc = eventAccount.startsWith('0x') ? eventAccount.toLowerCase() : `0x${eventAccount}`.toLowerCase();
+              const normalizedWalletAcc = wallet.address.toLowerCase();
+
+              if (normalizedEventAcc === normalizedWalletAcc) {
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
-                  where: { 
-                    walletId_txHash: {
-                      walletId: walletId,
-                      txHash: tx.hash 
-                    }
-                  },
+                  where: { walletId_txHash: { walletId: walletId, txHash: tx.hash } },
                 });
 
                 if (!existingTx) {
@@ -624,14 +614,14 @@ export class MovementWalletService {
                     metadata: { version: tx.version, eventType: event.type }
                   });
                   newTransactions.push(recorded);
-                  this.logger.log(`[MASTER-SCAN] Recorded MOVE CREDIT for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
+                  this.logger.log(`[MASTER-SCAN] Recorded MOVE CREDIT for ${wallet.address}`);
                 }
               }
             }
           }
-        } catch (globalErr: any) {
-          this.logger.warn(`⚠️ [MASTER-SCAN] Ledger scan failed: ${globalErr.message}`);
         }
+      } catch (globalErr: any) {
+        this.logger.warn(`⚠️ [MASTER-SCAN] Ledger scan failed: ${globalErr.message}`);
       }
 
       // Legacy fallback for MOVE tokens (which DO appear in account tx list)
