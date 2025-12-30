@@ -50,7 +50,24 @@ export class UserListingsController {
   @Post('scan')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Scan contract and return vetting result' })
+  @ApiOperation({ 
+    summary: 'Scan contract and return vetting result',
+    description: 'Scans a token contract address using Pillar 1 logic and returns risk score and tier. Note: Returns duplicate fields (risk_score/vettingScore and tier/vettingTier) for frontend compatibility.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Scan successful',
+    schema: {
+      type: 'object',
+      properties: {
+        risk_score: { type: 'number', example: 75 },
+        vettingScore: { type: 'number', example: 75 },
+        tier: { type: 'string', example: 'bloom' },
+        vettingTier: { type: 'string', example: 'bloom' },
+        eligible: { type: 'boolean', example: true }
+      }
+    }
+  })
   async scan(@Body() dto: ScanDto, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
     return this.svc.scan(Number(userId), dto);

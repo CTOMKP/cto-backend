@@ -149,8 +149,8 @@ export class MovementWalletController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
-    summary: 'Poll for new transactions (Event Indexing)',
-    description: 'Manually trigger transaction discovery by indexing on-chain events (DepositEvent/WithdrawEvent). This is used to detect funding and external payments.'
+    summary: 'High-Reliability Transaction Sync (Indexer + Master Scan)',
+    description: 'Triggers a high-reliability transaction discovery process. It first queries the Movement GraphQL Indexer for guaranteed history, then performs a "Super-Greedy" master event scan as a fallback. This ensures both Senders and Receivers see transactions correctly (Resolves Asymmetric Visibility).'
   })
   @ApiResponse({ 
     status: 200, 

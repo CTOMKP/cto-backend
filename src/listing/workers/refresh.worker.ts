@@ -532,10 +532,11 @@ export class RefreshWorker {
     if (!Array.isArray(tokens) || tokens.length === 0) {
       try {
         // Prefer verified list; fallback to full list if needed
-        const { data } = await axios.get('https://tokens.jup.ag/tokens?tags=verified', { timeout: 8000 });
+        // Using lite-api.jup.ag as tokens.jup.ag is being phased out
+        const { data } = await axios.get('https://lite-api.jup.ag/tokens?tags=verified', { timeout: 8000 });
         tokens = Array.isArray(data) ? data : [];
         if (tokens.length === 0) {
-          const alt = await axios.get('https://tokens.jup.ag/tokens', { timeout: 8000 }).then(r => r.data).catch(() => []);
+          const alt = await axios.get('https://lite-api.jup.ag/tokens', { timeout: 8000 }).then(r => r.data).catch(() => []);
           tokens = Array.isArray(alt) ? alt : [];
         }
         // Cache for 12h
@@ -1438,13 +1439,15 @@ export class RefreshWorker {
           lpLocks: bearTreeData?.lpLocks || [],
         },
         holders: {
-          // Prioritize heliusData holderCount (from AnalyticsService), then gmgn, preserve null if unavailable
+          // Prioritize Birdeye (most accurate for Solana), then AnalyticsService (multi-API), then gmgn
           // Use null check to distinguish between 0 (no data) and actual 0 holders
-          count: heliusData?.holderCount !== null && heliusData?.holderCount !== undefined 
-            ? heliusData.holderCount 
-            : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
-              ? combinedData.gmgn.holders
-              : null),
+          count: (combinedData as any)?.birdeye?.holder !== null && (combinedData as any)?.birdeye?.holder !== undefined
+            ? (combinedData as any).birdeye.holder
+            : (heliusData?.holderCount !== null && heliusData?.holderCount !== undefined 
+              ? heliusData.holderCount 
+              : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
+                ? combinedData.gmgn.holders
+                : null)),
           topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || []).slice(0, 10).map((h: any) => ({
             address: h.address || h.id,
             balance: Number(h.balance || 0),

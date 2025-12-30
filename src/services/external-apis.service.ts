@@ -258,6 +258,30 @@ export class ExternalApisService {
   }
 
   /**
+   * Fetch token data from Birdeye
+   */
+  async fetchBirdeyeData(contractAddress: string, chain: string = 'solana') {
+    try {
+      const apiKey = this.configService.get('BIRDEYE_API_KEY');
+      if (!apiKey) return null;
+
+      const url = `https://public-api.birdeye.so/defi/token_overview?address=${contractAddress}`;
+      const response = await axios.get(url, {
+        headers: {
+          'X-API-KEY': apiKey,
+          'x-chain': chain.toLowerCase()
+        },
+        timeout: 10000
+      });
+
+      return response.data?.success ? response.data.data : null;
+    } catch (error: any) {
+      this.logger.debug(`Birdeye API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Combine data from multiple sources
    */
   async fetchCombinedTokenData(contractAddress: string, chain: string = 'solana') {
@@ -265,12 +289,13 @@ export class ExternalApisService {
 
     try {
       // Fetch data from multiple sources in parallel
-      const [dexScreenerData, gmgnData, moralisData, solscanData, apifyData] = await Promise.allSettled([
+      const [dexScreenerData, gmgnData, moralisData, solscanData, apifyData, birdeyeData] = await Promise.allSettled([
         this.fetchDexScreenerData(contractAddress, chain),
         this.fetchGMGNData(contractAddress),
         this.fetchMoralisData(contractAddress, chain),
         chain === 'solana' ? this.fetchSolscanData(contractAddress) : Promise.resolve(null),
         this.fetchApifyData(contractAddress, chain),
+        this.fetchBirdeyeData(contractAddress, chain),
       ]);
 
       return {
@@ -281,6 +306,7 @@ export class ExternalApisService {
         moralis: moralisData.status === 'fulfilled' ? moralisData.value : null,
         solscan: solscanData.status === 'fulfilled' ? solscanData.value : null,
         apify: apifyData.status === 'fulfilled' ? apifyData.value : null,
+        birdeye: birdeyeData.status === 'fulfilled' ? birdeyeData.value : null,
         fetchedAt: new Date().toISOString(),
       };
     } catch (error) {

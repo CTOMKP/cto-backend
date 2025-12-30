@@ -54,7 +54,8 @@ export class TokenImageService {
   private async fetchFromJupiter(contractAddress: string): Promise<string | null> {
     try {
       // Try verified tokens first
-      const verifiedUrl = 'https://tokens.jup.ag/tokens?tags=verified';
+      // Using lite-api.jup.ag as tokens.jup.ag is being phased out
+      const verifiedUrl = 'https://lite-api.jup.ag/tokens?tags=verified';
       const verifiedResponse = await firstValueFrom(
         this.httpService.get(verifiedUrl, { timeout: 10000 })
       );
@@ -69,7 +70,7 @@ export class TokenImageService {
       }
 
       // If not in verified list, try full list
-      const fullUrl = 'https://tokens.jup.ag/tokens';
+      const fullUrl = 'https://lite-api.jup.ag/tokens';
       const fullResponse = await firstValueFrom(
         this.httpService.get(fullUrl, { timeout: 10000 })
       );

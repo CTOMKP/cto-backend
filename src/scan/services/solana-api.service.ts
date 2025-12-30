@@ -202,7 +202,8 @@ export class SolanaApiService {
     try {
       console.log('Calling Jupiter API...');
       
-      const response = await axios.get(`https://tokens.jup.ag/token/${contractAddress}`, {
+      // Using lite-api.jup.ag as tokens.jup.ag is being phased out
+      const response = await axios.get(`https://lite-api.jup.ag/token/${contractAddress}`, {
         timeout: 10000,
         headers: {
           'User-Agent': 'CTO-Vetting-System/1.0'

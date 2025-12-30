@@ -58,6 +58,15 @@ export class AnalyticsService {
       }
     }
 
+    // Try Birdeye for Solana tokens
+    if (chain === 'SOLANA') {
+      const holders = await this.getBirdeyeHolders(contractAddress);
+      if (holders !== null) {
+        this.logger.log(`✅ Birdeye returned ${holders} holders`);
+        return holders;
+      }
+    }
+
     // Try Moralis for multi-chain support
     if (this.moralisApiKey) {
       const holders = await this.getMoralisHolders(contractAddress, chain);
@@ -87,6 +96,34 @@ export class AnalyticsService {
 
     this.logger.warn(`❌ No holder data available for ${contractAddress} on ${chain}`);
     return null;
+  }
+
+  /**
+   * Birdeye API - Get token holder count (Solana)
+   */
+  private async getBirdeyeHolders(contractAddress: string): Promise<number | null> {
+    try {
+      const apiKey = this.configService.get('BIRDEYE_API_KEY');
+      if (!apiKey) return null;
+
+      const url = `https://public-api.birdeye.so/defi/token_overview?address=${contractAddress}`;
+      const response = await axios.get(url, {
+        headers: {
+          'X-API-KEY': apiKey,
+          'x-chain': 'solana'
+        },
+        timeout: 10000
+      });
+
+      if (response.data?.success && response.data?.data?.holder) {
+        return parseInt(response.data.data.holder, 10);
+      }
+
+      return null;
+    } catch (error: any) {
+      this.logger.debug(`Birdeye holder API error: ${error.message}`);
+      return null;
+    }
   }
 
   /**

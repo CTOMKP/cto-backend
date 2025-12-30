@@ -62,7 +62,7 @@ export interface ComponentScore {
   flags: string[];
 }
 
-export interface VettingResults {
+  export interface VettingResults {
   componentScores: {
     distribution: ComponentScore;
     liquidity: ComponentScore;
@@ -71,7 +71,7 @@ export interface VettingResults {
   };
   overallScore: number | null;
   riskLevel: 'low' | 'medium' | 'high' | 'insufficient_data';
-  eligibleTier: 'stellar' | 'bloom' | 'sprout' | 'seed' | 'none';
+  eligibleTier: 'stellar' | 'bloom' | 'sprout' | 'seed' | 'new' | 'none';
   allFlags: string[];
   dataSufficient: boolean;
   missingData: string[];
@@ -638,6 +638,13 @@ export class Pillar1RiskScoringService {
         score >= 50 && effectiveLockMonths === 0) {
       this.logger.debug(`✅ Tier: seed (score-based: score ${score} >= 50, age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock waived)`);
       return 'seed';
+    }
+
+    // NEW Tier: For promising tokens < 14 days old
+    // Age: < 14 days, LP: >= $5k, Score: >= 60
+    if (age < 14 && liquidityUSD >= 5000 && score >= 60) {
+      this.logger.debug(`✅ Tier: new (age ${age} < 14 days, liquidity $${liquidityUSD} >= $5k, score ${score} >= 60)`);
+      return 'new';
     }
 
     // Log why tier wasn't assigned (check what's missing for Seed tier as minimum)
