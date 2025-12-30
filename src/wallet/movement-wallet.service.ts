@@ -66,6 +66,17 @@ export class MovementWalletService {
   }
 
   /**
+   * Normalize a hex address to a standard 64-character format for robust comparison
+   */
+  private normalizeAddress(address: string): string {
+    if (!address) return '';
+    let clean = address.toLowerCase().trim();
+    if (clean.startsWith('0x')) clean = clean.substring(2);
+    // Pad to 64 chars to ensure 0x1 match 0x000...1
+    return clean.padStart(64, '0');
+  }
+
+  /**
    * Get Movement RPC URL based on network
    */
   private getRpcUrl(isTestnet: boolean = true): string {
@@ -589,11 +600,11 @@ export class MovementWalletService {
             const eventAccount = event.guid?.account_address;
             
             if (isMoveDeposit && eventAccount && tx.sender !== wallet.address) {
-              // Normalize addresses for comparison
-              const normalizedEventAcc = eventAccount.startsWith('0x') ? eventAccount.toLowerCase() : `0x${eventAccount}`.toLowerCase();
-              const normalizedWalletAcc = wallet.address.toLowerCase();
+              // ROBUST ADDRESS COMPARISON: Normalize both to 64-char hex
+              const normEventAcc = this.normalizeAddress(eventAccount);
+              const normWalletAcc = this.normalizeAddress(wallet.address);
 
-              if (normalizedEventAcc === normalizedWalletAcc) {
+              if (normEventAcc === normWalletAcc) {
                 const existingTx = await (this.prisma as any).walletTransaction.findUnique({
                   where: { walletId_txHash: { walletId: walletId, txHash: tx.hash } },
                 });
@@ -614,8 +625,11 @@ export class MovementWalletService {
                     metadata: { version: tx.version, eventType: event.type }
                   });
                   newTransactions.push(recorded);
-                  this.logger.log(`[MASTER-SCAN] Recorded MOVE CREDIT for ${wallet.address}`);
+                  this.logger.log(`[MASTER-SCAN] ✅ Recorded MOVE CREDIT for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
                 }
+              } else {
+                // Debug log for failed matches to see formatting differences
+                this.logger.debug(`[MASTER-SCAN] MOVE Event skip: ${normEventAcc.substring(60)} != ${normWalletAcc.substring(60)}`);
               }
             }
           }
