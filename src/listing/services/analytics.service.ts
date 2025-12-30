@@ -118,7 +118,7 @@ export class AnalyticsService {
         return null;
       }
 
-      const response = await this.moralis.get(`/${contractAddress}/owners?limit=1`);
+      const response = await this.moralis.get(`${contractAddress}/owners?limit=1`);
       return response.data?.total || response.data?.count || null;
     } catch (error: any) {
       this.logger.debug(`Moralis API error: ${error.message}`);
@@ -155,8 +155,8 @@ export class AnalyticsService {
     try {
       const isV2 = this.solscanApiKey?.startsWith('eyJ');
       const response = await this.solscan.get(isV2 
-        ? `/token/holders?address=${contractAddress}&page=1&page_size=1`
-        : `/token/holders?token=${contractAddress}&offset=0&size=1`
+        ? `token/holders?address=${contractAddress}&page=1&page_size=1`
+        : `token/holders?token=${contractAddress}&offset=0&size=1`
       );
 
       return response.data?.total || response.data?.data?.total || null;

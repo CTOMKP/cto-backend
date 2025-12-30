@@ -826,8 +826,8 @@ export class SolanaApiService {
       console.log('Fetching Moralis market data via SafeFetcher...');
       
       const [priceRes, metaRes] = await Promise.all([
-        this.moralis.get(`/${contractAddress}/price`).catch(() => ({ data: null })),
-        this.moralis.get(`/${contractAddress}/metadata`).catch(() => ({ data: null }))
+        this.moralis.get(`${contractAddress}/price`).catch(() => ({ data: null })),
+        this.moralis.get(`${contractAddress}/metadata`).catch(() => ({ data: null }))
       ]);
 
       const price_usd = priceRes?.data?.usdPrice ?? null;
