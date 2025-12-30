@@ -595,44 +595,46 @@ export class MovementWalletService {
             }
 
             // 2. Handle Native MOVE (Coin Standard) - Independent of storeAddr
-            const isMoveDeposit = event.type.includes('coin::DepositEvent');
-            const eventAccount = event.guid?.account_address;
+            const isMoveDeposit = event.type.includes('DepositEvent') && event.type.includes('AptosCoin');
             
-            if (isMoveDeposit && eventAccount && tx.sender !== wallet.address) {
-              // ROBUST ADDRESS COMPARISON: Normalize both to 64-char hex
+            // SUPER-GREEDY ADDRESS LOOKUP: Check every possible location for the receiver address
+            const eventAccount = event.guid?.account_address || 
+                                 event.data?.address || 
+                                 event.guid?.id?.account_address ||
+                                 (typeof event.guid === 'string' ? event.guid.split(':')[0] : null);
+            
+            if (isMoveDeposit && eventAccount) {
               const normEventAcc = this.normalizeAddress(eventAccount);
               const normWalletAcc = this.normalizeAddress(wallet.address);
 
-              // Debug log to confirm comparison strings
-              // this.logger.debug(`[MASTER-SCAN] Comparing MOVE deposit: Event Account(${normEventAcc.substring(0, 10)}...) vs Wallet(${normWalletAcc.substring(0, 10)}...)`);
+              // We only care if it's NOT the sender (to avoid self-transfer noise)
+              if (tx.sender !== wallet.address) {
+                // Troubleshooting log
+                this.logger.log(`[MASTER-SCAN] Found MOVE Event! Comparing: Event(${normEventAcc.substring(0, 12)}...) vs Wallet(${normWalletAcc.substring(0, 12)}...)`);
 
-              if (normEventAcc === normWalletAcc) {
-                const existingTx = await (this.prisma as any).walletTransaction.findUnique({
-                  where: { walletId_txHash: { walletId: walletId, txHash: tx.hash } },
-                });
-
-                if (!existingTx) {
-                  const amount = event.data?.amount || '0';
-                  
-                  // For MOVE deposits, the sender is usually the transaction signer (tx.sender)
-                  // unless it's a complex multi-agent tx, which we don't use yet.
-                  const fromAddr = tx.sender;
-
-                  const recorded = await this.recordTransaction({
-                    walletId,
-                    txHash: tx.hash,
-                    txType: 'CREDIT',
-                    amount: amount.toString(),
-                    tokenAddress: this.NATIVE_TOKEN_ADDRESS,
-                    tokenSymbol: 'MOVE',
-                    toAddress: wallet.address,
-                    fromAddress: fromAddr,
-                    description: `MOVE deposit detected via master scan`,
-                    status: 'COMPLETED',
-                    metadata: { version: tx.version, eventType: event.type }
+                if (normEventAcc === normWalletAcc) {
+                  const existingTx = await (this.prisma as any).walletTransaction.findUnique({
+                    where: { walletId_txHash: { walletId: walletId, txHash: tx.hash } },
                   });
-                  newTransactions.push(recorded);
-                  this.logger.log(`[MASTER-SCAN] ✅ Recorded MOVE CREDIT for ${wallet.address} (Tx: ${tx.hash.substring(0, 10)})`);
+
+                  if (!existingTx) {
+                    const amount = event.data?.amount || '0';
+                    const recorded = await this.recordTransaction({
+                      walletId,
+                      txHash: tx.hash,
+                      txType: 'CREDIT',
+                      amount: amount.toString(),
+                      tokenAddress: this.NATIVE_TOKEN_ADDRESS,
+                      tokenSymbol: 'MOVE',
+                      toAddress: wallet.address,
+                      fromAddress: tx.sender,
+                      description: `MOVE deposit detected via master scan`,
+                      status: 'COMPLETED',
+                      metadata: { version: tx.version, eventType: event.type }
+                    });
+                    newTransactions.push(recorded);
+                    this.logger.log(`[MASTER-SCAN] ✅ SUCCESS: Recorded ${amount} MOVE for ${wallet.address}`);
+                  }
                 }
               }
             }
