@@ -49,198 +49,24 @@ export class ScanService {
         throw new HttpException('Invalid Solana contract address format', HttpStatus.BAD_REQUEST);
       }
 
-      // Use the SAME comprehensive data fetching approach as RefreshWorker (Pillar 1)
-      this.logger.debug(`🔍 Fetching comprehensive data for user listing scan: ${contractAddress} on ${chain}`);
+      // CRITICAL ALIGNMENT: Use the SAME specialized service as RefreshWorker
+      // This service has the DexScreener fallbacks that are currently WORKING
+      this.logger.debug(`🔍 Fetching comprehensive data for user listing scan: ${contractAddress}`);
       
-      let dexScreenerData, combinedData, imageUrl, heliusData, alchemyData, bearTreeData;
-
-      try {
-        // Fetch data from multiple sources
-        [dexScreenerData, combinedData, imageUrl] = await Promise.all([
-          this.externalApisService.fetchDexScreenerData(contractAddress, chain.toLowerCase())
-            .catch(e => { this.logger.warn(`DexScreener fetch failed: ${e.message}`); return null; }),
-          this.externalApisService.fetchCombinedTokenData(contractAddress, chain.toLowerCase())
-            .catch(e => { this.logger.warn(`Combined data fetch failed: ${e.message}`); return null; }),
-          this.tokenImageService.fetchTokenImage(contractAddress, chain)
-            .catch(e => { this.logger.warn(`Image fetch failed: ${e.message}`); return null; }),
-        ]);
-
-        // Fetch Helius data (token metadata, holders, creation date)
-        heliusData = await this.fetchHeliusData(contractAddress);
-        
-        // Fetch Alchemy data (if available)
-        alchemyData = await this.fetchAlchemyData(contractAddress)
-          .catch(e => { this.logger.warn(`Alchemy fetch failed: ${e.message}`); return null; });
-        
-        // Fetch Helius BearTree data (developer info)
-        bearTreeData = await this.fetchHeliusBearTreeData(contractAddress)
-          .catch(e => { this.logger.warn(`BearTree fetch failed: ${e.message}`); return null; });
-
-      } catch (error) {
-        // If it's an EXTERNAL_API_BUSY or BLOCK error, stop the scan and inform the user
-        if (error instanceof HttpException) {
-          const status = error.getStatus();
-          if (status === HttpStatus.TOO_MANY_REQUESTS || status === HttpStatus.FAILED_DEPENDENCY) {
-            this.logger.error(`🛑 Scan aborted for ${contractAddress}: External providers are busy or blocking.`);
-            throw new HttpException(
-              'External data providers are temporarily busy or hitting rate limits. Please try again in a few minutes.',
-              HttpStatus.SERVICE_UNAVAILABLE
-            );
-          }
-        }
-        throw error;
-      }
-
-      // Check if critical data was successfully fetched
-      // If we don't have liquidity or holders, we CANNOT calculate a fair score.
-      const hasLiquidity = !!(dexScreenerData?.liquidity?.usd || combinedData?.gmgn?.liquidity);
-      const hasHolders = !!(heliusData?.holderCount || combinedData?.gmgn?.holders);
-
-      if (!hasLiquidity || !hasHolders) {
-        this.logger.error(`🛑 Critical data missing for ${contractAddress} (Liquidity: ${hasLiquidity}, Holders: ${hasHolders}). Aborting to prevent 0-score.`);
-        throw new HttpException(
-          'Unable to fetch critical market data (liquidity/holders) from external providers. Please try again in a moment.',
-          HttpStatus.SERVICE_UNAVAILABLE
-        );
-      }
-
-      // Extract token info
-      const pair = dexScreenerData || combinedData?.dexScreener;
-      const baseToken = (pair?.baseToken || {}) as { name?: string; symbol?: string; decimals?: number };
-      const gmgnData = (combinedData?.gmgn as any) || {};
+      const tokenData = await this.solanaApiService.fetchTokenData(contractAddress);
       
-      // Extract trading and holders data for age estimation
-      const tradingData = {
-        volume24h: Number(pair?.volume?.h24 || combinedData?.gmgn?.volume24h || 0),
-        liquidity: Number(pair?.liquidity?.usd || combinedData?.gmgn?.liquidity || 0),
-      };
-      const holdersData = {
-        count: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
-      };
-
-      // Calculate token age - try multiple sources (same as RefreshWorker)
-      const creationTimestamp = 
-        heliusData?.creationTimestamp ||           // Helius RPC (primary)
-        pair?.pairCreatedAt ||                     // DexScreener pair creation
-        null;
-
-      let tokenAge = 0;
-
-      if (creationTimestamp) {
-        // Determine if timestamp is in seconds or milliseconds
-        const timestampMs = creationTimestamp > 1e12 
-          ? creationTimestamp  // Already in milliseconds
-          : creationTimestamp * 1000; // Convert seconds to milliseconds
-        
-        // Calculate age from timestamp
-        tokenAge = Math.floor((Date.now() - timestampMs) / (1000 * 60 * 60 * 24));
-        this.logger.debug(`📅 Token ${contractAddress} age calculated from timestamp: ${tokenAge} days`);
-      } else {
-        // Fallback: Estimate based on activity
-        const hasSignificantVolume = tradingData.volume24h > 50000;
-        const hasManyHolders = holdersData.count > 500;
-        const hasEstablishedLiquidity = tradingData.liquidity > 100000;
-        
-        if (hasSignificantVolume || hasManyHolders || hasEstablishedLiquidity) {
-          // Conservative estimate: assume minimum 7 days old for tokens with significant activity
-          tokenAge = 7;
-          this.logger.debug(`⚠️ No timestamp for ${contractAddress}, estimating minimum age: 7 days (based on activity)`);
-        } else {
-          // Very new token with no activity - likely < 1 day
-          tokenAge = 0;
-          this.logger.debug(`⚠️ No timestamp for ${contractAddress}, no significant activity - age: 0 days`);
-        }
+      if (!tokenData) {
+        throw new HttpException('Token not found or data unavailable. Please try again in a moment.', HttpStatus.SERVICE_UNAVAILABLE);
       }
 
-      // AGE FILTER: Removed 14-day minimum (same as RefreshWorker)
-      // Tokens of any age can be scanned and vetted
-      // The tier calculation will handle age requirements (Seed: 14-21 days, etc.)
-      this.logger.log(`✅ Processing token ${contractAddress} (age: ${tokenAge} days) with Pillar 1 risk scoring`);
-
-      // Build COMPLETE TokenVettingData payload (same structure as RefreshWorker)
-      const vettingData: TokenVettingData = {
-        contractAddress,
-        chain: chain.toLowerCase(),
-        tokenInfo: {
-          name: baseToken.name || gmgnData?.name || 'Unknown',
-          symbol: baseToken.symbol || gmgnData?.symbol || 'UNKNOWN',
-          image: imageUrl,
-          decimals: baseToken.decimals || gmgnData?.decimals || 6,
-          description: gmgnData?.description || null,
-          websites: combinedData?.gmgn?.socials?.website ? [combinedData.gmgn.socials.website] : [],
-          socials: [
-            combinedData?.gmgn?.socials?.twitter,
-            combinedData?.gmgn?.socials?.telegram,
-          ].filter(Boolean),
-        },
-        security: {
-          isMintable: heliusData?.isMintable ?? alchemyData?.isMintable ?? false,
-          isFreezable: heliusData?.isFreezable ?? alchemyData?.isFreezable ?? false,
-          lpLockPercentage: (pair?.liquidity as any)?.lockedPercentage || bearTreeData?.lpLockPercentage || 0,
-          totalSupply: Number(heliusData?.totalSupply || combinedData?.gmgn?.totalSupply || 0),
-          circulatingSupply: Number(heliusData?.circulatingSupply || combinedData?.gmgn?.circulatingSupply || 0),
-          lpLocks: bearTreeData?.lpLocks || [],
-        },
-        holders: {
-          // Prioritize heliusData holderCount (from AnalyticsService), then gmgn, preserve null if unavailable
-          count: heliusData?.holderCount !== null && heliusData?.holderCount !== undefined 
-            ? heliusData.holderCount 
-            : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
-              ? combinedData.gmgn.holders
-              : null),
-          topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || []).slice(0, 10).map((h: any) => ({
-            address: h.address || h.id,
-            balance: Number(h.balance || 0),
-            percentage: Number(h.percentage || 0),
-          })),
-        },
-        developer: {
-          creatorAddress: bearTreeData?.creatorAddress || combinedData?.gmgn?.creator?.address || null,
-          creatorBalance: Number(bearTreeData?.creatorBalance || combinedData?.gmgn?.creator?.balance || 0),
-          creatorStatus: bearTreeData?.creatorStatus || combinedData?.gmgn?.creator?.status || 'unknown',
-          top10HolderRate: Number(bearTreeData?.top10HolderRate || gmgnData?.top10HolderRate || 0),
-          twitterCreateTokenCount: bearTreeData?.twitterCreateTokenCount || 0,
-        },
-        trading: {
-          price: Number(pair?.priceUsd || combinedData?.gmgn?.price || 0),
-          priceChange24h: Number(pair?.priceChange?.h24 || 0),
-          volume24h: Number(pair?.volume?.h24 || combinedData?.gmgn?.volume24h || 0),
-          buys24h: Number(pair?.txns?.h24?.buys || 0),
-          sells24h: Number(pair?.txns?.h24?.sells || 0),
-          liquidity: Number(pair?.liquidity?.usd || combinedData?.gmgn?.liquidity || 0),
-          fdv: Number(pair?.fdv || combinedData?.gmgn?.marketCap || 0),
-          holderCount: heliusData?.holderCount !== null && heliusData?.holderCount !== undefined
-            ? heliusData.holderCount
-            : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
-              ? combinedData.gmgn.holders
-              : null),
-        },
-        tokenAge: Math.max(0, tokenAge),
-      };
-
-      // Log critical data fields for debugging
-      this.logger.debug(`[ScanService] Token data for ${contractAddress}:`, {
-        holder_count: vettingData.holders.count,
-        lp_amount_usd: vettingData.trading.liquidity,
-        project_age_days: vettingData.tokenAge,
-        has_top_holders: !!vettingData.holders.topHolders?.length,
-        top_holders_count: vettingData.holders.topHolders?.length || 0,
-        creator_address: vettingData.developer.creatorAddress,
-      });
-
-      // Calculate risk score using Pillar1RiskScoringService (N8N workflow formula)
+      // Transform to Pillar 1 Vetting Data format (Same as RefreshWorker)
+      const vettingData = this.transformToVettingData(contractAddress, tokenData, 'SOLANA');
+      
+      // Calculate risk score using Pillar1RiskScoringService
       const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
       
-      // Log risk score calculation result
-      this.logger.debug(`[ScanService] Risk score calculation result for ${contractAddress}:`, {
-        overallScore: vettingResults.overallScore,
-        dataSufficient: vettingResults.dataSufficient,
-        missingData: vettingResults.missingData,
-        riskLevel: vettingResults.riskLevel,
-      });
-
-      // Check if score meets minimum threshold (50) and data is sufficient
-      if (!vettingResults.dataSufficient || !vettingResults.overallScore || vettingResults.overallScore < 50) {
+      // Check if score meets minimum threshold (50)
+      if (!vettingResults.dataSufficient || vettingResults.overallScore === null || vettingResults.overallScore < 50) {
         const reason = !vettingResults.dataSufficient 
           ? `Insufficient data to calculate risk score. Missing: ${vettingResults.missingData.join(', ')}`
           : `Risk score ${vettingResults.overallScore} is below minimum threshold of 50`;
@@ -249,7 +75,7 @@ export class ScanService {
           {
             message: reason,
             eligible: false,
-            tier: vettingResults.eligibleTier,
+            tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
             risk_score: vettingResults.overallScore || 0,
             risk_level: vettingResults.riskLevel.toUpperCase(),
             summary: reason,
@@ -272,7 +98,7 @@ export class ScanService {
         );
       }
 
-      // Map risk level to uppercase string for backward compatibility
+      // Map risk level to uppercase string
       const riskLevelMap: Record<string, string> = {
         low: 'LOW',
         medium: 'MEDIUM',
@@ -281,26 +107,8 @@ export class ScanService {
       };
       const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
       
-      // Build metadata for AI summary (using vettingData structure)
-      // Wrap in try-catch to ensure scan result is always returned even if summary generation fails
-      let summary = `Risk Level: ${vettingResults.riskLevel}. Tier: ${vettingResults.eligibleTier}`;
-      try {
-        const tokenMetadataForSummary = {
-          symbol: vettingData.tokenInfo.symbol,
-          name: vettingData.tokenInfo.name,
-          project_age_days: vettingData.tokenAge,
-          lp_amount_usd: vettingData.trading.liquidity,
-          token_price: vettingData.trading.price,
-          volume_24h: vettingData.trading.volume24h,
-          market_cap: vettingData.trading.fdv,
-          holder_count: vettingData.holders.count,
-        };
-        summary = generateAISummary(tokenMetadataForSummary, { name: vettingResults.eligibleTier }, vettingResults.overallScore);
-      } catch (summaryError: any) {
-        // If summary generation fails, use fallback summary - don't fail the scan
-        this.logger.warn(`⚠️ Summary generation failed for ${contractAddress}: ${summaryError?.message || String(summaryError)}, using fallback summary`);
-        summary = `Risk Level: ${vettingResults.riskLevel}. Tier: ${vettingResults.eligibleTier}. Risk Score: ${vettingResults.overallScore}/100`;
-      }
+      // Generate AI summary
+      const summary = generateAISummary(tokenData, { name: vettingResults.eligibleTier }, vettingResults.overallScore);
 
       const result = {
         tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
@@ -324,21 +132,18 @@ export class ScanService {
         },
       };
 
-      // Persist in DB if authenticated user provided (non-blocking - don't fail the scan if DB write fails)
+      // Persist in DB if authenticated user provided
       if (userId) {
         try {
-        await this.prisma.scanResult.create({
-          data: {
-            contractAddress,
-            resultData: result as any,
-            userId,
-          },
-        });
-          this.logger.debug(`✅ Scan result persisted to database for ${contractAddress}`);
-        } catch (dbError: any) {
-          // Log DB error but don't fail the scan - the result is still valid
-          this.logger.warn(`⚠️ Failed to persist scan result to database for ${contractAddress}: ${dbError?.message || String(dbError)}`);
-          // Continue - the scan result is still valid even if DB write fails
+          await this.prisma.scanResult.create({
+            data: {
+              contractAddress,
+              resultData: result as any,
+              userId,
+            },
+          });
+        } catch (dbError) {
+          this.logger.warn(`⚠️ Failed to persist scan result for ${contractAddress}: ${dbError.message}`);
         }
       }
 

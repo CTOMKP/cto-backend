@@ -40,7 +40,7 @@ export class AnalyticsService {
       isV2 ? 'x-api-key' : 'token'
     );
 
-    this.helius = createSafeFetcher('https://mainnet.helius-rpc.com/', this.heliusApiKey, 'api-key');
+    this.helius = createSafeFetcher('https://mainnet.helius-rpc.com/', this.heliusApiKey, 'x-api-key');
   }
 
   /**
@@ -122,6 +122,7 @@ export class AnalyticsService {
       return response.data?.total || response.data?.count || null;
     } catch (error: any) {
       this.logger.debug(`Moralis API error: ${error.message}`);
+      if (error instanceof HttpException) throw error;
       return null;
     }
   }
@@ -144,6 +145,7 @@ export class AnalyticsService {
       return response.data?.result?.total || null;
     } catch (error: any) {
       this.logger.debug(`Helius API error: ${error.message}`);
+      if (error instanceof HttpException) throw error;
       return null;
     }
   }
@@ -162,6 +164,7 @@ export class AnalyticsService {
       return response.data?.total || response.data?.data?.total || null;
     } catch (error: any) {
       this.logger.debug(`Solscan API error: ${error.message}`);
+      if (error instanceof HttpException) throw error;
       return null;
     }
   }

@@ -24,7 +24,7 @@ export class SolanaApiService {
 
     this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
     
-    this.helius = createSafeFetcher('https://mainnet.helius-rpc.com/', heliusApiKey, 'api-key');
+    this.helius = createSafeFetcher('https://mainnet.helius-rpc.com/', heliusApiKey, 'x-api-key');
     this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet/', moralisApiKey, 'X-API-Key');
     
     // Solscan V2 Pro keys (JWT) require 'x-api-key', Old V1 keys require 'token'
@@ -173,10 +173,10 @@ export class SolanaApiService {
         verified: true,
       };
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Helius API error:', error.message);
       
-      // If it's a known SafeFetcher error, rethrow it to trigger "Service Busy" in ScanService
+      // If it's a known SafeFetcher error, rethrow it
       if (error instanceof HttpException) throw error;
 
       // Return minimal data structure so other APIs can still work
@@ -629,7 +629,7 @@ export class SolanaApiService {
         wallet_activity: [],
         activity_summary: {},
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching holder data:', error.message);
       
       // Rethrow SafeFetcher errors
