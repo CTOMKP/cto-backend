@@ -242,4 +242,19 @@ export class ListingService {
       message: 'Feed fetch triggered. The database will be populated shortly.' 
     };
   }
+
+  /**
+   * Manually trigger the injection of pinned tokens
+   */
+  async ensurePinned() {
+    this.logger.log('Manually triggering pinned token sync...');
+    // We run it asynchronously
+    this.worker.ensurePinnedTokensExist().catch(err => {
+      this.logger.error('❌ Manual pinned sync failed:', err);
+    });
+    return { 
+      success: true, 
+      message: 'Pinned token sync triggered. Pinned tokens will be injected shortly.' 
+    };
+  }
 }

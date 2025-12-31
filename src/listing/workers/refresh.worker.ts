@@ -33,19 +33,19 @@ export class RefreshWorker {
 
   // Pinned tokens that should never be rotated out or deleted
   private readonly PINNED_TOKENS = [
-    { address: 'gh8ers4yzkr3ukdvgvu8cqjfgzu4cu62mteg9bcj7ug6', chain: 'SOLANA', symbol: 'michi' },
+    { address: 'gh8ers4yzkr3ukdvgvu8cqjfgzu4cu62mteg9bcj7ug6', chain: 'SOLANA', symbol: 'Michi' },
     { address: '0x660b571d34b91bc4c2fffbf8957ad50b5fac56f4', chain: 'BSC', symbol: 'VINU' },
     { address: '424kbbjyt6vksn7gekt9vh5yetutr1sbeyoya2nmbjpw', chain: 'SOLANA', symbol: 'SIGMA' },
-    { address: 'hypxcaat9ybu7vya5burgprsa23hmvdkqxtsud5gqwdc', chain: 'SOLANA', symbol: 'Mini' },
+    { address: 'hypxcaat9ybu7vya5burgprsa23hmvdqxt5udsgqwdc', chain: 'SOLANA', symbol: 'Mini' },
     { address: '0x5c6919b79fac1c3555675ae59a9ac2484f3972f5', chain: 'ETHEREUM', symbol: '$HOPPY' },
     { address: '0xfcc89a1f250d76de198767d33e1ca9138a7fb54b', chain: 'BASE', symbol: 'Mochi' },
     { address: '4fp4synbkisczqkwufpkcsxwfdbsvmktsnpbnlplyu9q', chain: 'SOLANA', symbol: 'snoofi' },
-    { address: '5ffoyq4q8qxe64v3dax64ir7yiuwsxxrjy2qxduet1st', chain: 'SOLANA', symbol: 'Kieth' },
+    { address: '5ffoyq4q8qxek4v3da x64ir7yuwsxxrjy2qxduet1st', chain: 'SOLANA', symbol: 'Kieth' },
     { address: '0x84196ac042ddb84137e15d1c3ff187adad61f811', chain: 'BSC', symbol: 'LCAT' },
-    { address: '2bjky9pnztdvmpdhjhv8qbwejkilzebd7i2tatyjxaze', chain: 'SOLANA', symbol: 'HARAMBE' },
-    { address: '9uww4c36hictgr6pzw9vfhr9vdxktz8na8jvnzqu35pj', chain: 'SOLANA', symbol: 'BILLY' },
-    { address: '0x184fb097196a4e2be8dfd44b341cb7d13b41ea7e', chain: 'OTHER', symbol: 'BOOP' }, 
-    { address: 'bszedbevwrqvksaf558eppwcm16avepyhm2hgsq9wzyy', chain: 'SOLANA', symbol: 'SC' },
+    { address: '2bjky9pnytdvmpdhjhv8qbweykilzebd7i2tatyjxaze', chain: 'SOLANA', symbol: 'HARAMBE' },
+    { address: '9uww4c36hictgrufpkwsn7ghrj9vd xktz8na8jv nzqu35pj', chain: 'SOLANA', symbol: 'BILLY' },
+    { address: '0x184fb097196a4e2be8dfd44b341cb7d13b41ea7e', chain: 'ETHEREUM', symbol: 'BOOP' },
+    { address: 'bszedbevwrqvksaf558eppwpwcm16avepyhm2hgsq9wzyy', chain: 'SOLANA', symbol: 'SC' },
     { address: '0xd6df608d847ad85375fcf1783f8ccd57be6a16d2', chain: 'BSC', symbol: 'LUFFY' },
     { address: '0xbd85f61a1b755b6034c62f16938d6da7c85941705d9d10aa1843b809b0e35582', chain: 'SUI', symbol: 'FUD' },
     { address: 'bduggvl2ylc41bhxmzevh3zjjz69svcx6lhwfy4b71mo', chain: 'SOLANA', symbol: 'VIBE' },
@@ -98,7 +98,7 @@ export class RefreshWorker {
       // Use the repository's public methods instead of accessing private prisma
       const client = (this.repo as any)['prisma'] as any;
       
-      const pinnedAddresses = this.PINNED_TOKENS.map(t => t.address);
+      const pinnedAddresses = this.PINNED_TOKENS.map(t => t.address.toLowerCase());
 
       // Strict limit: Keep only the latest 25 listings for the "Presentable Model"
       // PLUS any pinned tokens that might be outside the top 25
@@ -192,6 +192,12 @@ export class RefreshWorker {
     let apiCalls = 0;
     let failures = 0;
     try {
+      this.logger.log('📊 Scheduled fetch feed starting...');
+      
+      // Safety check: ensure pinned tokens are present if they were deleted manually
+      // This will only perform fetches for missing tokens
+      await this.ensurePinnedTokensExist();
+
       // Fetch data from all sources in parallel for efficiency
       const [dex, bird, heli, moralis, solscan] = await Promise.all([
         this.getDexScreenerFeed().catch((e) => { failures++; this.logger.debug(e?.message || e); return null; }),
@@ -1247,22 +1253,44 @@ export class RefreshWorker {
    * Specifically fetch and ensure the pinned tokens are in the database.
    */
   async ensurePinnedTokensExist() {
-    this.logger.log('📍 Ensuring pinned tokens exist in database...');
+    this.logger.log('📍 Checking missing pinned tokens...');
+    let injectedCount = 0;
     for (const t of this.PINNED_TOKENS) {
       try {
-        // Fetch from DexScreener specifically for this address
-        const url = `https://api.dexscreener.com/latest/dex/tokens/${t.address}`;
-        const res = await axios.get(url, { timeout: 8000 });
+        // Optimization: Only fetch if not already in DB
+        const existing = await this.repo.findOne(t.address);
+        if (existing) continue;
+
+        this.logger.log(`🔍 Pinned token ${t.symbol} missing, fetching data...`);
+        
+        // Try fetching as TOKEN first
+        const tokenUrl = `https://api.dexscreener.com/latest/dex/tokens/${t.address}`;
+        let res = await axios.get(tokenUrl, { timeout: 8000 });
+        
+        // If no pairs found, try fetching as PAIR (in case user provided a pair address)
+        if (!res.data?.pairs || res.data.pairs.length === 0) {
+          const chainId = t.chain.toLowerCase() === 'solana' ? 'solana' : 
+                          t.chain.toLowerCase() === 'ethereum' ? 'ethereum' : 
+                          t.chain.toLowerCase() === 'bsc' ? 'bsc' : 
+                          t.chain.toLowerCase() === 'base' ? 'base' : 'solana';
+          const pairUrl = `https://api.dexscreener.com/latest/dex/pairs/${chainId}/${t.address}`;
+          res = await axios.get(pairUrl, { timeout: 8000 });
+        }
+
         if (res.data?.pairs && res.data.pairs.length > 0) {
-          // Merge this into our normal flow
+          this.logger.log(`✅ Found data for pinned token ${t.symbol} (${t.address})`);
           const merged = this.mergeFeeds([{ pairs: res.data.pairs }]);
           await this.upsertFromMerged(merged);
+          injectedCount++;
         } else {
-          this.logger.warn(`Could not find DexScreener data for pinned token ${t.symbol} (${t.address})`);
+          this.logger.warn(`❌ Could not find DexScreener data for pinned token ${t.symbol} (${t.address}) as token OR pair`);
         }
-      } catch (e) {
-        this.logger.error(`Error ensuring pinned token ${t.symbol}: ${e.message}`);
+      } catch (e: any) {
+        this.logger.error(`❌ Error ensuring pinned token ${t.symbol}: ${e.message}`);
       }
+    }
+    if (injectedCount > 0) {
+      this.logger.log(`📍 Pinned tokens injection complete. Injected ${injectedCount} tokens.`);
     }
   }
 
@@ -1590,6 +1618,7 @@ export class RefreshWorker {
 
           if (isNative || isPinned) {
             if (isNative) payload.tokenAge = 365; // Force native coins to appear mature
+            this.logger.log(`📍 Pinned or Native token ${contractAddress} detected. Bypassing age check.`);
             // Proceed with saving
           } else if (payload.tokenAge < 14) {
             this.logger.log(`⚠️ Token ${contractAddress} is too young (${payload.tokenAge} days). Skipping public listing.`);
