@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import axios from 'axios';
 import * as crypto from 'crypto';
@@ -24,7 +24,7 @@ import { firstValueFrom } from 'rxjs';
   - Non-blocking, short Redis cache (60-120s) to reduce API calls.
 */
 @Injectable()
-export class RefreshWorker {
+export class RefreshWorker implements OnModuleInit {
   private readonly logger = new Logger(RefreshWorker.name);
   private queue: (string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' })[] = [];
   private running = false;
@@ -45,6 +45,16 @@ export class RefreshWorker {
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
   ) {}
+
+  async onModuleInit() {
+    this.logger.log('🚀 RefreshWorker initialized. Running initial feed fetch...');
+    // Run the fetch after 10 seconds to allow the server to stabilize
+    setTimeout(() => {
+      this.scheduledFetchFeed().catch(err => {
+        this.logger.error('❌ Initial feed fetch failed:', err);
+      });
+    }, 10000);
+  }
 
   enqueue(contract: string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' }) {
     this.queue.push(contract as any);

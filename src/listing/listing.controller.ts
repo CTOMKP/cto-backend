@@ -122,4 +122,11 @@ export class ListingController {
     return this.listingService.refreshHolders();
   }
 
+  @Post('fetch-feed')
+  @ApiOperation({ summary: 'Manually trigger the public feed fetch (Admin/Dev only)' })
+  @ApiResponse({ status: 200, description: 'Feed fetch triggered' })
+  async fetchFeed() {
+    return this.listingService.fetchFeed();
+  }
+
 }

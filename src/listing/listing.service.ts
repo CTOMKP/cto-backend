@@ -227,4 +227,19 @@ export class ListingService {
       };
     }
   }
+
+  /**
+   * Manually trigger the public feed fetch
+   */
+  async fetchFeed() {
+    this.logger.log('Manually triggering public feed fetch...');
+    // We run it asynchronously so the request doesn't timeout
+    this.worker.scheduledFetchFeed().catch(err => {
+      this.logger.error('❌ Manual feed fetch failed:', err);
+    });
+    return { 
+      success: true, 
+      message: 'Feed fetch triggered. The database will be populated shortly.' 
+    };
+  }
 }
