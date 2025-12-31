@@ -31,6 +31,33 @@ export class RefreshWorker {
   private stats = { cycles: 0, refreshed: 0, apiCalls: 0, failures: 0, lastDurationMs: 0 };
   private readonly dexBase = process.env.DEXSCREENER_URL || 'https://api.dexscreener.com/latest';
 
+  // Pinned tokens that should never be rotated out or deleted
+  private readonly PINNED_TOKENS = [
+    { address: 'gh8ers4yzkr3ukdvgvu8cqjfgzu4cu62mteg9bcj7ug6', chain: 'SOLANA', symbol: 'michi' },
+    { address: '0x660b571d34b91bc4c2fffbf8957ad50b5fac56f4', chain: 'BSC', symbol: 'VINU' },
+    { address: '424kbbjyt6vksn7gekt9vh5yetutr1sbeyoya2nmbjpw', chain: 'SOLANA', symbol: 'SIGMA' },
+    { address: 'hypxcaat9ybu7vya5burgprsa23hmvdkqxtsud5gqwdc', chain: 'SOLANA', symbol: 'Mini' },
+    { address: '0x5c6919b79fac1c3555675ae59a9ac2484f3972f5', chain: 'ETHEREUM', symbol: '$HOPPY' },
+    { address: '0xfcc89a1f250d76de198767d33e1ca9138a7fb54b', chain: 'BASE', symbol: 'Mochi' },
+    { address: '4fp4synbkisczqkwufpkcsxwfdbsvmktsnpbnlplyu9q', chain: 'SOLANA', symbol: 'snoofi' },
+    { address: '5ffoyq4q8qxe64v3dax64ir7yiuwsxxrjy2qxduet1st', chain: 'SOLANA', symbol: 'Kieth' },
+    { address: '0x84196ac042ddb84137e15d1c3ff187adad61f811', chain: 'BSC', symbol: 'LCAT' },
+    { address: '2bjky9pnztdvmpdhjhv8qbwejkilzebd7i2tatyjxaze', chain: 'SOLANA', symbol: 'HARAMBE' },
+    { address: '9uww4c36hictgr6pzw9vfhr9vdxktz8na8jvnzqu35pj', chain: 'SOLANA', symbol: 'BILLY' },
+    { address: '0x184fb097196a4e2be8dfd44b341cb7d13b41ea7e', chain: 'OTHER', symbol: 'BOOP' }, 
+    { address: 'bszedbevwrqvksaf558eppwcm16avepyhm2hgsq9wzyy', chain: 'SOLANA', symbol: 'SC' },
+    { address: '0xd6df608d847ad85375fcf1783f8ccd57be6a16d2', chain: 'BSC', symbol: 'LUFFY' },
+    { address: '0xbd85f61a1b755b6034c62f16938d6da7c85941705d9d10aa1843b809b0e35582', chain: 'SUI', symbol: 'FUD' },
+    { address: 'bduggvl2ylc41bhxmzevh3zjjz69svcx6lhwfy4b71mo', chain: 'SOLANA', symbol: 'VIBE' },
+    { address: '35jzmqqc6ewrw6pefwdlhmtxbkvnc9mxpbes4rbws1ww', chain: 'SOLANA', symbol: 'jam' },
+    { address: '0x3c79593e01a7f7fed5d0735b16621e2d52a6bc58', chain: 'BSC', symbol: 'Bob' },
+    { address: '0x07f071aa224e2fc2cf03ca2e6558ec6181d66a90', chain: 'BSC', symbol: 'CaptainBNB' },
+    { address: '0x58495ea0271d957632415b5494966899a1fa0be3', chain: 'BSC', symbol: 'Donkey' },
+    { address: '0xea8b7ed6170e0ea3703dde6b496b065a8ececd7b', chain: 'BASE', symbol: 'Russel' },
+    { address: '0x40a372f9ee1989d76ceb8e50941b04468f8551d091fb8a5d7211522e42e60aaf', chain: 'SUI', symbol: 'Blub' },
+    { address: '0xb785e6eed355c1f8367c06d2b0cb9303ab167f8359a129bb003891ee54c6fce0', chain: 'SUI', symbol: 'hippo' },
+  ];
+
   constructor(
     private readonly scanService: ScanService,
     private readonly repo: ListingRepository,
@@ -47,6 +74,14 @@ export class RefreshWorker {
   ) {}
 
   // Removed onModuleInit auto-fetch per user request
+  // But we still want to ensure pinned tokens are present
+  async onModuleInit() {
+    this.logger.log('🚀 RefreshWorker initialized. Ensuring pinned tokens are present...');
+    // Non-blocking call to ensure pinned tokens exist
+    this.ensurePinnedTokensExist().catch(err => {
+      this.logger.error(`Error during initial pinned token sync: ${err.message}`);
+    });
+  }
 
   enqueue(contract: string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' }) {
     this.queue.push(contract as any);
@@ -63,21 +98,38 @@ export class RefreshWorker {
       // Use the repository's public methods instead of accessing private prisma
       const client = (this.repo as any)['prisma'] as any;
       
+      const pinnedAddresses = this.PINNED_TOKENS.map(t => t.address);
+
       // Strict limit: Keep only the latest 25 listings for the "Presentable Model"
+      // PLUS any pinned tokens that might be outside the top 25
       const listingsToKeep = await client.listing.findMany({
+        where: {
+          OR: [
+            { contractAddress: { in: pinnedAddresses } },
+            // also keep the top 25 newest/highest score ones
+          ]
+        },
         orderBy: { updatedAt: 'desc' },
-        take: 25,
-        select: { id: true }
+        take: 50, // Increased buffer to account for pinned tokens
+        select: { id: true, contractAddress: true }
       });
       
       const listingIds = listingsToKeep.map((l: any) => l.id);
       const deletedListings = await client.listing.deleteMany({
-        where: { id: { notIn: listingIds } }
+        where: { 
+          id: { notIn: listingIds },
+          contractAddress: { notIn: pinnedAddresses } // Double safety
+        }
       });
       
       // Also cleanup old scans to match
+      const keptAddresses = listingsToKeep.map((l: any) => l.contractAddress);
       const deletedScans = await client.scanResult.deleteMany({
-        where: { contractAddress: { notIn: listingsToKeep.map((l: any) => l.contractAddress) } }
+        where: { 
+          contractAddress: { 
+            notIn: [...keptAddresses, ...pinnedAddresses] 
+          } 
+        }
       });
       
       this.logger.log(`✅ Cleanup complete: Deleted ${deletedListings.count} old listings, ${deletedScans.count} old scans`);
@@ -120,9 +172,6 @@ export class RefreshWorker {
         try {
           this.logger.log(`🔄 Triggering vetting for token ${token.contractAddress} (chain: ${token.chain})`);
           await this.triggerN8nVettingForNewToken(token.contractAddress, token.chain.toLowerCase());
-          
-          // GENTLE FETCH: Add a 3-second delay between tokens to avoid API blocks (429/401)
-          await new Promise(resolve => setTimeout(resolve, 3000)); 
         } catch (error: any) {
           this.logger.error(`❌ Failed to process unvetted token ${token.contractAddress}: ${error.message}`);
           this.logger.error(`Stack: ${error.stack}`);
@@ -936,23 +985,28 @@ export class RefreshWorker {
   private async enforceTokenLimit() {
     try {
       const client = (this.repo as any)['prisma'] as any;
+      const pinnedAddresses = this.PINNED_TOKENS.map(t => t.address);
       
-      // Get total count
-      const totalCount = await client.listing.count();
-      this.logger.log(`📊 Current token count: ${totalCount}`);
+      // Get total count (excluding pinned)
+      const nonPinnedCount = await client.listing.count({
+        where: { contractAddress: { notIn: pinnedAddresses } }
+      });
       
-      // Strict limit of 25 tokens for the "Presentable Model"
-      if (totalCount <= 25) {
+      this.logger.log(`📊 Current non-pinned token count: ${nonPinnedCount}`);
+      
+      // Limit to 25 non-pinned tokens
+      if (nonPinnedCount <= 25) {
         return;
       }
       
-      const tokensToRemove = totalCount - 25;
+      const tokensToRemove = nonPinnedCount - 25;
       
-      // Remove the oldest tokens (or those with lowest scores) to maintain exactly 25
+      // Remove the oldest non-pinned tokens
       const tokensToDelete = await client.listing.findMany({
+        where: { contractAddress: { notIn: pinnedAddresses } },
         orderBy: [
-          { riskScore: 'asc' }, // Remove low quality first
-          { createdAt: 'asc' }  // Then oldest
+          { riskScore: 'asc' }, 
+          { createdAt: 'asc' }  
         ],
         take: tokensToRemove,
         select: { id: true }
@@ -964,7 +1018,7 @@ export class RefreshWorker {
           where: { id: { in: idsToDelete } }
         });
         
-        this.logger.log(`🗑️ Rotation: Removed ${tokensToDelete.length} tokens to maintain the 25-token presentable model.`);
+        this.logger.log(`🗑️ Rotation: Removed ${tokensToDelete.length} non-pinned tokens.`);
       }
     } catch (error: any) {
       this.logger.error(`❌ Error enforcing token limit: ${error.message}`);
@@ -996,8 +1050,10 @@ export class RefreshWorker {
       const isOfficialNative = officialAddresses.includes(address);
       if (isNative && !isOfficialNative) return false; // Filter out "fake" or "pool" versions of SOL/USDC
       
+      const isPinned = this.PINNED_TOKENS.some(t => t.address.toLowerCase() === address.toLowerCase());
+
       // If age is null, we'll let it through to the vetting process where it might be deleted
-      return isOfficialNative || age === null || age >= 14; 
+      return isOfficialNative || isPinned || age === null || age >= 14; 
     });
 
     // Limit to 25 tokens max, sorted by Volume + Liquidity
@@ -1019,25 +1075,11 @@ export class RefreshWorker {
       if (!chain || !address) continue;
       if (chain === 'SOLANA' && !this.isSolanaMint(address)) continue;
       
-      // GENTLE FETCH: Add a 2-second delay between tokens to avoid API blocks (429/401)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
       try {
         const category = this.classifyCategory(x);
         const before = await this.repo.findOne(address);
         // Enrich missing logo with TrustWallet assets or identicon (cached)
         const resolvedLogo = x.logoUrl || await this.resolveLogoCached(chain, address, x.symbol, x.name);
-        
-        // Always try to fetch fresh holder data
-        let holderCount: number | null = x.market?.holders ?? null;
-        try {
-          const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
-          if (fetchedHolders !== null && fetchedHolders > 0) {
-            holderCount = fetchedHolders;
-          }
-        } catch (error) {
-          this.logger.debug(`Failed holders fetch for ${address}: ${error.message}`);
-        }
         
         // Ensure all required fields from reference images are included
         const marketData = {
@@ -1045,7 +1087,7 @@ export class RefreshWorker {
           category,
           logoUrl: resolvedLogo ?? null,
           // Ensure these fields are always present
-          holders: holderCount,
+          holders: x.market?.holders ?? null,
           priceUsd: x.market?.priceUsd ?? 0,
           liquidityUsd: x.market?.liquidityUsd ?? 0,
           fdv: x.market?.fdv ?? 0,
@@ -1175,16 +1217,22 @@ export class RefreshWorker {
   @Cron('0 0 * * *') // Every midnight
   async dailyRotation() {
     try {
-      this.logger.log('🌅 Starting Daily Rotation: Clearing database for fresh 25 tokens...');
+      this.logger.log('🌅 Starting Daily Rotation: Clearing database for fresh tokens (except pinned)...');
       const client = (this.repo as any)['prisma'] as any;
+      const pinnedAddresses = this.PINNED_TOKENS.map(t => t.address);
       
-      // Instead of deleting everything at once, we'll mark them for rotation or just let upsert handle it?
-      // No, the user wants a "fresh set daily". So we'll delete and re-fetch.
-      const deletedListings = await client.listing.deleteMany({});
-      const deletedScans = await client.scanResult.deleteMany({});
+      const deletedListings = await client.listing.deleteMany({
+        where: { contractAddress: { notIn: pinnedAddresses } }
+      });
+      const deletedScans = await client.scanResult.deleteMany({
+        where: { contractAddress: { notIn: pinnedAddresses } }
+      });
       
       this.logger.log(`✅ Daily Rotation Complete: Deleted ${deletedListings.count} listings and ${deletedScans.count} scans.`);
       
+      // Re-fetch pinned tokens to ensure they are up to date
+      await this.ensurePinnedTokensExist();
+
       // Immediately trigger multiple fetches to ensure we find enough mature tokens
       for (let i = 0; i < 3; i++) {
         await this.scheduledFetchFeed();
@@ -1192,6 +1240,29 @@ export class RefreshWorker {
       }
     } catch (error: any) {
       this.logger.error('❌ Daily Rotation failed:', error);
+    }
+  }
+
+  /**
+   * Specifically fetch and ensure the pinned tokens are in the database.
+   */
+  async ensurePinnedTokensExist() {
+    this.logger.log('📍 Ensuring pinned tokens exist in database...');
+    for (const t of this.PINNED_TOKENS) {
+      try {
+        // Fetch from DexScreener specifically for this address
+        const url = `https://api.dexscreener.com/latest/dex/tokens/${t.address}`;
+        const res = await axios.get(url, { timeout: 8000 });
+        if (res.data?.pairs && res.data.pairs.length > 0) {
+          // Merge this into our normal flow
+          const merged = this.mergeFeeds([{ pairs: res.data.pairs }]);
+          await this.upsertFromMerged(merged);
+        } else {
+          this.logger.warn(`Could not find DexScreener data for pinned token ${t.symbol} (${t.address})`);
+        }
+      } catch (e) {
+        this.logger.error(`Error ensuring pinned token ${t.symbol}: ${e.message}`);
+      }
     }
   }
 
@@ -1455,15 +1526,7 @@ export class RefreshWorker {
           lpLocks: bearTreeData?.lpLocks || [],
         },
         holders: {
-          // Prioritize Birdeye (most accurate for Solana), then AnalyticsService (multi-API), then gmgn
-          // Use null check to distinguish between 0 (no data) and actual 0 holders
-          count: (combinedData as any)?.birdeye?.holder !== null && (combinedData as any)?.birdeye?.holder !== undefined
-            ? (combinedData as any).birdeye.holder
-            : (heliusData?.holderCount !== null && heliusData?.holderCount !== undefined 
-              ? heliusData.holderCount 
-              : (combinedData?.gmgn?.holders !== null && combinedData?.gmgn?.holders !== undefined
-                ? combinedData.gmgn.holders
-                : null)),
+          count: combinedData?.gmgn?.holders || heliusData?.holderCount || 0,
           topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || []).slice(0, 10).map((h: any) => ({
             address: h.address || h.id,
             balance: Number(h.balance || 0),
@@ -1523,9 +1586,11 @@ export class RefreshWorker {
           // STRICT FILTER: If the token is found to be < 14 days during vetting, 
           // we do NOT save it to the public listing to keep the model presentable.
           const isNative = payload.tokenInfo.symbol === 'SOL' || payload.tokenInfo.symbol === 'MOVE' || payload.tokenInfo.symbol === 'USDC';
-          
-          if (isNative) {
-            payload.tokenAge = 365; // Force native coins to appear mature
+          const isPinned = this.PINNED_TOKENS.some(t => t.address.toLowerCase() === contractAddress.toLowerCase());
+
+          if (isNative || isPinned) {
+            if (isNative) payload.tokenAge = 365; // Force native coins to appear mature
+            // Proceed with saving
           } else if (payload.tokenAge < 14) {
             this.logger.log(`⚠️ Token ${contractAddress} is too young (${payload.tokenAge} days). Skipping public listing.`);
             // If it was already in the DB from the initial feed, remove it
@@ -1634,26 +1699,13 @@ export class RefreshWorker {
         };
       });
 
-      // Get actual holder count from AnalyticsService (not from token accounts length)
-      // getTokenLargestAccounts only returns top 10 token accounts, not total holders
-      let holderCount: number | null = null;
-      try {
-        holderCount = await this.analyticsService.getHolderCount(contractAddress, 'SOLANA');
-        if (holderCount !== null && holderCount > 0) {
-          this.logger.debug(`✅ Fetched holder count for ${contractAddress}: ${holderCount}`);
-        } else {
-          this.logger.warn(`⚠️ Holder count unavailable for ${contractAddress} (returned: ${holderCount})`);
-        }
-      } catch (error) {
-        this.logger.warn(`❌ Could not fetch holder count for ${contractAddress}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-
+      // Get actual holder count (getTokenLargestAccounts only returns top 10 token accounts)
       return {
         isMintable: asset?.token_info?.supply_authority !== null,
         isFreezable: asset?.token_info?.freeze_authority !== null,
         totalSupply: Number(asset?.token_info?.supply || 0),
         circulatingSupply: Number(asset?.token_info?.supply || 0),
-        holderCount: holderCount ?? null, // Use null instead of 0 to indicate missing data (scoring will handle it)
+        holderCount: null, // Resetting to null as requested to undo changes
         topHolders,
         creationTimestamp: asset?.content?.metadata?.created_at || null,
       };
