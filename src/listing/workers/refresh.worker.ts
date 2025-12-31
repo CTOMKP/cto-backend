@@ -966,18 +966,16 @@ export class RefreshWorker {
     const deltas = { new: [] as any[], updated: [] as any[] };
     if (!Array.isArray(items) || !items.length) return deltas;
     
-    // FILTER: Only tokens older than 14 days (per Owner's request)
-    // This ensures they qualify for Seed/Sprout/Bloom badges
-    const ageFilteredItems = items.filter(x => {
+    // Filter: Only include tokens older than 14 days OR native coins (SOL, MOVE, USDC)
+    const filteredItems = items.filter(x => {
+      const symbol = x.symbol?.toUpperCase();
       const age = x.market?.age;
-      // If age is null, we might still want to check if it's a known older token 
-      // but for strictness we follow the 14-day rule.
-      return age === null || age >= 14; 
+      const isNative = symbol === 'SOL' || symbol === 'MOVE' || symbol === 'USDC';
+      return isNative || age === null || age >= 14; 
     });
 
-    // Limit to 25 tokens max, sorted by Volume + Liquidity (High Quality)
-    // We increase the slice here because we expect the vetting process to filter some out
-    const sortedItems = ageFilteredItems
+    // Limit to 25 tokens max, sorted by Volume + Liquidity
+    const sortedItems = filteredItems
       .sort((a, b) => {
         const aVolume = Number(a.market?.volume?.h24 ?? 0);
         const bVolume = Number(b.market?.volume?.h24 ?? 0);
@@ -985,9 +983,9 @@ export class RefreshWorker {
         const bLiquidity = Number(b.market?.liquidityUsd ?? 0);
         return (bVolume + bLiquidity) - (aVolume + aLiquidity);
       })
-      .slice(0, 50); // Fetch 50, so we likely end up with 25 after age filtering
+      .slice(0, 25);
     
-    this.logger.log(`🎯 Processing top ${sortedItems.length} tokens to find 25 mature ones (>14 days old)`);
+    this.logger.log(`🎯 Populating database with top ${sortedItems.length} tokens`);
 
     for (const x of sortedItems) {
       const chain = x?.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
@@ -1501,21 +1499,6 @@ export class RefreshWorker {
           };
 
           const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
-
-          // STRICT FILTER: If the token is found to be < 14 days during vetting, 
-          // we remove it from the public listings to preserve the "Presentable Model"
-          // Exception: Always keep native coins or high-tier tokens
-          const isNative = payload.tokenInfo.symbol === 'SOL' || payload.tokenInfo.symbol === 'MOVE' || payload.tokenInfo.symbol === 'USDC';
-          
-          if (isNative) {
-            // Force native coins to appear mature
-            payload.tokenAge = 365; 
-          } else if (payload.tokenAge < 14) {
-            this.logger.log(`⚠️ Token ${contractAddress} is too young (${payload.tokenAge} days). Removing from public listing.`);
-            const client = (this.repo as any)['prisma'] as any;
-            await client.listing.delete({ where: { contractAddress } }).catch(() => {});
-            return;
-          }
 
           // Save to database (matching n8n workflow format)
           await this.repo.saveVettingResults({
