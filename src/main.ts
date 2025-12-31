@@ -101,7 +101,8 @@ async function bootstrap() {
   const enableSwagger = process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
   if (enableSwagger) {
     // Get API base URL from environment or use default
-    const apiBaseUrl = process.env.APP_URL || process.env.BACKEND_BASE_URL || 'https://api.ctomarketplace.com';
+    // Priorities: APP_URL -> BACKEND_BASE_URL -> Default
+    const apiBaseUrl = configService.get('APP_URL') || configService.get('BACKEND_BASE_URL') || 'https://api.ctomarketplace.com';
     
     const config = new DocumentBuilder()
       .setTitle('CTO Marketplace API')
