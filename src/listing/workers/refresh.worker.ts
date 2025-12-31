@@ -593,44 +593,62 @@ export class RefreshWorker {
       // DexScreener shape: { pairs: [...] }
       if (Array.isArray(feed.pairs)) {
         for (const p of feed.pairs.slice(0, 400)) {
-          const base = p?.baseToken || {};
-          const address = base?.address || p?.pairAddress;
+          // FIX: Correctly identify the "target" token in the pair
+          // Usually baseToken is the meme, and quoteToken is SOL/USDC.
+          // But sometimes it's reversed.
+          let base = p?.baseToken || {};
+          let quote = p?.quoteToken || {};
+          
+          let address = base?.address;
+          let symbol = base?.symbol;
+          let name = base?.name;
+
+          // If the base is SOL/WSOL/USDC/MOVE, swap to the other side to get the actual token
+          const isBaseNative = symbol === 'SOL' || symbol === 'WSOL' || symbol === 'USDC' || symbol === 'MOVE';
+          if (isBaseNative && quote?.address) {
+            address = quote.address;
+            symbol = quote.symbol;
+            name = quote.name;
+          }
+
           const chainEnum = this.mapChainIdToEnum(p?.chainId);
           if (!address) continue;
           if (chainEnum === 'SOLANA' && !this.isSolanaMint(address)) continue;
 
           const key = `${chainEnum}|${address}`;
-          const existing = byKey.get(key) || {};
-          // Prefer only valid numeric market fields and presence of txns
-          const priceUsdNum = Number(p?.priceUsd ?? existing.market?.priceUsd);
-          const liquidityUsdNum = Number(p?.liquidity?.usd ?? existing.market?.liquidityUsd);
-          const volumeH24Num = Number(p?.volume?.h24 ?? existing.market?.volume?.h24);
-          const txns = p?.txns ?? existing.market?.txns ?? null;
-          const hasTx = !!(txns && (typeof txns?.h1?.buys === 'number' || typeof txns?.h1?.sells === 'number' || typeof txns?.h24?.buys === 'number' || typeof txns?.h24?.sells === 'number'));
-          if (!Number.isFinite(priceUsdNum) || !Number.isFinite(liquidityUsdNum) || !Number.isFinite(volumeH24Num) || !hasTx) {
-            continue;
+          // DEDUPE: If we already have this token from a better pool, skip it
+          if (byKey.has(key)) {
+            const existing = byKey.get(key);
+            const currentLiq = Number(p?.liquidity?.usd || 0);
+            const existingLiq = Number(existing.market?.liquidityUsd || 0);
+            if (currentLiq <= existingLiq) continue; 
           }
+
+          // Prefer only valid numeric market fields and presence of txns
+          const priceUsdNum = Number(p?.priceUsd);
+          const liquidityUsdNum = Number(p?.liquidity?.usd);
+          const volumeH24Num = Number(p?.volume?.h24);
+          const txns = p?.txns || null;
+          
           const market = {
             priceUsd: priceUsdNum,
             liquidityUsd: liquidityUsdNum,
-            fdv: Number.isFinite(Number(p?.fdv)) ? Number(p?.fdv) : (Number.isFinite(Number(existing.market?.fdv)) ? Number(existing.market?.fdv) : null),
-            // DexScreener exposes priceChange as priceChange.m5, h1, h6, h24 etc. when available
+            fdv: Number.isFinite(Number(p?.fdv)) ? Number(p?.fdv) : null,
             priceChange: {
-              m5: Number.isFinite(Number((p as any)?.priceChange?.m5)) ? Number((p as any)?.priceChange?.m5) : null, // 5 minute change (also used as 1m approximation)
+              m5: Number.isFinite(Number((p as any)?.priceChange?.m5)) ? Number((p as any)?.priceChange?.m5) : null,
               h1: Number.isFinite(Number((p as any)?.priceChange?.h1)) ? Number((p as any)?.priceChange?.h1) : null,
               h6: Number.isFinite(Number((p as any)?.priceChange?.h6)) ? Number((p as any)?.priceChange?.h6) : null,
               h24: Number.isFinite(Number((p as any)?.priceChange?.h24)) ? Number((p as any)?.priceChange?.h24) : null,
             },
             volume: { h24: volumeH24Num },
             txns,
-            pairAddress: p?.pairAddress ?? existing.market?.pairAddress ?? null,
-            chainId: p?.chainId ?? null,
+            pairAddress: p?.pairAddress || null,
+            chainId: p?.chainId || null,
             source: 'dexscreener',
-            // Preserve holders from existing data if available (DexScreener doesn't provide holders)
-            holders: existing.market?.holders ?? null,
+            holders: null,
           };
-          const logoUrl = p?.info?.imageUrl || base?.imageUrl || base?.logoURI || existing.logoUrl || null;
-          byKey.set(key, { chain: chainEnum, address, symbol: base?.symbol, name: base?.name, market, logoUrl });
+          const logoUrl = p?.info?.imageUrl || base?.imageUrl || base?.logoURI || null;
+          byKey.set(key, { chain: chainEnum, address, symbol, name, market, logoUrl });
         }
       }
 
