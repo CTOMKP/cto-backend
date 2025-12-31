@@ -118,12 +118,11 @@ export class RefreshWorker {
 
       for (const token of unvettedTokens) {
         try {
-          // Age check is done inside triggerN8nVettingForNewToken
-          // It will skip tokens < 2 days old automatically (temporarily lowered for testing)
           this.logger.log(`🔄 Triggering vetting for token ${token.contractAddress} (chain: ${token.chain})`);
           await this.triggerN8nVettingForNewToken(token.contractAddress, token.chain.toLowerCase());
-          // Add delay between tokens to respect rate limits
-          await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay (reduced from 2)
+          
+          // GENTLE FETCH: Add a 3-second delay between tokens to avoid API blocks (429/401)
+          await new Promise(resolve => setTimeout(resolve, 3000)); 
         } catch (error: any) {
           this.logger.error(`❌ Failed to process unvetted token ${token.contractAddress}: ${error.message}`);
           this.logger.error(`Stack: ${error.stack}`);
@@ -1499,6 +1498,20 @@ export class RefreshWorker {
           };
 
           const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
+
+          // STRICT FILTER: If the token is found to be < 14 days during vetting, 
+          // we do NOT save it to the public listing to keep the model presentable.
+          const isNative = payload.tokenInfo.symbol === 'SOL' || payload.tokenInfo.symbol === 'MOVE' || payload.tokenInfo.symbol === 'USDC';
+          
+          if (isNative) {
+            payload.tokenAge = 365; // Force native coins to appear mature
+          } else if (payload.tokenAge < 14) {
+            this.logger.log(`⚠️ Token ${contractAddress} is too young (${payload.tokenAge} days). Skipping public listing.`);
+            // If it was already in the DB from the initial feed, remove it
+            const client = (this.repo as any)['prisma'] as any;
+            await client.listing.delete({ where: { contractAddress } }).catch(() => {});
+            return;
+          }
 
           // Save to database (matching n8n workflow format)
           await this.repo.saveVettingResults({
