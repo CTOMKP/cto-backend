@@ -83,13 +83,15 @@ export class MovementWalletService {
   }
 
   /**
-   * Get wallet balance from Movement blockchain
+   * Get wallet balance from Movement blockchain with Stale Cache Fallback
    */
-  async getWalletBalance(walletAddress: string, tokenAddress?: string, isTestnet: boolean = true): Promise<{
+  async getWalletBalance(walletAddress: string, tokenAddress?: string, isTestnet: boolean = true, walletId?: string): Promise<{
     balance: string;
     tokenAddress: string;
     tokenSymbol: string;
     decimals: number;
+    isStale?: boolean;
+    lastUpdated?: Date;
   }> {
     const urls = isTestnet 
       ? [
@@ -101,54 +103,39 @@ export class MovementWalletService {
       : [this.MOVEMENT_MAINNET_RPC];
     
     const tokenAddr = tokenAddress || this.TEST_TOKEN_ADDRESS;
-    const isFungibleAsset = !tokenAddr.includes('::'); // FA addresses are hex, Coins have ::
+    const isFungibleAsset = !tokenAddr.includes('::'); 
     
     let lastError: any;
 
     for (const rpcUrl of urls) {
       try {
-        this.logger.debug(`Fetching Movement balance for ${walletAddress} (Token: ${tokenAddr}) from ${rpcUrl}`);
-
+        // ... (RPC fetch logic remains same)
         if (isFungibleAsset) {
-          // Use View Function for Fungible Asset (FA)
-          try {
-            const response = await axios.post(`${rpcUrl}/view`, {
-              function: '0x1::primary_fungible_store::balance',
-              type_arguments: ['0x1::fungible_asset::Metadata'],
-              arguments: [walletAddress, tokenAddr]
-            }, { timeout: 10000 });
+          const response = await axios.post(`${rpcUrl}/view`, {
+            function: '0x1::primary_fungible_store::balance',
+            type_arguments: ['0x1::fungible_asset::Metadata'],
+            arguments: [walletAddress, tokenAddr]
+          }, { timeout: 10000 });
 
-            const balance = response.data[0] || '0';
-            const isUSDC = tokenAddr.toLowerCase() === '0xb89077cfd2a82a0c1450534d49cfd5f2707643155273069bc23a912bcfefdee7'.toLowerCase();
-            
-            return {
-              balance: balance.toString(),
-              tokenAddress: tokenAddr,
-              tokenSymbol: isUSDC ? 'USDC.e' : 'FA',
-              decimals: isUSDC ? 6 : 8,
-            };
-          } catch (faError: any) {
-            this.logger.debug(`FA View call failed, account might not have a store yet: ${faError.message}`);
-            // If account has no store, balance is 0
-            return {
-              balance: '0',
-              tokenAddress: tokenAddr,
-              tokenSymbol: 'USDC.e',
-              decimals: 6,
-            };
-          }
+          const balance = response.data[0] || '0';
+          const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
+          
+          return {
+            balance: balance.toString(),
+            tokenAddress: tokenAddr,
+            tokenSymbol: isUSDC ? 'USDC.e' : 'FA',
+            decimals: isUSDC ? 6 : 8,
+            isStale: false,
+            lastUpdated: new Date(),
+          };
         }
 
-        // Legacy Coin Standard Check
-        const response = await axios.get(`${rpcUrl}/accounts/${walletAddress}/resources`, {
-          timeout: 10000,
-        });
-
+        // Legacy Coin Standard
+        const response = await axios.get(`${rpcUrl}/accounts/${walletAddress}/resources`, { timeout: 10000 });
         const resources = response.data || [];
-        
         const coinStore = resources.find((r: any) => 
           r.type?.includes('coin::CoinStore') && 
-          (tokenAddr === '0x1::aptos_coin::AptosCoin' || r.type?.includes(tokenAddr) || r.type?.includes('0x1::move_coin::MoveCoin'))
+          (tokenAddr === '0x1::aptos_coin::AptosCoin' || r.type?.includes(tokenAddr))
         );
 
         if (!coinStore) {
@@ -157,24 +144,31 @@ export class MovementWalletService {
             tokenAddress: tokenAddr,
             tokenSymbol: tokenAddr.includes('AptosCoin') ? 'MOVE' : 'COIN',
             decimals: 8,
+            isStale: false,
+            lastUpdated: new Date(),
           };
         }
 
-        const balance = coinStore.data?.coin?.value || '0';
+        const balanceValue = coinStore.data?.coin?.value || '0';
         return {
-          balance: balance.toString(),
+          balance: balanceValue.toString(),
           tokenAddress: tokenAddr,
           tokenSymbol: tokenAddr.includes('AptosCoin') ? 'MOVE' : 'COIN',
           decimals: 8,
+          isStale: false,
+          lastUpdated: new Date(),
         };
       } catch (error: any) {
         lastError = error;
+        // ... (handle 404)
         if (error.response?.status === 404) {
           return {
             balance: '0',
             tokenAddress: tokenAddr,
             tokenSymbol: isFungibleAsset ? 'USDC.e' : 'MOVE',
             decimals: isFungibleAsset ? 6 : 8,
+            isStale: false,
+            lastUpdated: new Date(),
           };
         }
         this.logger.warn(`Failed to reach Movement RPC ${rpcUrl}: ${error.message}`);
@@ -182,8 +176,36 @@ export class MovementWalletService {
       }
     }
 
-    this.logger.error(`All Movement RPCs failed: ${lastError.message}`);
-    throw new BadRequestException(`Movement Network Unreachable. Please try again. Details: ${lastError.message}`);
+    // STRATEGIC FALLBACK: If all RPCs fail, try to fetch from Database Cache
+    if (walletId) {
+      try {
+        const cachedBalance = await (this.prisma as any).walletBalance.findUnique({
+          where: {
+            walletId_tokenAddress: {
+              walletId,
+              tokenAddress: tokenAddr,
+            },
+          },
+        });
+
+        if (cachedBalance) {
+          this.logger.warn(`📡 [STALE CACHE] Returning cached balance for ${walletAddress} due to RPC failure`);
+          return {
+            balance: cachedBalance.balance,
+            tokenAddress: cachedBalance.tokenAddress,
+            tokenSymbol: cachedBalance.tokenSymbol,
+            decimals: cachedBalance.decimals,
+            isStale: true,
+            lastUpdated: cachedBalance.lastUpdated,
+          };
+        }
+      } catch (dbError) {
+        this.logger.error(`Failed to fetch cached balance: ${dbError.message}`);
+      }
+    }
+
+    this.logger.error(`All Movement RPCs failed and no cache found: ${lastError.message}`);
+    throw new BadRequestException(`Movement Network Unreachable. Please try again later.`);
   }
 
   /**
@@ -205,9 +227,7 @@ export class MovementWalletService {
       }
 
       // Fetch balance from blockchain
-      // STRATEGIC FIX: If this is the admin's wallet ID, we can optionally 
-      // check their Nightly address as well to show the total "Admin Funds"
-      const balanceData = await this.getWalletBalance(wallet.address, tokenAddress, isTestnet);
+      const balanceData = await this.getWalletBalance(wallet.address, tokenAddress, isTestnet, walletId);
 
       // If this is the admin wallet address, we use USDC.e defaults
       const isUSDC = balanceData.tokenAddress.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
