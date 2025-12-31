@@ -208,18 +208,15 @@ export class RefreshWorker {
     // Fetch multiple search queries to scale results beyond 300 pairs.
     // Deduplicate by baseToken.address or pairAddress.
     const queries = [
-      // Solana
-      'sol', 'sol usdc', 'sol raydium', 'sol jupiter', 'sol pump', 'sol meme', 'sol pepe', 'sol doge', 'sol cat', 'sol dexscreener',
+      // Solana (High volume/Established)
+      'sol trending', 'sol top', 'sol jupiter', 'sol raydium', 'sol usdc', 'sol moon', 'sol pump',
+      'sol pepe', 'sol doge', 'sol cat', 'sol dexscreener', 'sol volume', 'sol liquid',
       // Ethereum
-      'eth', 'ethereum uniswap', 'eth meme', 'eth pepe',
+      'eth trending', 'eth uniswap', 'eth volume',
       // BSC
-      'bsc', 'binance pancakeswap', 'bsc meme', 'bsc pepe',
+      'bsc trending', 'bsc pancakeswap',
       // Base
-      'base', 'base uniswap', 'base meme',
-      // Sui
-      'sui', 'sui meme',
-      // Aptos
-      'aptos', 'aptos meme',
+      'base trending', 'base uniswap',
     ];
 
     const requests = queries.map((q) => {
@@ -581,18 +578,13 @@ export class RefreshWorker {
   private mergeFeeds(feeds: any[]) {
     const byKey = new Map<string, any>(); // key: chain|address
     
-    // Track which fields we need to ensure are populated based on reference images
-    const requiredFields = [
-      'priceUsd', 'liquidityUsd', 'holders', 'volume', 'marketCap', 
-      'priceChange', 'age', 'riskScore', 'communityScore'
-    ];
-
+    // ... (logic remains same)
     for (const feed of feeds) {
       if (!feed) continue;
 
       // DexScreener shape: { pairs: [...] }
       if (Array.isArray(feed.pairs)) {
-        for (const p of feed.pairs.slice(0, 400)) {
+        for (const p of feed.pairs.slice(0, 800)) { // Increased slice to find more mature tokens
           // FIX: Correctly identify the "target" token in the pair
           // Usually baseToken is the meme, and quoteToken is SOL/USDC.
           // But sometimes it's reversed.
@@ -1002,9 +994,9 @@ export class RefreshWorker {
       ];
       
       const isOfficialNative = officialAddresses.includes(address);
-      
       if (isNative && !isOfficialNative) return false; // Filter out "fake" or "pool" versions of SOL/USDC
       
+      // If age is null, we'll let it through to the vetting process where it might be deleted
       return isOfficialNative || age === null || age >= 14; 
     });
 
@@ -1017,45 +1009,34 @@ export class RefreshWorker {
         const bLiquidity = Number(b.market?.liquidityUsd ?? 0);
         return (bVolume + bLiquidity) - (aVolume + aLiquidity);
       })
-      .slice(0, 25);
+      .slice(0, 30); // Take 30 to allow for some vetting deletions
     
-    this.logger.log(`🎯 Populating database with top ${sortedItems.length} tokens`);
+    this.logger.log(`🎯 Populating database with top ${sortedItems.length} candidate tokens`);
 
     for (const x of sortedItems) {
       const chain = x?.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
       const address = x?.address as string;
       if (!chain || !address) continue;
       if (chain === 'SOLANA' && !this.isSolanaMint(address)) continue;
+      
+      // GENTLE FETCH: Add a 2-second delay between tokens to avoid API blocks (429/401)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
       try {
         const category = this.classifyCategory(x);
         const before = await this.repo.findOne(address);
         // Enrich missing logo with TrustWallet assets or identicon (cached)
         const resolvedLogo = x.logoUrl || await this.resolveLogoCached(chain, address, x.symbol, x.name);
         
-        // Always try to fetch fresh holder data (feed data might be stale or missing)
-        // This ensures holders are updated even if they were previously null or outdated
+        // Always try to fetch fresh holder data
         let holderCount: number | null = x.market?.holders ?? null;
-          try {
-            const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
-            if (fetchedHolders !== null && fetchedHolders > 0) {
-              holderCount = fetchedHolders;
-              console.log(`👥 Fetched holders for ${x.symbol || address}: ${holderCount}`);
-            } else {
-            // If fetch returned null/0, preserve existing value if it exists, otherwise set to null
-            if (holderCount === null || holderCount === 0) {
-              holderCount = null;
-              console.log(`⚠️ Holder count unavailable for ${x.symbol || address} - will display as N/A`);
-            } else {
-              // Keep existing holder count if fetch failed but we have an existing value
-              console.log(`⚠️ Failed to fetch fresh holders for ${x.symbol || address}, preserving existing value: ${holderCount}`);
-            }
-            }
-          } catch (error) {
-            console.log(`⚠️ Failed to fetch holders for ${x.symbol || address}: ${error instanceof Error ? error.message : String(error)}`);
-          // On error, preserve existing value if available, otherwise set to null
-          if (holderCount === null || holderCount === 0) {
-            holderCount = null;
+        try {
+          const fetchedHolders = await this.analyticsService.getHolderCount(address, chain);
+          if (fetchedHolders !== null && fetchedHolders > 0) {
+            holderCount = fetchedHolders;
           }
+        } catch (error) {
+          this.logger.debug(`Failed holders fetch for ${address}: ${error.message}`);
         }
         
         // Ensure all required fields from reference images are included
@@ -1197,13 +1178,18 @@ export class RefreshWorker {
       this.logger.log('🌅 Starting Daily Rotation: Clearing database for fresh 25 tokens...');
       const client = (this.repo as any)['prisma'] as any;
       
+      // Instead of deleting everything at once, we'll mark them for rotation or just let upsert handle it?
+      // No, the user wants a "fresh set daily". So we'll delete and re-fetch.
       const deletedListings = await client.listing.deleteMany({});
       const deletedScans = await client.scanResult.deleteMany({});
       
       this.logger.log(`✅ Daily Rotation Complete: Deleted ${deletedListings.count} listings and ${deletedScans.count} scans.`);
       
-      // Immediately trigger a fetch to populate with fresh tokens
-      await this.scheduledFetchFeed();
+      // Immediately trigger multiple fetches to ensure we find enough mature tokens
+      for (let i = 0; i < 3; i++) {
+        await this.scheduledFetchFeed();
+        if (i < 2) await new Promise(resolve => setTimeout(resolve, 5000)); // Short gap
+      }
     } catch (error: any) {
       this.logger.error('❌ Daily Rotation failed:', error);
     }
