@@ -984,6 +984,7 @@ export class RefreshWorker implements OnModuleInit {
     });
 
     // Limit to 25 tokens max, sorted by Volume + Liquidity (High Quality)
+    // We increase the slice here because we expect the vetting process to filter some out
     const sortedItems = ageFilteredItems
       .sort((a, b) => {
         const aVolume = Number(a.market?.volume?.h24 ?? 0);
@@ -992,9 +993,9 @@ export class RefreshWorker implements OnModuleInit {
         const bLiquidity = Number(b.market?.liquidityUsd ?? 0);
         return (bVolume + bLiquidity) - (aVolume + aLiquidity);
       })
-      .slice(0, 25);
+      .slice(0, 50); // Fetch 50, so we likely end up with 25 after age filtering
     
-    this.logger.log(`🎯 Processing ${sortedItems.length} high-quality tokens (>14 days old)`);
+    this.logger.log(`🎯 Processing top ${sortedItems.length} tokens to find 25 mature ones (>14 days old)`);
 
     for (const x of sortedItems) {
       const chain = x?.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
@@ -1508,6 +1509,17 @@ export class RefreshWorker implements OnModuleInit {
           };
 
           const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
+
+          // STRICT FILTER: If the token is found to be < 14 days during vetting, 
+          // we remove it from the public listings to preserve the "Presentable Model"
+          // Exception: Always keep native coins or high-tier tokens
+          const isNative = payload.tokenInfo.symbol === 'SOL' || payload.tokenInfo.symbol === 'MOVE' || payload.tokenInfo.symbol === 'USDC';
+          if (!isNative && payload.tokenAge < 14) {
+            this.logger.log(`⚠️ Token ${contractAddress} is too young (${payload.tokenAge} days). Removing from public listing.`);
+            const client = (this.repo as any)['prisma'] as any;
+            await client.listing.delete({ where: { contractAddress } }).catch(() => {});
+            return;
+          }
 
           // Save to database (matching n8n workflow format)
           await this.repo.saveVettingResults({
