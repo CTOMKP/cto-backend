@@ -986,9 +986,26 @@ export class RefreshWorker {
     // Filter: Only include tokens older than 14 days OR native coins (SOL, MOVE, USDC)
     const filteredItems = items.filter(x => {
       const symbol = x.symbol?.toUpperCase();
+      const name = x.name?.toUpperCase();
+      const address = x.address;
       const age = x.market?.age;
-      const isNative = symbol === 'SOL' || symbol === 'MOVE' || symbol === 'USDC';
-      return isNative || age === null || age >= 14; 
+      
+      // Strict blacklist for base tokens appearing as memes
+      const isNative = symbol === 'SOL' || symbol === 'WSOL' || symbol === 'USDC' || symbol === 'MOVE' || 
+                       name?.includes('WRAPPED SOL') || name?.includes('USD COIN');
+      
+      // If it's a native token, we only allow it if it's the "Official" one
+      const officialAddresses = [
+        'So11111111111111111111111111111111111111112', // WSOL
+        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+        '0x1::aptos_coin::AptosCoin', // MOVE
+      ];
+      
+      const isOfficialNative = officialAddresses.includes(address);
+      
+      if (isNative && !isOfficialNative) return false; // Filter out "fake" or "pool" versions of SOL/USDC
+      
+      return isOfficialNative || age === null || age >= 14; 
     });
 
     // Limit to 25 tokens max, sorted by Volume + Liquidity

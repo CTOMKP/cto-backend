@@ -586,80 +586,88 @@ export class MovementWalletService {
       const newTransactions: any[] = [];
 
       // 1. Fetch activities from INDEXER (Modern approach for USDC)
-      const usdcActivities = await this.queryIndexerForUSDC(wallet.address);
-      for (const activity of usdcActivities) {
-        const existingTx = await (this.prisma as any).walletTransaction.findUnique({
-          where: { 
-            walletId_txHash: {
-              walletId: walletId,
-              txHash: activity.transaction_hash
-            }
-          },
-        });
+      try {
+        const usdcActivities = await this.queryIndexerForUSDC(wallet.address);
+        for (const activity of usdcActivities) {
+          const existingTx = await (this.prisma as any).walletTransaction.findUnique({
+            where: { 
+              walletId_txHash: {
+                walletId: walletId,
+                txHash: activity.transaction_hash
+              }
+            },
+          });
 
-        if (!existingTx) {
-          try {
-            const txType = activity.type.toUpperCase().includes('DEPOSIT') ? 'CREDIT' : 'DEBIT';
-            const recorded = await this.recordTransaction({
-              walletId,
-              txHash: activity.transaction_hash,
-              txType: txType as any,
-              amount: activity.amount.toString(),
-              tokenAddress: this.TEST_TOKEN_ADDRESS,
-              tokenSymbol: 'USDC.e',
-              fromAddress: txType === 'CREDIT' ? activity.requestor_address : wallet.address,
-              toAddress: txType === 'DEBIT' ? activity.requestor_address : wallet.address,
-              description: `USDC ${txType === 'CREDIT' ? 'deposit' : 'withdrawal'} detected via indexer`,
-              status: 'COMPLETED',
-              metadata: { version: activity.transaction_version, timestamp: activity.transaction_timestamp }
-            });
-            newTransactions.push(recorded);
-            this.logger.log(`✅ [INDEXER] Recorded USDC ${txType} for ${wallet.address}`);
-          } catch (e) {
-            this.logger.warn(`Failed to record indexed USDC tx: ${e.message}`);
+          if (!existingTx) {
+            try {
+              const txType = activity.type.toUpperCase().includes('DEPOSIT') ? 'CREDIT' : 'DEBIT';
+              const recorded = await this.recordTransaction({
+                walletId,
+                txHash: activity.transaction_hash,
+                txType: txType as any,
+                amount: activity.amount.toString(),
+                tokenAddress: this.TEST_TOKEN_ADDRESS,
+                tokenSymbol: 'USDC.e',
+                fromAddress: txType === 'CREDIT' ? activity.requestor_address : wallet.address,
+                toAddress: txType === 'DEBIT' ? activity.requestor_address : wallet.address,
+                description: `USDC ${txType === 'CREDIT' ? 'deposit' : 'withdrawal'} detected via indexer`,
+                status: 'COMPLETED',
+                metadata: { version: activity.transaction_version, timestamp: activity.transaction_timestamp }
+              });
+              newTransactions.push(recorded);
+              this.logger.log(`✅ [INDEXER] Recorded USDC ${txType} for ${wallet.address}`);
+            } catch (e) {
+              this.logger.warn(`Failed to record indexed USDC tx: ${e.message}`);
+            }
           }
         }
+      } catch (indexerErr) {
+        this.logger.warn(`⚠️ [INDEXER] USDC activities fetch failed (Network Congestion): ${indexerErr.message}`);
       }
 
       // 1b. Fetch activities from INDEXER for MOVE (Mirroring USDC success)
-      const moveActivities = await this.queryIndexerForMOVE(wallet.address);
-      for (const activity of moveActivities) {
-        const existingTx = await (this.prisma as any).walletTransaction.findUnique({
-          where: { 
-            walletId_txHash: {
-              walletId: walletId,
-              txHash: activity.transaction_hash
+      try {
+        const moveActivities = await this.queryIndexerForMOVE(wallet.address);
+        for (const activity of moveActivities) {
+          const existingTx = await (this.prisma as any).walletTransaction.findUnique({
+            where: { 
+              walletId_txHash: {
+                walletId: walletId,
+                txHash: activity.transaction_hash
+              }
+            },
+          });
+
+          if (!existingTx) {
+            try {
+              const txType = activity.type.toUpperCase().includes('DEPOSIT') ? 'CREDIT' : 'DEBIT';
+              
+              // Record if it's a deposit (CREDIT) or a significant withdrawal (DEBIT)
+              const amount = BigInt(activity.amount);
+              if (txType === 'DEBIT' && amount < 1000n) continue; 
+
+              const recorded = await this.recordTransaction({
+                walletId,
+                txHash: activity.transaction_hash,
+                txType: txType as any,
+                amount: activity.amount.toString(),
+                tokenAddress: this.NATIVE_TOKEN_ADDRESS,
+                tokenSymbol: 'MOVE',
+                fromAddress: txType === 'CREDIT' ? activity.requestor_address : wallet.address,
+                toAddress: txType === 'DEBIT' ? activity.requestor_address : wallet.address,
+                description: `MOVE ${txType === 'CREDIT' ? 'deposit' : 'withdrawal'} detected via indexer`,
+                status: 'COMPLETED',
+                metadata: { version: activity.transaction_version, timestamp: activity.transaction_timestamp }
+              });
+              newTransactions.push(recorded);
+              this.logger.log(`✅ [INDEXER] Recorded MOVE ${txType} for ${wallet.address}`);
+            } catch (e) {
+              this.logger.warn(`Failed to record indexed MOVE tx: ${e.message}`);
             }
-          },
-        });
-
-        if (!existingTx) {
-          try {
-            const txType = activity.type.toUpperCase().includes('DEPOSIT') ? 'CREDIT' : 'DEBIT';
-            
-            // Record if it's a deposit (CREDIT) or a significant withdrawal (DEBIT)
-            const amount = BigInt(activity.amount);
-            if (txType === 'DEBIT' && amount < 1000n) continue; 
-
-            const recorded = await this.recordTransaction({
-              walletId,
-              txHash: activity.transaction_hash,
-              txType: txType as any,
-              amount: activity.amount.toString(),
-              tokenAddress: this.NATIVE_TOKEN_ADDRESS,
-              tokenSymbol: 'MOVE',
-              fromAddress: txType === 'CREDIT' ? activity.requestor_address : wallet.address,
-              toAddress: txType === 'DEBIT' ? activity.requestor_address : wallet.address,
-              description: `MOVE ${txType === 'CREDIT' ? 'deposit' : 'withdrawal'} detected via indexer`,
-              status: 'COMPLETED',
-              metadata: { version: activity.transaction_version, timestamp: activity.transaction_timestamp }
-            });
-            newTransactions.push(recorded);
-            this.logger.log(`✅ [INDEXER] Recorded MOVE ${txType} for ${wallet.address}`);
-          } catch (e) {
-            this.logger.warn(`Failed to record indexed MOVE tx: ${e.message}`);
           }
         }
+      } catch (indexerMoveErr) {
+        this.logger.warn(`⚠️ [INDEXER] MOVE activities fetch failed (Network Congestion): ${indexerMoveErr.message}`);
       }
 
       // 2. Fetch transactions from RPC (Master Event Scan Fallback)
@@ -909,7 +917,7 @@ export class MovementWalletService {
       
       for (const tokenAddr of tokensToSync) {
         try {
-          const balanceData = await this.getWalletBalance(wallet.address, tokenAddr, isTestnet);
+          const balanceData = await this.getWalletBalance(wallet.address, tokenAddr, isTestnet, walletId);
           const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
           
           await (this.prisma as any).walletBalance.upsert({
