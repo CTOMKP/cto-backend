@@ -51,8 +51,9 @@ export class RefreshWorker {
     this.run();
   }
 
-  // Cleanup old records to keep database lean (run every 6 hours to reduce Railway usage)
-  @Cron('0 */6 * * *') // Every 6 hours instead of every hour
+  // Cleanup old records to keep database lean (run every 6 hours)
+  // This is a safety measure to ensure the DB doesn't grow too large.
+  @Cron('0 */6 * * *')
   async cleanupOldRecords() {
     try {
       this.logger.log('🧹 Starting cleanup of old records...');
@@ -60,28 +61,21 @@ export class RefreshWorker {
       // Use the repository's public methods instead of accessing private prisma
       const client = (this.repo as any)['prisma'] as any;
       
-      // Keep only the latest 100 listings
+      // Strict limit: Keep only the latest 25 listings for the "Presentable Model"
       const listingsToKeep = await client.listing.findMany({
         orderBy: { updatedAt: 'desc' },
-        take: 100,
+        take: 25,
         select: { id: true }
       });
       
-      const listingIds = listingsToKeep.map(l => l.id);
+      const listingIds = listingsToKeep.map((l: any) => l.id);
       const deletedListings = await client.listing.deleteMany({
         where: { id: { notIn: listingIds } }
       });
       
-      // Keep only the latest 100 scan results
-      const scansToKeep = await client.scanResult.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-        select: { id: true }
-      });
-      
-      const scanIds = scansToKeep.map(s => s.id);
+      // Also cleanup old scans to match
       const deletedScans = await client.scanResult.deleteMany({
-        where: { id: { notIn: scanIds } }
+        where: { contractAddress: { notIn: listingsToKeep.map((l: any) => l.contractAddress) } }
       });
       
       this.logger.log(`✅ Cleanup complete: Deleted ${deletedListings.count} old listings, ${deletedScans.count} old scans`);
@@ -925,10 +919,8 @@ export class RefreshWorker {
   }
 
   /**
-   * Enforce 100-token limit with rotation system
-   * - Keep only the 100 most recent tokens
-   * - Remove tokens older than 2-3 days to make room for new ones
-   * - This ensures fresh data and proper Pillar 1 & 2 processing
+   * Enforce 25-token limit with strict age filtering (>14 days)
+   * This preserves API keys and ensures only "presentable" tokens with badges are shown.
    */
   private async enforceTokenLimit() {
     try {
@@ -938,59 +930,30 @@ export class RefreshWorker {
       const totalCount = await client.listing.count();
       this.logger.log(`📊 Current token count: ${totalCount}`);
       
-      if (totalCount <= 100) {
-        // No cleanup needed if we're under the limit
+      // Strict limit of 25 tokens for the "Presentable Model"
+      if (totalCount <= 25) {
         return;
       }
       
-      // Calculate cutoff date: 2.5 days ago (middle of 2-3 day range)
-      const cutoffDate = new Date(Date.now() - (2.5 * 24 * 60 * 60 * 1000));
+      const tokensToRemove = totalCount - 25;
       
-      // Get tokens older than 2.5 days, sorted by creation date (oldest first)
-      const oldTokens = await client.listing.findMany({
-        where: {
-          createdAt: {
-            lt: cutoffDate
-          }
-        },
-        orderBy: {
-          createdAt: 'asc'
-        },
-        select: {
-          id: true,
-          contractAddress: true,
-          symbol: true,
-          createdAt: true
-        }
+      // Remove the oldest tokens (or those with lowest scores) to maintain exactly 25
+      const tokensToDelete = await client.listing.findMany({
+        orderBy: [
+          { riskScore: 'asc' }, // Remove low quality first
+          { createdAt: 'asc' }  // Then oldest
+        ],
+        take: tokensToRemove,
+        select: { id: true }
       });
       
-      // If we still have more than 100 tokens after removing old ones, remove the oldest until we're at 100
-      const tokensToRemove = totalCount - 100;
-      
-      if (tokensToRemove > 0) {
-        // Get the oldest tokens (beyond the 100 most recent)
-        const tokensToDelete = await client.listing.findMany({
-          orderBy: {
-            createdAt: 'asc'
-          },
-          take: tokensToRemove,
-          select: {
-            id: true,
-            contractAddress: true,
-            symbol: true
-          }
+      if (tokensToDelete.length > 0) {
+        const idsToDelete = tokensToDelete.map((t: any) => t.id);
+        await client.listing.deleteMany({
+          where: { id: { in: idsToDelete } }
         });
         
-        if (tokensToDelete.length > 0) {
-          const idsToDelete = tokensToDelete.map((t: any) => t.id);
-          await client.listing.deleteMany({
-            where: {
-              id: { in: idsToDelete }
-            }
-          });
-          
-          this.logger.log(`🗑️ Removed ${tokensToDelete.length} old tokens to maintain 100-token limit. Remaining: ${totalCount - tokensToDelete.length}`);
-        }
+        this.logger.log(`🗑️ Rotation: Removed ${tokensToDelete.length} tokens to maintain the 25-token presentable model.`);
       }
     } catch (error: any) {
       this.logger.error(`❌ Error enforcing token limit: ${error.message}`);
@@ -1001,19 +964,28 @@ export class RefreshWorker {
     const deltas = { new: [] as any[], updated: [] as any[] };
     if (!Array.isArray(items) || !items.length) return deltas;
     
-    // Limit to 100 tokens max to ensure proper Pillar 1 & 2 processing
-    // Process only the most promising tokens (sorted by volume/liquidity)
-    const sortedItems = items
+    // FILTER: Only tokens older than 14 days (per Owner's request)
+    // This ensures they qualify for Seed/Sprout/Bloom badges
+    const ageFilteredItems = items.filter(x => {
+      const age = x.market?.age;
+      // If age is null, we might still want to check if it's a known older token 
+      // but for strictness we follow the 14-day rule.
+      return age === null || age >= 14; 
+    });
+
+    // Limit to 25 tokens max, sorted by Volume + Liquidity (High Quality)
+    const sortedItems = ageFilteredItems
       .sort((a, b) => {
-        const aVolume = Number(a.market?.volume?.h24 ?? a.market?.volume24h ?? 0);
-        const bVolume = Number(b.market?.volume?.h24 ?? b.market?.volume24h ?? 0);
+        const aVolume = Number(a.market?.volume?.h24 ?? 0);
+        const bVolume = Number(b.market?.volume?.h24 ?? 0);
         const aLiquidity = Number(a.market?.liquidityUsd ?? 0);
         const bLiquidity = Number(b.market?.liquidityUsd ?? 0);
-        // Sort by volume first, then liquidity
         return (bVolume + bLiquidity) - (aVolume + aLiquidity);
       })
-      .slice(0, 100); // Only process top 100 tokens
+      .slice(0, 25);
     
+    this.logger.log(`🎯 Processing ${sortedItems.length} high-quality tokens (>14 days old)`);
+
     for (const x of sortedItems) {
       const chain = x?.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
       const address = x?.address as string;
@@ -1180,12 +1152,35 @@ export class RefreshWorker {
   }
 
   /**
-   * Enforce 100-token limit and rotation (runs every 6 hours)
-   * Removes tokens older than 2.5 days to make room for new ones
+   * Complete 24-Hour Rotation
+   * Wipes existing listings to allow a fresh set of 25 tokens to be fetched and vetted.
+   * This keeps the "Presentable Model" fresh and dynamic.
+   */
+  @Cron('0 0 * * *') // Every midnight
+  async dailyRotation() {
+    try {
+      this.logger.log('🌅 Starting Daily Rotation: Clearing database for fresh 25 tokens...');
+      const client = (this.repo as any)['prisma'] as any;
+      
+      const deletedListings = await client.listing.deleteMany({});
+      const deletedScans = await client.scanResult.deleteMany({});
+      
+      this.logger.log(`✅ Daily Rotation Complete: Deleted ${deletedListings.count} listings and ${deletedScans.count} scans.`);
+      
+      // Immediately trigger a fetch to populate with fresh tokens
+      await this.scheduledFetchFeed();
+    } catch (error: any) {
+      this.logger.error('❌ Daily Rotation failed:', error);
+    }
+  }
+
+  /**
+   * Enforce 25-token limit and rotation (runs every 6 hours)
+   * This is a "sanity check" to keep the count at 25.
    */
   @Cron('0 0 */6 * * *') // Every 6 hours
   async enforceTokenLimitRotation() {
-    this.logger.log('🔄 Starting token limit rotation...');
+    this.logger.log('🔄 Running 6-hour token count check...');
     await this.enforceTokenLimit();
   }
 
