@@ -24,7 +24,7 @@ import { firstValueFrom } from 'rxjs';
   - Non-blocking, short Redis cache (60-120s) to reduce API calls.
 */
 @Injectable()
-export class RefreshWorker implements OnModuleInit {
+export class RefreshWorker {
   private readonly logger = new Logger(RefreshWorker.name);
   private queue: (string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' })[] = [];
   private running = false;
@@ -46,15 +46,7 @@ export class RefreshWorker implements OnModuleInit {
     private readonly httpService: HttpService,
   ) {}
 
-  async onModuleInit() {
-    this.logger.log('🚀 RefreshWorker initialized. Running initial feed fetch...');
-    // Run the fetch after 10 seconds to allow the server to stabilize
-    setTimeout(() => {
-      this.scheduledFetchFeed().catch(err => {
-        this.logger.error('❌ Initial feed fetch failed:', err);
-      });
-    }, 10000);
-  }
+  // Removed onModuleInit auto-fetch per user request
 
   enqueue(contract: string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' }) {
     this.queue.push(contract as any);
@@ -145,8 +137,8 @@ export class RefreshWorker implements OnModuleInit {
   }
 
   // Pull trending/new SOL pairs (approx) from DexScreener using /dex/tokens & /dex/search endpoints
-  // Run every 30 minutes to reduce Railway usage
-  @Cron('0 */30 * * * *') // Every 30 minutes instead of every 5 seconds
+  // Temporarily set to every 5 minutes to quickly populate the "Presentable Model"
+  @Cron('0 */5 * * * *') 
   async scheduledFetchFeed() {
     const started = Date.now();
     let apiCalls = 0;
@@ -1195,9 +1187,9 @@ export class RefreshWorker implements OnModuleInit {
     await this.enforceTokenLimit();
   }
 
-  // Phase 1 live updating: refresh all listings every 30 minutes using scan enrichment
-  // Increased from 5 minutes to 30 minutes to reduce API usage and prevent rate limiting
-  @Cron('0 */30 * * * *') // Every 30 minutes to keep data fresh
+  // Phase 1 live updating: refresh all listings every 5 minutes using scan enrichment
+  // Temporarily set to 5 minutes to quickly vet the initial 25 tokens
+  @Cron('0 */5 * * * *') 
   async scheduledRefreshAll() {
     const client = (this.repo as any)['prisma'] as any;
     const rows: { contractAddress: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' }[] = await client.listing.findMany({ select: { contractAddress: true, chain: true } });
@@ -1514,7 +1506,11 @@ export class RefreshWorker implements OnModuleInit {
           // we remove it from the public listings to preserve the "Presentable Model"
           // Exception: Always keep native coins or high-tier tokens
           const isNative = payload.tokenInfo.symbol === 'SOL' || payload.tokenInfo.symbol === 'MOVE' || payload.tokenInfo.symbol === 'USDC';
-          if (!isNative && payload.tokenAge < 14) {
+          
+          if (isNative) {
+            // Force native coins to appear mature
+            payload.tokenAge = 365; 
+          } else if (payload.tokenAge < 14) {
             this.logger.log(`⚠️ Token ${contractAddress} is too young (${payload.tokenAge} days). Removing from public listing.`);
             const client = (this.repo as any)['prisma'] as any;
             await client.listing.delete({ where: { contractAddress } }).catch(() => {});
