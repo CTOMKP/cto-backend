@@ -1260,6 +1260,8 @@ export class RefreshWorker {
             if (holderCount !== null && holderCount > 0) {
               holdersNum = holderCount;
               this.logger.log(`✅ Fetched ${holdersNum} holders for initial token ${t.symbol} from ${chain === 'SOLANA' ? 'Birdeye' : 'Moralis'}`);
+            } else {
+              this.logger.warn(`⚠️ getHolderCount returned null/0 for ${t.symbol} (${address}) on ${chain}`);
             }
           } catch (holderError: any) {
             this.logger.warn(`⚠️ Could not fetch holder count for ${t.symbol}: ${holderError.message}`);
@@ -1268,7 +1270,15 @@ export class RefreshWorker {
           // Fallback to merged data if API fetch failed
           if (holdersNum === null && tokenData.market?.holders !== undefined && tokenData.market?.holders !== null) {
             const parsed = parseInt(tokenData.market.holders.toString(), 10);
-            if (Number.isFinite(parsed) && parsed > 0) holdersNum = parsed;
+            if (Number.isFinite(parsed) && parsed > 0) {
+              holdersNum = parsed;
+              this.logger.log(`✅ Using fallback holder count from DexScreener: ${holdersNum} for ${t.symbol}`);
+            }
+          }
+          
+          // Log final holder value before saving
+          if (holdersNum === null) {
+            this.logger.warn(`⚠️ No holder data available for ${t.symbol} (${address}) - will save as null`);
           }
           
           const marketData = {
