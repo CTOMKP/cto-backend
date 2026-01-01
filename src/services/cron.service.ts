@@ -12,6 +12,7 @@ import { Pillar2MonitoringService } from './pillar2-monitoring.service';
 import { TokenValidatorUtil } from '../utils/token-validator.util';
 import { Chain, Listing } from '@prisma/client';
 import { ListingRepository } from '../listing/repository/listing.repository';
+import { AnalyticsService } from '../listing/services/analytics.service';
 
 @Injectable()
 export class CronService implements OnModuleInit {
@@ -28,6 +29,7 @@ export class CronService implements OnModuleInit {
     private pillar2MonitoringService: Pillar2MonitoringService,
     private listingRepository: ListingRepository,
     private httpService: HttpService,
+    private analyticsService: AnalyticsService,
   ) {}
 
   /**
@@ -360,6 +362,18 @@ export class CronService implements OnModuleInit {
         ? Math.floor((Date.now() - timestampMs) / (1000 * 60 * 60 * 24))
         : 0;
 
+      // Fetch holder count using AnalyticsService (tries Birdeye, CoinGecko, Moralis, Solscan, Helius)
+      const defaultHolderCount = heliusData?.holderCount || combinedData?.gmgn?.holders || 0;
+      let holderCount = defaultHolderCount;
+      try {
+        const fetchedHolderCount = await this.analyticsService.getHolderCount(contractAddress, chain.toUpperCase());
+        if (fetchedHolderCount !== null && fetchedHolderCount > 0) {
+          holderCount = fetchedHolderCount;
+        }
+      } catch (error: any) {
+        this.logger.debug(`Failed to fetch holder count via AnalyticsService for ${contractAddress}, using default: ${error.message}`);
+      }
+
       // Build complete payload
       return {
         contractAddress,
@@ -385,7 +399,7 @@ export class CronService implements OnModuleInit {
           lpLocks: bearTreeData?.lpLocks || [],
         },
         holders: {
-          count: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
+          count: holderCount,
           topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || []).slice(0, 10).map((h: any) => ({
             address: h.address || h.id,
             balance: Number(h.balance || 0),
@@ -411,7 +425,7 @@ export class CronService implements OnModuleInit {
           liquidity: Number(pair?.liquidity?.usd || combinedData?.gmgn?.liquidity || 0),
           fdv: Number(pair?.fdv || combinedData?.gmgn?.marketCap || 0),
           marketCap: Number(pair?.marketCap || pair?.fdv || combinedData?.gmgn?.marketCap || 0),
-          holderCount: heliusData?.holderCount || combinedData?.gmgn?.holders || 0,
+          holderCount: holderCount,
         },
         tokenAge: Math.max(0, tokenAge),
         topTraders: (gmgnData?.topTraders || []) as any[],
@@ -1010,6 +1024,18 @@ export class CronService implements OnModuleInit {
           tokenAge = this.parseAgeToDays(listing.age) || 0;
         }
 
+        // Fetch holder count using AnalyticsService (tries Birdeye, CoinGecko, Moralis, Solscan, Helius)
+        const defaultHolderCount = heliusData?.holderCount || listing.holders || combinedData?.gmgn?.holders || 0;
+        let holderCount = defaultHolderCount;
+        try {
+          const fetchedHolderCount = await this.analyticsService.getHolderCount(contractAddress, chain.toUpperCase());
+          if (fetchedHolderCount !== null && fetchedHolderCount > 0) {
+            holderCount = fetchedHolderCount;
+          }
+        } catch (error: any) {
+          this.logger.debug(`Failed to fetch holder count via AnalyticsService for ${contractAddress}, using default: ${error.message}`);
+        }
+
         tokenVettingData = {
           contractAddress,
           chain,
@@ -1028,7 +1054,7 @@ export class CronService implements OnModuleInit {
             lpLocks: bearTreeData?.lpLocks || lpData.lockDetails || [],
           },
           holders: {
-            count: heliusData?.holderCount || listing.holders || combinedData?.gmgn?.holders || 0,
+            count: holderCount,
             topHolders: (heliusData?.topHolders || combinedData?.gmgn?.topHolders || topHolders || []).slice(0, 10).map((h: any) => ({
               address: h.address || h.id || '',
               balance: Number(h.balance || 0),
@@ -1050,7 +1076,7 @@ export class CronService implements OnModuleInit {
             sells24h: Number(pair?.txns?.h24?.sells || 0),
             liquidity: Number(pair?.liquidity?.usd || listing.liquidityUsd || combinedData?.gmgn?.liquidity || 0),
             fdv: Number(pair?.fdv || listing.marketCap || combinedData?.gmgn?.marketCap || 0),
-            holderCount: heliusData?.holderCount || listing.holders || combinedData?.gmgn?.holders || 0,
+            holderCount: holderCount,
           },
           tokenAge: Math.max(0, tokenAge),
         };
