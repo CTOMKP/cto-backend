@@ -171,8 +171,9 @@ export class AnalyticsService {
           validateStatus: (status) => status < 500
         });
 
-        if (response2.status === 200 && response2.data?.success) {
-          const data = response2.data?.data;
+        if (response2.status === 200) {
+          // Process response even if success field is undefined (some Birdeye endpoints don't return it)
+          const data = response2.data?.data || response2.data;
           // Try different possible response structures
           const holderCount = data?.holder || 
                              data?.holderCount || 
@@ -188,16 +189,16 @@ export class AnalyticsService {
             }
           }
           
-          // Log FULL response structure for debugging (first 500 chars to avoid huge logs)
+          // Log FULL response structure for debugging (first 1000 chars to avoid huge logs)
           if (data) {
-            const responseStr = JSON.stringify(data).substring(0, 500);
-            this.logger.warn(`⚠️ Birdeye token_overview: No holder field found. Response structure (first 500 chars): ${responseStr}`);
+            const responseStr = JSON.stringify(data).substring(0, 1000);
+            this.logger.warn(`⚠️ Birdeye token_overview: No holder field found. Response structure (first 1000 chars): ${responseStr}`);
             this.logger.debug(`Birdeye token_overview response keys: ${Object.keys(data).join(', ')}`);
           } else {
-            this.logger.debug(`Birdeye token_overview: response.data.data is null/undefined`);
+            this.logger.warn(`⚠️ Birdeye token_overview: No data field. Full response: ${JSON.stringify(response2.data).substring(0, 500)}`);
           }
         } else {
-          this.logger.debug(`Birdeye token_overview returned status ${response2.status}, success: ${response2.data?.success}`);
+          this.logger.debug(`Birdeye token_overview returned status ${response2.status}`);
         }
       } catch (e: any) {
         this.logger.debug(`Birdeye token_overview failed: ${e.message}`);
