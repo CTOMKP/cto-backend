@@ -1251,17 +1251,22 @@ export class RefreshWorker {
 
   /**
    * Specifically fetch and ensure the pinned tokens are in the database.
+   * This bypasses the normal filtering/limiting logic to guarantee pinned tokens are saved.
    */
   async ensurePinnedTokensExist() {
     this.logger.log('📍 Checking missing pinned tokens...');
     let injectedCount = 0;
+    let skippedCount = 0;
     for (const t of this.PINNED_TOKENS) {
       try {
-        // Optimization: Only fetch if not already in DB
+        // Check if already exists
         const existing = await this.repo.findOne(t.address);
-        if (existing) continue;
+        if (existing) {
+          skippedCount++;
+          continue;
+        }
 
-        this.logger.log(`🔍 Pinned token ${t.symbol} missing, fetching data...`);
+        this.logger.log(`🔍 Pinned token ${t.symbol} (${t.address}) missing, fetching data...`);
         
         // Try fetching as TOKEN first
         const tokenUrl = `https://api.dexscreener.com/latest/dex/tokens/${t.address}`;
@@ -1272,26 +1277,86 @@ export class RefreshWorker {
           const chainId = t.chain.toLowerCase() === 'solana' ? 'solana' : 
                           t.chain.toLowerCase() === 'ethereum' ? 'ethereum' : 
                           t.chain.toLowerCase() === 'bsc' ? 'bsc' : 
-                          t.chain.toLowerCase() === 'base' ? 'base' : 'solana';
+                          t.chain.toLowerCase() === 'base' ? 'base' : 
+                          t.chain.toLowerCase() === 'sui' ? 'sui' : 'solana';
           const pairUrl = `https://api.dexscreener.com/latest/dex/pairs/${chainId}/${t.address}`;
           res = await axios.get(pairUrl, { timeout: 8000 });
         }
 
         if (res.data?.pairs && res.data.pairs.length > 0) {
-          this.logger.log(`✅ Found data for pinned token ${t.symbol} (${t.address})`);
+          this.logger.log(`✅ Found DexScreener data for pinned token ${t.symbol} (${t.address})`);
+          
+          // Merge the feed to get structured data
           const merged = this.mergeFeeds([{ pairs: res.data.pairs }]);
-          await this.upsertFromMerged(merged);
+          if (!merged || merged.length === 0) {
+            this.logger.warn(`⚠️ Merged data empty for pinned token ${t.symbol} (${t.address})`);
+            continue;
+          }
+          
+          // Get the first (best) pair from merged results
+          const tokenData = merged[0];
+          if (!tokenData || !tokenData.address) {
+            this.logger.warn(`⚠️ Invalid token data structure for pinned token ${t.symbol} (${t.address})`);
+            continue;
+          }
+          
+          // Directly upsert the pinned token (bypassing the volume/liquidity sorting/limiting)
+          const chain = t.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
+          const address = tokenData.address as string;
+          
+          if (chain === 'SOLANA' && !this.isSolanaMint(address)) {
+            this.logger.warn(`⚠️ Invalid Solana mint address for pinned token ${t.symbol}: ${address}`);
+            continue;
+          }
+          
+          const category = this.classifyCategory(tokenData);
+          const resolvedLogo = tokenData.logoUrl || await this.resolveLogoCached(chain, address, tokenData.symbol, tokenData.name);
+          
+          const marketData = {
+            ...(tokenData.market ?? {}),
+            category,
+            logoUrl: resolvedLogo ?? null,
+            holders: tokenData.market?.holders ?? null,
+            priceUsd: tokenData.market?.priceUsd ?? 0,
+            liquidityUsd: tokenData.market?.liquidityUsd ?? 0,
+            fdv: tokenData.market?.fdv ?? 0,
+            volume: tokenData.market?.volume ?? { h24: 0 },
+            priceChange: tokenData.market?.priceChange ?? { m5: null, h1: null, h6: null, h24: null },
+            riskScore: tokenData.market?.riskScore ?? null,
+            communityScore: tokenData.market?.communityScore ?? null,
+            age: tokenData.market?.age ?? null,
+            lastUpdated: Date.now()
+          };
+          
+          await this.repo.upsertMarketMetadata({
+            contractAddress: address,
+            chain,
+            symbol: tokenData.symbol ?? t.symbol ?? null,
+            name: tokenData.name ?? null,
+            market: marketData,
+          });
+          
+          this.logger.log(`✅ Successfully saved pinned token ${t.symbol} (${address}) to database`);
           injectedCount++;
+          
+          // Trigger vetting if risk score is missing
+          const saved = await this.repo.findOne(address);
+          if (saved && !saved.riskScore && this.n8nService && this.externalApisService) {
+            this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
+              this.logger.warn(`Failed to trigger vetting for pinned token ${t.symbol}: ${error.message}`);
+            });
+          }
         } else {
           this.logger.warn(`❌ Could not find DexScreener data for pinned token ${t.symbol} (${t.address}) as token OR pair`);
         }
       } catch (e: any) {
-        this.logger.error(`❌ Error ensuring pinned token ${t.symbol}: ${e.message}`);
+        this.logger.error(`❌ Error ensuring pinned token ${t.symbol} (${t.address}): ${e.message}`);
+        if (e.stack) {
+          this.logger.error(`Stack trace: ${e.stack}`);
+        }
       }
     }
-    if (injectedCount > 0) {
-      this.logger.log(`📍 Pinned tokens injection complete. Injected ${injectedCount} tokens.`);
-    }
+    this.logger.log(`📍 Pinned tokens check complete. Injected: ${injectedCount}, Already existed: ${skippedCount}, Total: ${this.PINNED_TOKENS.length}`);
   }
 
   /**
@@ -1710,6 +1775,120 @@ export class RefreshWorker {
           })
         ),
       ]);
+
+      const assetData = assetResponse.status === 'fulfilled' ? assetResponse.value.data : null;
+      const holdersData = holdersResponse.status === 'fulfilled' ? holdersResponse.value.data : null;
+
+      const asset = assetData?.result;
+      const holders = holdersData?.result?.value || [];
+
+      const totalSupply = asset?.token_info?.supply || 0;
+      const topHolders = holders.slice(0, 10).map((h: any) => {
+        const balance = Number(h.uiAmount || 0);
+        const percentage = totalSupply > 0 ? (balance / totalSupply) * 100 : 0;
+        return {
+          address: h.address,
+          balance,
+          percentage,
+        };
+      });
+
+      // Get actual holder count (getTokenLargestAccounts only returns top 10 token accounts)
+      return {
+        isMintable: asset?.token_info?.supply_authority !== null,
+        isFreezable: asset?.token_info?.freeze_authority !== null,
+        totalSupply: Number(asset?.token_info?.supply || 0),
+        circulatingSupply: Number(asset?.token_info?.supply || 0),
+        holderCount: null, // Resetting to null as requested to undo changes
+        topHolders,
+        creationTimestamp: asset?.content?.metadata?.created_at || null,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Helius API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch data from Alchemy API
+   */
+  private async fetchAlchemyData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const alchemyApiKey = this.configService.get('ALCHEMY_API_KEY', 'bSSmYhMZK2oYWgB2aMzA_');
+      const alchemyUrl = `https://solana-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
+
+      const response = await firstValueFrom(
+        this.httpService.post(alchemyUrl, {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getAccountInfo',
+          params: [
+            contractAddress,
+            { encoding: 'jsonParsed' },
+          ],
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+
+      const data = response.data;
+      const accountInfo = data?.result?.value?.data?.parsed?.info;
+
+      if (!accountInfo) return null;
+
+      return {
+        isMintable: accountInfo.mintAuthority !== null,
+        isFreezable: accountInfo.freezeAuthority !== null,
+        totalSupply: Number(accountInfo.supply || 0),
+      };
+    } catch (error: any) {
+      this.logger.warn(`Alchemy API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch data from Helius BearTree API
+   */
+  private async fetchHeliusBearTreeData(contractAddress: string) {
+    if (!this.httpService || !this.configService) return null;
+    
+    try {
+      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '99b6e8db-d86a-4d3d-a5ee-88afa8015074');
+      const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
+
+      const response = await firstValueFrom(
+        this.httpService.post(bearTreeUrl, {
+          mintAccounts: [contractAddress],
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+
+      const data = response.data;
+      const tokenData = data?.[0];
+
+      if (!tokenData) return null;
+
+      return {
+        creatorAddress: tokenData?.onChainMetadata?.metadata?.updateAuthority || null,
+        creatorBalance: 0,
+        creatorStatus: 'unknown',
+        top10HolderRate: 0,
+        twitterCreateTokenCount: 0,
+        lpLockPercentage: 0,
+        lpLocks: [],
+      };
+    } catch (error: any) {
+      this.logger.warn(`Helius BearTree API fetch failed for ${contractAddress}: ${error.message}`);
+      return null;
+    }
+  }
+}
 
       const assetData = assetResponse.status === 'fulfilled' ? assetResponse.value.data : null;
       const holdersData = holdersResponse.status === 'fulfilled' ? holdersResponse.value.data : null;
