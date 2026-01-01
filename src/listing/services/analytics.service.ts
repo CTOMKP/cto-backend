@@ -78,10 +78,14 @@ export class AnalyticsService {
 
     // Try Helius for Solana tokens (free tier, 100k requests/month)
     if (chain === 'SOLANA' && this.heliusApiKey) {
-      const holders = await this.getHeliusHolders(contractAddress);
-      if (holders !== null) {
-        this.logger.log(`✅ Helius returned ${holders} holders`);
-        return holders;
+      try {
+        const holders = await this.getHeliusHolders(contractAddress);
+        if (holders !== null && holders > 0) {
+          this.logger.log(`✅ Helius returned ${holders} holders`);
+          return holders;
+        }
+      } catch (error: any) {
+        this.logger.debug(`Helius holder fetch failed: ${error.message}`);
       }
     }
 

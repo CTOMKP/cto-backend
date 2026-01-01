@@ -1373,6 +1373,10 @@ export class RefreshWorker {
           this.logger.error(`Stack trace: ${e.stack}`);
         }
       }
+      
+      // Add delay between tokens to avoid rate limiting (Birdeye free tier = 60 RPM = 1 req/sec)
+      // Using 2 seconds to account for multiple processes running simultaneously
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
     }
     this.logger.log(`📍 Pinned tokens check complete. Injected: ${injectedCount}, Already existed: ${skippedCount}, Total: ${this.PINNED_TOKENS.length}`);
   }
