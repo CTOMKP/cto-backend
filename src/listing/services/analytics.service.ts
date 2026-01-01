@@ -52,46 +52,65 @@ export class AnalyticsService {
     // Try Etherscan for Ethereum tokens
     if (chain === 'ETHEREUM' && this.etherscanApiKey) {
       const holders = await this.getEtherscanHolders(contractAddress);
-      if (holders !== null) {
+      if (holders !== null && holders > 0) {
         this.logger.log(`✅ Etherscan returned ${holders} holders`);
         return holders;
       }
     }
 
-    // Try Birdeye for Solana and BSC tokens
-    if (chain === 'SOLANA' || chain === 'BSC') {
-      const holders = await this.getBirdeyeHolders(contractAddress, chain);
-      if (holders !== null) {
-        this.logger.log(`✅ Birdeye returned ${holders} holders`);
-        return holders;
+    // For Solana tokens, try multiple APIs in order of reliability
+    if (chain === 'SOLANA') {
+      // 1. Try Birdeye first (most reliable for Solana)
+      const birdeyeHolders = await this.getBirdeyeHolders(contractAddress, chain);
+      if (birdeyeHolders !== null && birdeyeHolders > 0) {
+        this.logger.log(`✅ Birdeye returned ${birdeyeHolders} holders`);
+        return birdeyeHolders;
       }
-    }
 
-    // Try Moralis for multi-chain support
-    if (this.moralisApiKey) {
-      const holders = await this.getMoralisHolders(contractAddress, chain);
-      if (holders !== null) {
-        this.logger.log(`✅ Moralis returned ${holders} holders`);
-        return holders;
-      }
-    }
-
-    // Try Helius for Solana tokens (free tier, 100k requests/month)
-    if (chain === 'SOLANA' && this.heliusApiKey) {
-      try {
-        const holders = await this.getHeliusHolders(contractAddress);
-        if (holders !== null && holders > 0) {
-          this.logger.log(`✅ Helius returned ${holders} holders`);
-          return holders;
+      // 2. Try Moralis (has dedicated top-holders endpoint)
+      if (this.moralisApiKey) {
+        const moralisHolders = await this.getMoralisHolders(contractAddress, chain);
+        if (moralisHolders !== null && moralisHolders > 0) {
+          this.logger.log(`✅ Moralis returned ${moralisHolders} holders`);
+          return moralisHolders;
         }
-      } catch (error: any) {
-        this.logger.debug(`Helius holder fetch failed: ${error.message}`);
+      }
+
+      // 3. Try Helius (free tier, 100k requests/month)
+      if (this.heliusApiKey) {
+        try {
+          const heliusHolders = await this.getHeliusHolders(contractAddress);
+          if (heliusHolders !== null && heliusHolders > 0) {
+            this.logger.log(`✅ Helius returned ${heliusHolders} holders`);
+            return heliusHolders;
+          }
+        } catch (error: any) {
+          this.logger.debug(`Helius holder fetch failed: ${error.message}`);
+        }
+      }
+    }
+
+    // For BSC tokens, try Birdeye
+    if (chain === 'BSC') {
+      const birdeyeHolders = await this.getBirdeyeHolders(contractAddress, chain);
+      if (birdeyeHolders !== null && birdeyeHolders > 0) {
+        this.logger.log(`✅ Birdeye returned ${birdeyeHolders} holders`);
+        return birdeyeHolders;
+      }
+    }
+
+    // Try Moralis for other chains
+    if (this.moralisApiKey) {
+      const moralisHolders = await this.getMoralisHolders(contractAddress, chain);
+      if (moralisHolders !== null && moralisHolders > 0) {
+        this.logger.log(`✅ Moralis returned ${moralisHolders} holders`);
+        return moralisHolders;
       }
     }
 
     // Final fallback: Try CoinGecko On-Chain for all supported chains
     const coinGeckoHolders = await this.getCoinGeckoHolders(contractAddress, chain);
-    if (coinGeckoHolders !== null) {
+    if (coinGeckoHolders !== null && coinGeckoHolders > 0) {
       this.logger.log(`✅ CoinGecko On-Chain (fallback) returned ${coinGeckoHolders} holders`);
       return coinGeckoHolders;
     }
@@ -99,10 +118,10 @@ export class AnalyticsService {
     // Last resort: Try Solscan (requires paid tier $199/month, likely to fail with free key)
     if (chain === 'SOLANA' && this.solscanApiKey) {
       try {
-        const holders = await this.getSolscanHolders(contractAddress);
-        if (holders !== null) {
-          this.logger.log(`✅ Solscan returned ${holders} holders`);
-          return holders;
+        const solscanHolders = await this.getSolscanHolders(contractAddress);
+        if (solscanHolders !== null && solscanHolders > 0) {
+          this.logger.log(`✅ Solscan returned ${solscanHolders} holders`);
+          return solscanHolders;
         }
       } catch (error: any) {
         // Silently fail - Solscan requires paid tier
@@ -314,6 +333,7 @@ export class AnalyticsService {
 
   /**
    * Moralis API - Get token holders (multi-chain)
+   * Uses top-holders endpoint which returns total count
    */
   private async getMoralisHolders(contractAddress: string, chain: string): Promise<number | null> {
     try {
@@ -322,61 +342,71 @@ export class AnalyticsService {
         return null;
       }
 
-      const response = await this.moralis.get(`${contractAddress}/owners?limit=1`);
-      return response.data?.total || response.data?.count || null;
+      // Try top-holders endpoint which provides holder count
+      try {
+        const topHoldersUrl = `https://solana-gateway.moralis.io/token/mainnet/${contractAddress}/top-holders`;
+        const response = await axios.get(topHoldersUrl, {
+          headers: {
+            'X-API-Key': this.moralisApiKey,
+            'accept': 'application/json',
+          },
+          timeout: 10000,
+          validateStatus: (status) => status < 500
+        });
+
+        if (response.status === 200 && response.data) {
+          // Moralis top-holders returns an array and sometimes includes total count
+          const total = response.data?.total || response.data?.count;
+          if (total !== undefined && total !== null) {
+            const parsed = parseInt(String(total), 10);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              this.logger.log(`✅ Moralis (top-holders) returned ${parsed} holders`);
+              return parsed;
+            }
+          }
+          
+          // If we have an array of holders, we can estimate from the length
+          // But this is not reliable, so we'll try the owners endpoint instead
+        }
+      } catch (topHoldersError: any) {
+        this.logger.debug(`Moralis top-holders failed: ${topHoldersError.message}`);
+      }
+
+      // Fallback: Try owners endpoint
+      try {
+        const response = await this.moralis.get(`${contractAddress}/owners?limit=1`);
+        const total = response.data?.total || response.data?.count;
+        if (total !== undefined && total !== null) {
+          const parsed = parseInt(String(total), 10);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            this.logger.log(`✅ Moralis (owners) returned ${parsed} holders`);
+            return parsed;
+          }
+        }
+      } catch (ownersError: any) {
+        this.logger.debug(`Moralis owners failed: ${ownersError.message}`);
+      }
+
+      return null;
     } catch (error: any) {
       this.logger.debug(`Moralis API error: ${error.message}`);
-      if (error instanceof HttpException) throw error;
       return null;
     }
   }
 
   /**
    * Helius API - Get Solana token holder count
-   * Uses getTokenLargestAccounts to get holder count (free tier: 100k requests/month)
+   * Note: Helius DAS API getAsset doesn't directly provide holder count.
+   * For Solana tokens, holder count requires complex RPC calls or third-party APIs.
+   * This method returns null to allow other APIs (Birdeye, Moralis) to be tried first.
    */
   private async getHeliusHolders(contractAddress: string): Promise<number | null> {
-    try {
-      // Method 1: Try getTokenLargestAccounts (more reliable for holder count)
-      const response = await this.helius.post('', {
-        jsonrpc: '2.0',
-        id: 'get-holders',
-        method: 'getTokenLargestAccounts',
-        params: [contractAddress, { commitment: 'finalized' }],
-      });
-
-      // The response contains an array of accounts, but we need total count
-      // Try alternative: getAsset method (DAS API) which provides holder_count
-      if (!response.data?.result?.value) {
-        const assetResponse = await this.helius.post('', {
-          jsonrpc: '2.0',
-          id: 'get-asset',
-          method: 'getAsset',
-          params: { id: contractAddress },
-        });
-
-        // Some Helius endpoints return holder_count in metadata
-        const holderCount = assetResponse.data?.result?.token_info?.holder_count ||
-                           assetResponse.data?.result?.supply?.holder_count;
-        if (holderCount) {
-          return parseInt(String(holderCount), 10);
-        }
-      }
-
-      // If getTokenLargestAccounts returned accounts, estimate from largest accounts
-      const accounts = response.data?.result?.value;
-      if (Array.isArray(accounts) && accounts.length > 0) {
-        // This is an approximation - we only get largest accounts, not total
-        // Return null to try other APIs for more accurate count
-        return null;
-      }
-
-      return null;
-    } catch (error: any) {
-      this.logger.debug(`Helius API error: ${error.message}`);
-      if (error instanceof HttpException) throw error;
-      return null;
-    }
+    // Helius DAS API getAsset method doesn't provide holder count directly.
+    // Getting exact holder count requires expensive RPC calls (getProgramAccounts).
+    // For now, return null and let Birdeye/Moralis handle it (they're better at this).
+    // If needed in future, we can implement getProgramAccounts with pagination.
+    this.logger.debug(`Helius: Holder count not available via DAS API, trying other sources`);
+    return null;
   }
 
   /**
