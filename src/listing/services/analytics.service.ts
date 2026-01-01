@@ -94,66 +94,57 @@ export class AnalyticsService {
       }
     }
 
+    // Final fallback: Try CoinGecko On-Chain for all supported chains
+    const coinGeckoHolders = await this.getCoinGeckoHolders(contractAddress, chain);
+    if (coinGeckoHolders !== null) {
+      this.logger.log(`✅ CoinGecko On-Chain (fallback) returned ${coinGeckoHolders} holders`);
+      return coinGeckoHolders;
+    }
+
     this.logger.warn(`❌ No holder data available for ${contractAddress} on ${chain}`);
     return null;
   }
 
   /**
    * Birdeye API - Get token holder count (Solana)
+   * Using the token_overview endpoint which provides holder data
    */
   private async getBirdeyeHolders(contractAddress: string): Promise<number | null> {
     try {
       const apiKey = this.configService.get('BIRDEYE_API_KEY');
       if (!apiKey) return null;
 
-      // Try the v3 API endpoint first (newer format)
-      const url = `https://public-api.birdeye.so/v3/defi/token_overview?address=${contractAddress}`;
+      // Try token_overview endpoint (v1) - most common endpoint for holder data
+      const url = `https://public-api.birdeye.so/v1/token/token_overview?address=${contractAddress}`;
       const response = await axios.get(url, {
         headers: {
           'X-API-KEY': apiKey,
           'x-chain': 'solana'
         },
         timeout: 10000,
-        validateStatus: (status) => status < 500 // Don't throw on 400, just return null
+        validateStatus: (status) => status < 500
       });
 
       if (response.status === 200 && response.data?.success) {
-        // Try different possible response structures
-        const holderCount = response.data?.data?.holder || 
-                           response.data?.data?.holderCount || 
-                           response.data?.data?.holders ||
-                           response.data?.holder;
+        const data = response.data?.data;
+        // Try different possible response structures for holder count
+        const holderCount = data?.holder || 
+                           data?.holderCount || 
+                           data?.holders ||
+                           data?.holder_count ||
+                           data?.totalHolders;
         if (holderCount !== undefined && holderCount !== null) {
           const parsed = parseInt(String(holderCount), 10);
           if (Number.isFinite(parsed) && parsed > 0) {
+            this.logger.log(`✅ Birdeye returned ${parsed} holders`);
             return parsed;
           }
         }
       }
 
-      // If v3 fails, try v2 (older format)
-      if (response.status === 400 || response.status === 404) {
-        const urlV2 = `https://public-api.birdeye.so/defi/token_overview?address=${contractAddress}`;
-        const responseV2 = await axios.get(urlV2, {
-          headers: {
-            'X-API-KEY': apiKey,
-            'x-chain': 'solana'
-          },
-          timeout: 10000,
-          validateStatus: (status) => status < 500
-        });
-
-        if (responseV2.status === 200 && responseV2.data?.success) {
-          const holderCount = responseV2.data?.data?.holder || 
-                             responseV2.data?.data?.holderCount || 
-                             responseV2.data?.data?.holders;
-          if (holderCount !== undefined && holderCount !== null) {
-            const parsed = parseInt(String(holderCount), 10);
-            if (Number.isFinite(parsed) && parsed > 0) {
-              return parsed;
-            }
-          }
-        }
+      // Log error details for debugging
+      if (response.status !== 200) {
+        this.logger.debug(`Birdeye API error: Status ${response.status}, ${JSON.stringify(response.data)}`);
       }
 
       return null;
@@ -162,6 +153,57 @@ export class AnalyticsService {
       if (error.response) {
         this.logger.debug(`Birdeye API response status: ${error.response.status}, data: ${JSON.stringify(error.response.data)}`);
       }
+      return null;
+    }
+  }
+
+  /**
+   * CoinGecko On-Chain API - Get token holder count (Solana, Base, Ethereum, SUI)
+   * Using the newer GeckoTerminal On-Chain API which provides holder data
+   */
+  private async getCoinGeckoHolders(contractAddress: string, chain: string): Promise<number | null> {
+    try {
+      const apiKey = this.configService.get('COINGECKO_API_KEY');
+      if (!apiKey) return null;
+
+      // Map chain to CoinGecko network ID
+      const networkMap: Record<string, string> = {
+        'SOLANA': 'solana',
+        'ETHEREUM': 'eth',
+        'BASE': 'base',
+        'BSC': 'bsc',
+        'SUI': 'sui',
+      };
+
+      const networkId = networkMap[chain.toUpperCase()];
+      if (!networkId) {
+        this.logger.debug(`CoinGecko: Chain ${chain} not supported`);
+        return null;
+      }
+
+      const url = `https://api.coingecko.com/api/v3/onchain/networks/${networkId}/tokens/${contractAddress}/info`;
+      const response = await axios.get(url, {
+        headers: {
+          'x-cg-demo-api-key': apiKey
+        },
+        timeout: 10000,
+        validateStatus: (status) => status < 500
+      });
+
+      if (response.status === 200 && response.data?.data?.attributes) {
+        const holderCount = response.data.data.attributes.holder_count;
+        if (holderCount !== undefined && holderCount !== null) {
+          const parsed = parseInt(String(holderCount), 10);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            this.logger.log(`✅ CoinGecko On-Chain returned ${parsed} holders`);
+            return parsed;
+          }
+        }
+      }
+
+      return null;
+    } catch (error: any) {
+      this.logger.debug(`CoinGecko On-Chain API error: ${error.message}`);
       return null;
     }
   }
