@@ -135,6 +135,16 @@ export class ListingRepository {
     return client.listing.findUnique({ where: { contractAddress } });
   }
 
+  async findBySymbolAndChain(symbol: string, chain: Chain) {
+    const client = this.prisma as any;
+    return client.listing.findFirst({
+      where: {
+        symbol: { equals: symbol, mode: 'insensitive' },
+        chain: chain,
+      },
+    });
+  }
+
   async upsertMarketMetadata(params: { contractAddress: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN'; symbol?: string | null; name?: string | null; market?: any }) {
     const { contractAddress, chain, symbol = null, name = null, market } = params;
     const category = market?.category ?? 'MEME';
@@ -408,4 +418,3 @@ export class ListingRepository {
       },
     });
   }
-}

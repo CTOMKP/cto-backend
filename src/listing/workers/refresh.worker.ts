@@ -1201,8 +1201,11 @@ export class RefreshWorker {
     let skippedCount = 0;
     for (const t of this.INITIAL_TOKENS) {
       try {
-        // Check if already exists
-        const existing = await this.repo.findOne(t.address);
+        // Check if already exists - try by address first, then by symbol+chain
+        let existing = await this.repo.findOne(t.address);
+        if (!existing && t.symbol) {
+          existing = await this.repo.findBySymbolAndChain(t.symbol, t.chain as any);
+        }
         if (existing) {
           // If token exists but has no holder data, fetch and update it
           if (existing.holders === null || existing.holders === undefined) {
