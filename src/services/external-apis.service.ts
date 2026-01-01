@@ -369,29 +369,3 @@ export class ExternalApisService {
 }
 
 
-
-      volume: {
-        h24: pair.volume?.h24 || 0,
-        h6: pair.volume?.h6 || 0,
-        h1: pair.volume?.h1 || 0,
-        m5: pair.volume?.m5 || 0,
-      },
-      priceChange: {
-        m5: pair.priceChange?.m5 || 0,
-        h1: pair.priceChange?.h1 || 0,
-        h6: pair.priceChange?.h6 || 0,
-        h24: pair.priceChange?.h24 || 0,
-      },
-      liquidity: {
-        usd: pair.liquidity?.usd || 0,
-        base: pair.liquidity?.base || 0,
-        quote: pair.liquidity?.quote || 0,
-      },
-      fdv: pair.fdv || 0,
-      marketCap: pair.marketCap || 0,
-      pairCreatedAt: pair.pairCreatedAt || 0,
-    };
-  }
-}
-
-
