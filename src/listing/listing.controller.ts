@@ -137,3 +137,17 @@ export class ListingController {
   }
 
 }
+  @ApiOperation({ summary: 'Manually trigger the public feed fetch (Admin/Dev only)' })
+  @ApiResponse({ status: 200, description: 'Feed fetch triggered' })
+  async fetchFeed() {
+    return this.listingService.fetchFeed();
+  }
+
+  @Post('ensure-pinned')
+  @ApiOperation({ summary: 'Force injection of pinned community tokens' })
+  @ApiResponse({ status: 200, description: 'Pinned token sync triggered' })
+  async ensurePinned() {
+    return this.listingService.ensurePinned();
+  }
+
+}

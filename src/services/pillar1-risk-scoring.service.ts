@@ -661,3 +661,10 @@ export class Pillar1RiskScoringService {
     return 'none';
   }
 }
+
+    if (score < 30) missingReqs.push(`score ${score} < 30 (minimum for Seed tier, risk score <70)`);
+    
+    this.logger.debug(`❌ Tier: none (missing requirements: ${missingReqs.join(', ')})`);
+    return 'none';
+  }
+}
