@@ -1312,9 +1312,20 @@ export class RefreshWorker {
           const category = this.classifyCategory(tokenData);
           const resolvedLogo = tokenData.logoUrl || await this.resolveLogoCached(chain, address, tokenData.symbol, tokenData.name);
           
-          // Extract holders from the merged token data
+          // Fetch holder count from Birdeye (Solana) or Moralis (other chains)
           let holdersNum = null;
-          if (tokenData.market?.holders !== undefined && tokenData.market?.holders !== null) {
+          try {
+            const holderCount = await this.analyticsService.getHolderCount(address, chain);
+            if (holderCount !== null && holderCount > 0) {
+              holdersNum = holderCount;
+              this.logger.log(`✅ Fetched ${holdersNum} holders for pinned token ${t.symbol} from ${chain === 'SOLANA' ? 'Birdeye' : 'Moralis'}`);
+            }
+          } catch (holderError: any) {
+            this.logger.warn(`⚠️ Could not fetch holder count for ${t.symbol}: ${holderError.message}`);
+          }
+          
+          // Fallback to merged data if API fetch failed
+          if (holdersNum === null && tokenData.market?.holders !== undefined && tokenData.market?.holders !== null) {
             const parsed = parseInt(tokenData.market.holders.toString(), 10);
             if (Number.isFinite(parsed) && parsed > 0) holdersNum = parsed;
           }
