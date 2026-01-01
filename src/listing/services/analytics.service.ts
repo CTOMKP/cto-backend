@@ -116,12 +116,15 @@ export class AnalyticsService {
 
   /**
    * Birdeye API - Get token holder count (Solana, BSC)
-   * Using the token_overview endpoint which provides holder data
+   * Tries multiple endpoints: token_security, token_overview, defi/token_security
    */
   private async getBirdeyeHolders(contractAddress: string, chain?: string): Promise<number | null> {
     try {
       const apiKey = this.configService.get('BIRDEYE_API_KEY');
-      if (!apiKey) return null;
+      if (!apiKey) {
+        this.logger.debug('Birdeye: API key not configured');
+        return null;
+      }
 
       // Map chain to Birdeye chain identifier
       const chainMap: Record<string, string> = {
@@ -130,46 +133,103 @@ export class AnalyticsService {
       };
       
       const birdeyeChain = chainMap[chain?.toUpperCase() || 'SOLANA'] || 'solana';
+      const headers = {
+        'X-API-KEY': apiKey,
+        'x-chain': birdeyeChain
+      };
 
-      // Try token_overview endpoint (v1) - most common endpoint for holder data
-      const url = `https://public-api.birdeye.so/v1/token/token_overview?address=${contractAddress}`;
-      const response = await axios.get(url, {
-        headers: {
-          'X-API-KEY': apiKey,
-          'x-chain': birdeyeChain
-        },
-        timeout: 10000,
-        validateStatus: (status) => status < 500
-      });
+      // Try endpoint 1: token_security (often has holder data)
+      try {
+        const url1 = `https://public-api.birdeye.so/v1/token/token_security?address=${contractAddress}`;
+        const response1 = await axios.get(url1, {
+          headers,
+          timeout: 10000,
+          validateStatus: (status) => status < 500
+        });
 
-      if (response.status === 200 && response.data?.success) {
-        const data = response.data?.data;
-        // Try different possible response structures for holder count
-        const holderCount = data?.holder || 
-                           data?.holderCount || 
-                           data?.holders ||
-                           data?.holder_count ||
-                           data?.totalHolders;
-        if (holderCount !== undefined && holderCount !== null) {
-          const parsed = parseInt(String(holderCount), 10);
-          if (Number.isFinite(parsed) && parsed > 0) {
-            this.logger.log(`✅ Birdeye returned ${parsed} holders`);
-            return parsed;
+        if (response1.status === 200 && response1.data?.success) {
+          const data = response1.data?.data;
+          const holderCount = data?.holder_count || data?.holderCount || data?.total_holders || data?.holders;
+          if (holderCount !== undefined && holderCount !== null) {
+            const parsed = parseInt(String(holderCount), 10);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              this.logger.log(`✅ Birdeye (token_security) returned ${parsed} holders for ${contractAddress}`);
+              return parsed;
+            }
           }
+        }
+      } catch (e: any) {
+        this.logger.debug(`Birdeye token_security failed: ${e.message}`);
+      }
+
+      // Try endpoint 2: token_overview
+      try {
+        const url2 = `https://public-api.birdeye.so/v1/token/token_overview?address=${contractAddress}`;
+        const response2 = await axios.get(url2, {
+          headers,
+          timeout: 10000,
+          validateStatus: (status) => status < 500
+        });
+
+        if (response2.status === 200 && response2.data?.success) {
+          const data = response2.data?.data;
+          // Try different possible response structures
+          const holderCount = data?.holder || 
+                             data?.holderCount || 
+                             data?.holders ||
+                             data?.holder_count ||
+                             data?.totalHolders ||
+                             data?.total_holders;
+          if (holderCount !== undefined && holderCount !== null) {
+            const parsed = parseInt(String(holderCount), 10);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              this.logger.log(`✅ Birdeye (token_overview) returned ${parsed} holders for ${contractAddress}`);
+              return parsed;
+            }
+          }
+          
+          // Log response structure for debugging if we have data but no holders
+          if (data) {
+            this.logger.debug(`Birdeye token_overview response keys: ${Object.keys(data).join(', ')}`);
+          }
+        } else {
+          this.logger.debug(`Birdeye token_overview returned status ${response2.status}`);
+        }
+      } catch (e: any) {
+        this.logger.debug(`Birdeye token_overview failed: ${e.message}`);
+        if (e.response) {
+          this.logger.debug(`Birdeye token_overview response: ${JSON.stringify(e.response.data)}`);
         }
       }
 
-      // Log error details for debugging
-      if (response.status !== 200) {
-        this.logger.debug(`Birdeye API error: Status ${response.status}, ${JSON.stringify(response.data)}`);
+      // Try endpoint 3: defi/token_security (alternative endpoint)
+      try {
+        const url3 = `https://public-api.birdeye.so/defi/token_security?address=${contractAddress}`;
+        const response3 = await axios.get(url3, {
+          headers,
+          timeout: 10000,
+          validateStatus: (status) => status < 500
+        });
+
+        if (response3.status === 200 && response3.data?.success) {
+          const data = response3.data?.data;
+          const holderCount = data?.holder_count || data?.holderCount || data?.total_holders || data?.holders;
+          if (holderCount !== undefined && holderCount !== null) {
+            const parsed = parseInt(String(holderCount), 10);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              this.logger.log(`✅ Birdeye (defi/token_security) returned ${parsed} holders for ${contractAddress}`);
+              return parsed;
+            }
+          }
+        }
+      } catch (e: any) {
+        this.logger.debug(`Birdeye defi/token_security failed: ${e.message}`);
       }
 
+      this.logger.debug(`Birdeye: All endpoints failed for ${contractAddress} on ${birdeyeChain}`);
       return null;
     } catch (error: any) {
       this.logger.debug(`Birdeye holder API error: ${error.message}`);
-      if (error.response) {
-        this.logger.debug(`Birdeye API response status: ${error.response.status}, data: ${JSON.stringify(error.response.data)}`);
-      }
       return null;
     }
   }

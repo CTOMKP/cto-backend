@@ -2,16 +2,78 @@
 
 Since your database is on Coolify, here's how to apply the `vetted` field migration:
 
-## Quick SQL to Run on Coolify
+## ⚠️ IMPORTANT: If Migration Failed
 
-Connect to your Coolify PostgreSQL database and run:
+If you see this error:
+```
+Error: P3009
+migrate found failed migrations in the target database
+The `20250101_add_vetted_field` migration started at ... failed
+```
+
+**The column already exists, but Prisma marked the migration as failed. You need to resolve it:**
+
+### Step 1: Connect to Database
+
+In Coolify, go to your PostgreSQL resource → **Database Console** or use psql:
+
+```bash
+psql -h <your-db-host> -U postgres -d postgres
+```
+
+### Step 2: Resolve Failed Migration
+
+Run this SQL to mark the migration as applied:
 
 ```sql
--- Add vetted column to Listing table
-ALTER TABLE "Listing" ADD COLUMN "vetted" BOOLEAN NOT NULL DEFAULT false;
+-- Mark the failed migration as applied (since column already exists)
+UPDATE "_prisma_migrations"
+SET 
+  "finished_at" = NOW(),
+  "applied_steps_count" = 1,
+  "logs" = NULL
+WHERE "migration_name" = '20250101_add_vetted_field'
+AND "finished_at" IS NULL;
+
+-- Verify it worked
+SELECT "migration_name", "finished_at", "applied_steps_count"
+FROM "_prisma_migrations"
+WHERE "migration_name" = '20250101_add_vetted_field';
+```
+
+### Step 3: Verify Column Exists
+
+```sql
+-- Check that the column exists
+SELECT column_name, data_type, column_default 
+FROM information_schema.columns 
+WHERE table_name = 'Listing' AND column_name = 'vetted';
+```
+
+After this, redeploy the backend. The migration will be marked as applied and Prisma will continue with future migrations.
+
+---
+
+## Quick SQL to Run on Coolify (If Column Doesn't Exist)
+
+**Only run this if the column doesn't exist yet:**
+
+```sql
+-- Add vetted column to Listing table (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'Listing' 
+        AND column_name = 'vetted'
+    ) THEN
+        ALTER TABLE "Listing" ADD COLUMN "vetted" BOOLEAN NOT NULL DEFAULT false;
+    END IF;
+END $$;
 
 -- Update existing tokens: if they have a riskScore, they've been vetted
-UPDATE "Listing" SET "vetted" = true WHERE "riskScore" IS NOT NULL;
+UPDATE "Listing" SET "vetted" = true WHERE "riskScore" IS NOT NULL AND "vetted" = false;
 ```
 
 ## How to Access Coolify Database

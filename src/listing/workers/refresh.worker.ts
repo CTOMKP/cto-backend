@@ -32,9 +32,9 @@ export class RefreshWorker {
   private readonly dexBase = process.env.DEXSCREENER_URL || 'https://api.dexscreener.com/latest';
 
   // Initial tokens - The first set of tokens manually added to the database
-  // These tokens are ensured to exist on startup (if missing, they're re-added)
+  // Initial tokens: These tokens are ensured to exist on startup (if missing, they're re-added)
   // Other tokens can be added via the API endpoint and will join this list
-  private readonly PINNED_TOKENS = [
+  private readonly INITIAL_TOKENS = [
     { address: 'gh8ers4yzkr3ukdvgvu8cqjfgzu4cu62mteg9bcj7ug6', chain: 'SOLANA', symbol: 'Michi' },
     { address: '0x660b571d34b91bc4c2fffbf8957ad50b5fac56f4', chain: 'BSC', symbol: 'VINU' },
     { address: '424kbbjyt6vksn7gekt9vh5yetutr1sbeyoya2nmbjpw', chain: 'SOLANA', symbol: 'SIGMA' },
@@ -76,12 +76,12 @@ export class RefreshWorker {
   ) {}
 
   // Removed onModuleInit auto-fetch per user request
-  // But we still want to ensure pinned tokens are present
+  // But we still want to ensure initial tokens are present
   async onModuleInit() {
-    this.logger.log('🚀 RefreshWorker initialized. Ensuring pinned tokens are present...');
-    // Non-blocking call to ensure pinned tokens exist
-    this.ensurePinnedTokensExist().catch(err => {
-      this.logger.error(`Error during initial pinned token sync: ${err.message}`);
+    this.logger.log('🚀 RefreshWorker initialized. Ensuring initial tokens are present...');
+    // Non-blocking call to ensure initial tokens exist
+    this.ensureInitialTokensExist().catch(err => {
+      this.logger.error(`Error during initial token sync: ${err.message}`);
     });
   }
 
@@ -99,10 +99,10 @@ export class RefreshWorker {
       // Use the repository's public methods instead of accessing private prisma
       const client = (this.repo as any)['prisma'] as any;
       
-      const pinnedAddresses = this.PINNED_TOKENS.map(t => t.address.toLowerCase());
+      const pinnedAddresses = this.INITIAL_TOKENS.map(t => t.address.toLowerCase());
 
       // Strict limit: Keep only the latest 25 listings for the "Presentable Model"
-      // PLUS any pinned tokens that might be outside the top 25
+      // PLUS any initial tokens that might be outside the top 25
       const listingsToKeep = await client.listing.findMany({
         where: {
           OR: [
@@ -111,7 +111,7 @@ export class RefreshWorker {
           ]
         },
         orderBy: { updatedAt: 'desc' },
-        take: 50, // Increased buffer to account for pinned tokens
+        take: 50, // Increased buffer to account for initial tokens
         select: { id: true, contractAddress: true }
       });
       
@@ -936,23 +936,23 @@ export class RefreshWorker {
   private async enforceTokenLimit() {
     try {
       const client = (this.repo as any)['prisma'] as any;
-      const pinnedAddresses = this.PINNED_TOKENS.map(t => t.address);
+      const pinnedAddresses = this.INITIAL_TOKENS.map(t => t.address);
       
       // Get total count (excluding pinned)
       const nonPinnedCount = await client.listing.count({
         where: { contractAddress: { notIn: pinnedAddresses } }
       });
       
-      this.logger.log(`📊 Current non-pinned token count: ${nonPinnedCount}`);
+      this.logger.log(`📊 Current non-initial token count: ${nonPinnedCount}`);
       
-      // Limit to 25 non-pinned tokens
+      // Limit to 25 non-initial tokens
       if (nonPinnedCount <= 25) {
         return;
       }
       
       const tokensToRemove = nonPinnedCount - 25;
       
-      // Remove the oldest non-pinned tokens
+      // Remove the oldest non-initial tokens
       const tokensToDelete = await client.listing.findMany({
         where: { contractAddress: { notIn: pinnedAddresses } },
         orderBy: [
@@ -969,7 +969,7 @@ export class RefreshWorker {
           where: { id: { in: idsToDelete } }
         });
         
-        this.logger.log(`🗑️ Rotation: Removed ${tokensToDelete.length} non-pinned tokens.`);
+        this.logger.log(`🗑️ Rotation: Removed ${tokensToDelete.length} non-initial tokens.`);
       }
     } catch (error: any) {
       this.logger.error(`❌ Error enforcing token limit: ${error.message}`);
@@ -1001,7 +1001,7 @@ export class RefreshWorker {
       const isOfficialNative = officialAddresses.includes(address);
       if (isNative && !isOfficialNative) return false; // Filter out "fake" or "pool" versions of SOL/USDC
       
-      const isPinned = this.PINNED_TOKENS.some(t => t.address.toLowerCase() === address.toLowerCase());
+      const isPinned = this.INITIAL_TOKENS.some(t => t.address.toLowerCase() === address.toLowerCase());
 
       // If age is null, we'll let it through to the vetting process where it might be deleted
       return isOfficialNative || isPinned || age === null || age >= 14; 
@@ -1166,7 +1166,7 @@ export class RefreshWorker {
     try {
       this.logger.log('🌅 Starting Daily Rotation: Clearing database for fresh tokens (except pinned)...');
       const client = (this.repo as any)['prisma'] as any;
-      const pinnedAddresses = this.PINNED_TOKENS.map(t => t.address);
+      const pinnedAddresses = this.INITIAL_TOKENS.map(t => t.address);
       
       const deletedListings = await client.listing.deleteMany({
         where: { contractAddress: { notIn: pinnedAddresses } }
@@ -1177,8 +1177,8 @@ export class RefreshWorker {
       
       this.logger.log(`✅ Daily Rotation Complete: Deleted ${deletedListings.count} listings and ${deletedScans.count} scans.`);
       
-      // Re-fetch pinned tokens to ensure they are up to date
-      await this.ensurePinnedTokensExist();
+      // Re-fetch initial tokens to ensure they are up to date
+      await this.ensureInitialTokensExist();
 
       // Immediately trigger multiple fetches to ensure we find enough mature tokens
       for (let i = 0; i < 3; i++) {
@@ -1191,14 +1191,14 @@ export class RefreshWorker {
   }
 
   /**
-   * Specifically fetch and ensure the pinned tokens are in the database.
-   * This bypasses the normal filtering/limiting logic to guarantee pinned tokens are saved.
+   * Specifically fetch and ensure the initial tokens are in the database.
+   * This bypasses the normal filtering/limiting logic to guarantee initial tokens are saved.
    */
-  async ensurePinnedTokensExist() {
-    this.logger.log('📍 Checking missing pinned tokens...');
+  async ensureInitialTokensExist() {
+    this.logger.log('📍 Checking missing initial tokens...');
     let injectedCount = 0;
     let skippedCount = 0;
-    for (const t of this.PINNED_TOKENS) {
+    for (const t of this.INITIAL_TOKENS) {
       try {
         // Check if already exists
         const existing = await this.repo.findOne(t.address);
@@ -1207,7 +1207,7 @@ export class RefreshWorker {
           continue;
         }
 
-        this.logger.log(`🔍 Pinned token ${t.symbol} (${t.address}) missing, fetching data...`);
+        this.logger.log(`🔍 Initial token ${t.symbol} (${t.address}) missing, fetching data...`);
         
         // Try fetching as TOKEN first
         const tokenUrl = `https://api.dexscreener.com/latest/dex/tokens/${t.address}`;
@@ -1225,28 +1225,28 @@ export class RefreshWorker {
         }
 
         if (res.data?.pairs && res.data.pairs.length > 0) {
-          this.logger.log(`✅ Found DexScreener data for pinned token ${t.symbol} (${t.address})`);
+          this.logger.log(`✅ Found DexScreener data for initial token ${t.symbol} (${t.address})`);
           
           // Merge the feed to get structured data
           const merged = this.mergeFeeds([{ pairs: res.data.pairs }]);
           if (!merged || merged.length === 0) {
-            this.logger.warn(`⚠️ Merged data empty for pinned token ${t.symbol} (${t.address})`);
+            this.logger.warn(`⚠️ Merged data empty for initial token ${t.symbol} (${t.address})`);
             continue;
           }
           
           // Get the first (best) pair from merged results
           const tokenData = merged[0];
           if (!tokenData || !tokenData.address) {
-            this.logger.warn(`⚠️ Invalid token data structure for pinned token ${t.symbol} (${t.address})`);
+            this.logger.warn(`⚠️ Invalid token data structure for initial token ${t.symbol} (${t.address})`);
             continue;
           }
           
-          // Directly upsert the pinned token (bypassing the volume/liquidity sorting/limiting)
+          // Directly upsert the initial token (bypassing the volume/liquidity sorting/limiting)
           const chain = t.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
           const address = tokenData.address as string;
           
           if (chain === 'SOLANA' && !this.isSolanaMint(address)) {
-            this.logger.warn(`⚠️ Invalid Solana mint address for pinned token ${t.symbol}: ${address}`);
+            this.logger.warn(`⚠️ Invalid Solana mint address for initial token ${t.symbol}: ${address}`);
             continue;
           }
           
@@ -1259,7 +1259,7 @@ export class RefreshWorker {
             const holderCount = await this.analyticsService.getHolderCount(address, chain);
             if (holderCount !== null && holderCount > 0) {
               holdersNum = holderCount;
-              this.logger.log(`✅ Fetched ${holdersNum} holders for pinned token ${t.symbol} from ${chain === 'SOLANA' ? 'Birdeye' : 'Moralis'}`);
+              this.logger.log(`✅ Fetched ${holdersNum} holders for initial token ${t.symbol} from ${chain === 'SOLANA' ? 'Birdeye' : 'Moralis'}`);
             }
           } catch (holderError: any) {
             this.logger.warn(`⚠️ Could not fetch holder count for ${t.symbol}: ${holderError.message}`);
@@ -1295,21 +1295,21 @@ export class RefreshWorker {
             market: marketData,
           });
           
-          this.logger.log(`✅ Successfully saved pinned token ${t.symbol} (${address}) to database`);
+          this.logger.log(`✅ Successfully saved initial token ${t.symbol} (${address}) to database`);
           injectedCount++;
           
           // Trigger vetting if token hasn't been vetted (Pillar 1)
           const saved = await this.repo.findOne(address);
           if (saved && (saved.vetted === false || saved.riskScore === null) && this.n8nService && this.externalApisService) {
             this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
-              this.logger.warn(`Failed to trigger vetting for pinned token ${t.symbol}: ${error.message}`);
+              this.logger.warn(`Failed to trigger vetting for initial token ${t.symbol}: ${error.message}`);
             });
           }
         } else {
-          this.logger.warn(`❌ Could not find DexScreener data for pinned token ${t.symbol} (${t.address}) as token OR pair`);
+          this.logger.warn(`❌ Could not find DexScreener data for initial token ${t.symbol} (${t.address}) as token OR pair`);
         }
       } catch (e: any) {
-        this.logger.error(`❌ Error ensuring pinned token ${t.symbol} (${t.address}): ${e.message}`);
+        this.logger.error(`❌ Error ensuring initial token ${t.symbol} (${t.address}): ${e.message}`);
         if (e.stack) {
           this.logger.error(`Stack trace: ${e.stack}`);
         }
@@ -1319,7 +1319,7 @@ export class RefreshWorker {
       // Using 2 seconds to account for multiple processes running simultaneously
       await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
     }
-    this.logger.log(`📍 Pinned tokens check complete. Injected: ${injectedCount}, Already existed: ${skippedCount}, Total: ${this.PINNED_TOKENS.length}`);
+    this.logger.log(`📍 Initial tokens check complete. Injected: ${injectedCount}, Already existed: ${skippedCount}, Total: ${this.INITIAL_TOKENS.length}`);
   }
 
   // REMOVED: Token limit enforcement - No limits with manual token management
@@ -1618,7 +1618,7 @@ export class RefreshWorker {
           // STRICT FILTER: If the token is found to be < 14 days during vetting, 
           // we do NOT save it to the public listing to keep the model presentable.
           const isNative = payload.tokenInfo.symbol === 'SOL' || payload.tokenInfo.symbol === 'MOVE' || payload.tokenInfo.symbol === 'USDC';
-          const isPinned = this.PINNED_TOKENS.some(t => t.address.toLowerCase() === contractAddress.toLowerCase());
+          const isPinned = this.INITIAL_TOKENS.some(t => t.address.toLowerCase() === contractAddress.toLowerCase());
 
           if (isNative || isPinned) {
             if (isNative) payload.tokenAge = 365; // Force native coins to appear mature
