@@ -60,6 +60,8 @@ export class RefreshWorker {
     { address: '0xb785e6eed355c1f8367c06d2b0cb9303ab167f8359a129bb003891ee54c6fce0', chain: 'SUI', symbol: 'hippo' },
   ];
 
+  private readonly jupiterApiKey: string | null;
+
   constructor(
     private readonly scanService: ScanService,
     private readonly repo: ListingRepository,
@@ -73,7 +75,9 @@ export class RefreshWorker {
     private readonly pillar1RiskScoringService: Pillar1RiskScoringService,
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
-  ) {}
+  ) {
+    this.jupiterApiKey = this.configService.get<string>('JUPITER_API_KEY') || null;
+  }
 
   // Removed onModuleInit auto-fetch per user request
   // But we still want to ensure initial tokens are present
@@ -451,6 +455,35 @@ export class RefreshWorker {
     if (addr.includes('/') || addr.includes('.') || addr.includes(':')) return false; // cosmos/near paths
     const base58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
     return base58.test(addr);
+  }
+
+  /**
+   * Verify if a Solana address is a valid mint using Jupiter API
+   * Returns true if the address is a valid mint, false otherwise
+   */
+  private async verifyMintWithJupiter(mintAddress: string): Promise<boolean> {
+    if (!this.jupiterApiKey || !this.isSolanaMint(mintAddress)) {
+      return false;
+    }
+
+    try {
+      const url = `https://api.jup.ag/tokens/v2/mints?ids=${mintAddress}`;
+      const response = await firstValueFrom(
+        this.httpService.get(url, {
+          headers: {
+            'x-api-key': this.jupiterApiKey,
+            'accept': 'application/json',
+          },
+          timeout: 5000,
+        })
+      );
+
+      // Jupiter returns an array - if it has data for this mint, it's valid
+      return Array.isArray(response.data) && response.data.length > 0 && response.data[0]?.address === mintAddress;
+    } catch (error: any) {
+      this.logger.debug(`Jupiter mint verification failed for ${mintAddress}: ${error.message}`);
+      return false;
+    }
   }
 
   private mapChainIdToEnum(chainId?: string): 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' {
@@ -1212,7 +1245,17 @@ export class RefreshWorker {
             this.logger.log(`🔍 Initial token ${t.symbol} (${t.address}) exists but missing holder data, fetching...`);
             
             const chain = t.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
-            const address = existing.contractAddress;
+            
+            // FIX: For Solana tokens, try using the original INITIAL_TOKENS address (mint) if it's valid
+            // This fixes the issue where pair addresses were saved instead of mint addresses
+            let address = existing.contractAddress;
+            if (chain === 'SOLANA' && this.isSolanaMint(t.address) && t.address.toLowerCase() !== existing.contractAddress.toLowerCase()) {
+              const isValidMint = await this.verifyMintWithJupiter(t.address);
+              if (isValidMint) {
+                address = t.address; // Use the original mint address
+                this.logger.log(`✅ Using original mint address ${t.address} instead of stored address ${existing.contractAddress} for ${t.symbol}`);
+              }
+            }
             
             // Fetch holder count
             let holdersNum = null;
@@ -1300,7 +1343,21 @@ export class RefreshWorker {
           
           // Directly upsert the initial token (bypassing the volume/liquidity sorting/limiting)
           const chain = t.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
-          const address = tokenData.address as string;
+          
+          // FIX: Prioritize using the original INITIAL_TOKENS address if it's a valid mint
+          // This prevents saving pair addresses instead of mint addresses
+          let address = tokenData.address as string;
+          if (chain === 'SOLANA' && this.isSolanaMint(t.address)) {
+            // Verify the original address is a valid mint using Jupiter
+            const isValidMint = await this.verifyMintWithJupiter(t.address);
+            if (isValidMint) {
+              address = t.address; // Use the original INITIAL_TOKENS address (mint)
+              this.logger.log(`✅ Verified original address ${t.address} is a valid mint for ${t.symbol}, using it instead of DexScreener address ${tokenData.address}`);
+            } else if (this.isSolanaMint(address)) {
+              // Fallback: use DexScreener's address if original is invalid
+              this.logger.warn(`⚠️ Original address ${t.address} failed Jupiter validation, using DexScreener address ${address} for ${t.symbol}`);
+            }
+          }
           
           if (chain === 'SOLANA' && !this.isSolanaMint(address)) {
             this.logger.warn(`⚠️ Invalid Solana mint address for initial token ${t.symbol}: ${address}`);
