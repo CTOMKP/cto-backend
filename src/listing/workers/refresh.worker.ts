@@ -1195,16 +1195,70 @@ export class RefreshWorker {
    * This bypasses the normal filtering/limiting logic to guarantee initial tokens are saved.
    */
   async ensureInitialTokensExist() {
-    this.logger.log('📍 Checking missing initial tokens...');
+    this.logger.log('📍 Checking initial tokens and holder data...');
     let injectedCount = 0;
+    let updatedCount = 0;
     let skippedCount = 0;
     for (const t of this.INITIAL_TOKENS) {
       try {
         // Check if already exists
         const existing = await this.repo.findOne(t.address);
         if (existing) {
-          skippedCount++;
-          continue;
+          // If token exists but has no holder data, fetch and update it
+          if (existing.holders === null || existing.holders === undefined) {
+            this.logger.log(`🔍 Initial token ${t.symbol} (${t.address}) exists but missing holder data, fetching...`);
+            
+            const chain = t.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
+            const address = existing.contractAddress;
+            
+            // Fetch holder count
+            let holdersNum = null;
+            try {
+              const holderCount = await this.analyticsService.getHolderCount(address, chain);
+              if (holderCount !== null && holderCount > 0) {
+                holdersNum = holderCount;
+                this.logger.log(`✅ Fetched ${holdersNum} holders for existing initial token ${t.symbol} (${address})`);
+              } else {
+                this.logger.warn(`⚠️ getHolderCount returned null/0 for existing initial token ${t.symbol} (${address}) on ${chain}`);
+              }
+            } catch (holderError: any) {
+              this.logger.warn(`⚠️ Could not fetch holder count for existing initial token ${t.symbol}: ${holderError.message}`);
+            }
+            
+            // Update only the holder data
+            if (holdersNum !== null) {
+              await this.repo.upsertMarketMetadata({
+                contractAddress: address,
+                chain: existing.chain,
+                symbol: existing.symbol,
+                name: existing.name,
+                market: {
+                  holders: holdersNum,
+                  // Preserve existing market data
+                  priceUsd: existing.priceUsd ?? 0,
+                  liquidityUsd: existing.liquidityUsd ?? 0,
+                  volume: existing.volume ?? { h24: 0 },
+                  priceChange: existing.priceChange ?? { m5: null, h1: null, h6: null, h24: null },
+                  riskScore: existing.riskScore,
+                  communityScore: existing.communityScore,
+                  age: existing.age,
+                  lastUpdated: Date.now()
+                },
+              });
+              this.logger.log(`✅ Updated holder data for initial token ${t.symbol} (${address}): ${holdersNum} holders`);
+              updatedCount++;
+            } else {
+              this.logger.warn(`⚠️ Could not fetch holder data for existing initial token ${t.symbol} (${address}) - keeping as null`);
+              skippedCount++;
+            }
+            
+            // Add delay between tokens to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          } else {
+            skippedCount++;
+            continue;
+          }
         }
 
         this.logger.log(`🔍 Initial token ${t.symbol} (${t.address}) missing, fetching data...`);
@@ -1325,11 +1379,14 @@ export class RefreshWorker {
         }
       }
       
-      // Add delay between tokens to avoid rate limiting (Birdeye free tier = 60 RPM = 1 req/sec)
-      // Using 2 seconds to account for multiple processes running simultaneously
-      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+        // Add delay between tokens to avoid rate limiting (Birdeye free tier = 60 RPM = 1 req/sec)
+        // Using 2 seconds to account for multiple processes running simultaneously
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+      } else {
+        // Token already exists with holder data, no delay needed for skipped tokens
+      }
     }
-    this.logger.log(`📍 Initial tokens check complete. Injected: ${injectedCount}, Already existed: ${skippedCount}, Total: ${this.INITIAL_TOKENS.length}`);
+    this.logger.log(`📍 Initial tokens check complete. Injected: ${injectedCount}, Updated (holder data): ${updatedCount}, Already existed (complete): ${skippedCount}, Total: ${this.INITIAL_TOKENS.length}`);
   }
 
   // REMOVED: Token limit enforcement - No limits with manual token management
