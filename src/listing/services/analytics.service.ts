@@ -32,12 +32,12 @@ export class AnalyticsService {
     // Initialize resilient fetchers
     this.moralis = createSafeFetcher('https://solana-gateway.moralis.io/token/mainnet/', this.moralisApiKey, 'X-API-Key');
     
-    // Solscan V2 Pro keys (JWT) require 'x-api-key', Old V1 keys require 'token'
+    // Solscan V2 Pro keys (JWT) require 'token' header, Old V1 keys also use 'token'
     const isV2 = this.solscanApiKey?.startsWith('eyJ');
     this.solscan = createSafeFetcher(
-      isV2 ? 'https://pro-api.solscan.io/v2/' : 'https://api.solscan.io/',
+      isV2 ? 'https://pro-api.solscan.io/v2.0/' : 'https://api.solscan.io/',
       this.solscanApiKey,
-      isV2 ? 'x-api-key' : 'token'
+      'token' // Both V1 and V2 use 'token' header per Solscan API docs
     );
 
     this.helius = createSafeFetcher('https://mainnet.helius-rpc.com/', this.heliusApiKey, 'x-api-key');
