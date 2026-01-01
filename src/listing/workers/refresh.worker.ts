@@ -1312,11 +1312,18 @@ export class RefreshWorker {
           const category = this.classifyCategory(tokenData);
           const resolvedLogo = tokenData.logoUrl || await this.resolveLogoCached(chain, address, tokenData.symbol, tokenData.name);
           
+          // Extract holders from the merged token data
+          let holdersNum = null;
+          if (tokenData.market?.holders !== undefined && tokenData.market?.holders !== null) {
+            const parsed = parseInt(tokenData.market.holders.toString(), 10);
+            if (Number.isFinite(parsed) && parsed > 0) holdersNum = parsed;
+          }
+          
           const marketData = {
             ...(tokenData.market ?? {}),
             category,
             logoUrl: resolvedLogo ?? null,
-            holders: tokenData.market?.holders ?? null,
+            holders: holdersNum,
             priceUsd: tokenData.market?.priceUsd ?? 0,
             liquidityUsd: tokenData.market?.liquidityUsd ?? 0,
             fdv: tokenData.market?.fdv ?? 0,
