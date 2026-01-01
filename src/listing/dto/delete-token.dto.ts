@@ -6,4 +6,3 @@ export class DeleteTokenRequestDto {
   @IsString()
   contractAddress: string;
 }
-

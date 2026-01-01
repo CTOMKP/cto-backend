@@ -1,36 +1,23 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsEnum, IsOptional } from 'class-validator';
-
-export enum ChainInput {
-  SOLANA = 'SOLANA',
-  ETHEREUM = 'ETHEREUM',
-  BSC = 'BSC',
-  SUI = 'SUI',
-  BASE = 'BASE',
-  APTOS = 'APTOS',
-  NEAR = 'NEAR',
-  OSMOSIS = 'OSMOSIS',
-  OTHER = 'OTHER',
-  UNKNOWN = 'UNKNOWN',
-}
+import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { Chain } from '@prisma/client';
 
 export class AddTokenRequestDto {
-  @ApiProperty({ description: 'Contract address of the token' })
+  @ApiProperty({ description: 'Contract address of the token to add' })
   @IsString()
   contractAddress: string;
 
-  @ApiProperty({ description: 'Blockchain chain', enum: ChainInput, default: ChainInput.SOLANA })
-  @IsEnum(ChainInput)
-  chain: ChainInput = ChainInput.SOLANA;
+  @ApiProperty({ description: 'Blockchain of the token', enum: Chain })
+  @IsEnum(Chain)
+  chain: Chain;
 
-  @ApiProperty({ description: 'Token symbol (optional, will be fetched if not provided)', required: false })
+  @ApiProperty({ required: false, description: 'Symbol of the token' })
   @IsOptional()
   @IsString()
   symbol?: string;
 
-  @ApiProperty({ description: 'Token name (optional, will be fetched if not provided)', required: false })
+  @ApiProperty({ required: false, description: 'Name of the token' })
   @IsOptional()
   @IsString()
   name?: string;
 }
-
