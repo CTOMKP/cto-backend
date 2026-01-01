@@ -7,12 +7,14 @@
    - POST /api/listing/scan
    - POST /api/listing/refresh
 */
-import { Controller, Get, Post, Body, Param, Query, UseGuards, HttpCode, Header } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, HttpCode, Header, Delete } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { ListingService } from './listing.service';
 import { ListingQueryDto } from './dto/listing-query.dto';
 import { ListingScanRequestDto } from './dto/scan-request.dto';
 import { RefreshRequestDto } from './dto/refresh-request.dto';
+import { AddTokenRequestDto } from './dto/add-token.dto';
+import { DeleteTokenRequestDto } from './dto/delete-token.dto';
 import { RateLimiterGuard } from './services/rate-limiter.guard';
 
 @ApiTags('Listing')
@@ -122,18 +124,27 @@ export class ListingController {
     return this.listingService.refreshHolders();
   }
 
-  @Post('fetch-feed')
-  @ApiOperation({ summary: 'Manually trigger the public feed fetch (Admin/Dev only)' })
-  @ApiResponse({ status: 200, description: 'Feed fetch triggered' })
-  async fetchFeed() {
-    return this.listingService.fetchFeed();
+  @Post('add')
+  @UseGuards(RateLimiterGuard)
+  @HttpCode(200)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Add a token to the database (manual addition)' })
+  @ApiBody({ type: AddTokenRequestDto })
+  @ApiResponse({ status: 200, description: 'Token added successfully. Will be processed by Pillar 1.' })
+  @ApiResponse({ status: 400, description: 'Token already exists or invalid input' })
+  async addToken(@Body() dto: AddTokenRequestDto) {
+    return this.listingService.addToken(dto.contractAddress, dto.chain as any, dto.symbol, dto.name);
   }
 
-  @Post('ensure-pinned')
-  @ApiOperation({ summary: 'Force injection of pinned community tokens' })
-  @ApiResponse({ status: 200, description: 'Pinned token sync triggered' })
-  async ensurePinned() {
-    return this.listingService.ensurePinned();
+  @Post('delete')
+  @UseGuards(RateLimiterGuard)
+  @HttpCode(200)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Delete a token from the database' })
+  @ApiBody({ type: DeleteTokenRequestDto })
+  @ApiResponse({ status: 200, description: 'Token deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Token not found' })
+  async deleteToken(@Body() dto: DeleteTokenRequestDto) {
+    return this.listingService.deleteToken(dto.contractAddress);
   }
-
 }

@@ -289,13 +289,15 @@ export class ExternalApisService {
 
     try {
       // Fetch data from multiple sources in parallel
-      const [dexScreenerData, gmgnData, moralisData, solscanData, apifyData, birdeyeData] = await Promise.allSettled([
+      // NOTE: Birdeye is excluded here because holder data is fetched separately via AnalyticsService.getHolderCount
+      // to avoid duplicate API calls and rate limiting
+      const [dexScreenerData, gmgnData, moralisData, solscanData, apifyData] = await Promise.allSettled([
         this.fetchDexScreenerData(contractAddress, chain),
         this.fetchGMGNData(contractAddress),
         this.fetchMoralisData(contractAddress, chain),
         chain === 'solana' ? this.fetchSolscanData(contractAddress) : Promise.resolve(null),
         this.fetchApifyData(contractAddress, chain),
-        this.fetchBirdeyeData(contractAddress, chain),
+        // Removed: this.fetchBirdeyeData(contractAddress, chain) - holder data fetched via AnalyticsService
       ]);
 
       return {
@@ -306,7 +308,7 @@ export class ExternalApisService {
         moralis: moralisData.status === 'fulfilled' ? moralisData.value : null,
         solscan: solscanData.status === 'fulfilled' ? solscanData.value : null,
         apify: apifyData.status === 'fulfilled' ? apifyData.value : null,
-        birdeye: birdeyeData.status === 'fulfilled' ? birdeyeData.value : null,
+        // Removed: birdeye - holder data fetched separately via AnalyticsService.getHolderCount
         fetchedAt: new Date().toISOString(),
       };
     } catch (error) {
@@ -367,5 +369,4 @@ export class ExternalApisService {
     };
   }
 }
-
 

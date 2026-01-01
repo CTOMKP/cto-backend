@@ -166,6 +166,82 @@ export class ListingService {
   }
 
   /**
+   * Add a token to the database (manual addition)
+   * Token will be processed by Pillar 1 (vetting) automatically
+   */
+  async addToken(contractAddress: string, chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN', symbol?: string, name?: string) {
+    if (!contractAddress) throw new BadRequestException('contractAddress is required');
+
+    // Check if token already exists
+    const existing = await this.repo.findOne(contractAddress);
+    if (existing) {
+      throw new BadRequestException(`Token with address ${contractAddress} already exists`);
+    }
+
+    // Add token with vetted=false (will be processed by Pillar 1)
+    const client = (this.repo as any)['prisma'] as any;
+    const listing = await client.listing.create({
+      data: {
+        contractAddress,
+        chain,
+        symbol: symbol || null,
+        name: name || null,
+        vetted: false, // Will be processed by Pillar 1
+        category: 'MEME', // Default, will be updated during vetting
+      },
+    });
+
+    // Clear cache
+    await this.cache.invalidateMatching(['listing:list:*', 'listing:one:*']);
+
+    this.logger.log(`✅ Token added: ${contractAddress} (${chain}) - Will be processed by Pillar 1`);
+    
+    return {
+      success: true,
+      contractAddress,
+      chain,
+      listing,
+      message: 'Token added successfully. It will be processed by Pillar 1 (vetting) within the next 10 minutes.',
+    };
+  }
+
+  /**
+   * Delete a token from the database
+   */
+  async deleteToken(contractAddress: string) {
+    if (!contractAddress) throw new BadRequestException('contractAddress is required');
+
+    const client = (this.repo as any)['prisma'] as any;
+    const deleted = await client.listing.delete({
+      where: { contractAddress },
+    }).catch((error: any) => {
+      if (error.code === 'P2025') {
+        // Record not found
+        throw new NotFoundException(`Token with address ${contractAddress} not found`);
+      }
+      throw error;
+    });
+
+    // Also delete associated scan results
+    await client.scanResult.deleteMany({
+      where: { contractAddress },
+    }).catch(() => {
+      // Ignore errors if no scan results exist
+    });
+
+    // Clear cache
+    await this.cache.invalidateMatching(['listing:list:*', 'listing:one:*']);
+
+    this.logger.log(`✅ Token deleted: ${contractAddress}`);
+    
+    return {
+      success: true,
+      contractAddress,
+      message: 'Token deleted successfully',
+    };
+  }
+
+  /**
    * Refresh holder data for all tokens
    */
   async refreshHolders() {
@@ -227,34 +303,3 @@ export class ListingService {
       };
     }
   }
-
-  /**
-   * Manually trigger the public feed fetch
-   */
-  async fetchFeed() {
-    this.logger.log('Manually triggering public feed fetch...');
-    // We run it asynchronously so the request doesn't timeout
-    this.worker.scheduledFetchFeed().catch(err => {
-      this.logger.error('❌ Manual feed fetch failed:', err);
-    });
-    return { 
-      success: true, 
-      message: 'Feed fetch triggered. The database will be populated shortly.' 
-    };
-  }
-
-  /**
-   * Manually trigger the injection of pinned tokens
-   */
-  async ensurePinned() {
-    this.logger.log('Manually triggering pinned token sync...');
-    // We run it asynchronously
-    this.worker.ensurePinnedTokensExist().catch(err => {
-      this.logger.error('❌ Manual pinned sync failed:', err);
-    });
-    return { 
-      success: true, 
-      message: 'Pinned token sync triggered. Pinned tokens will be injected shortly.' 
-    };
-  }
-}

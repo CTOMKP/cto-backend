@@ -31,7 +31,9 @@ export class RefreshWorker {
   private stats = { cycles: 0, refreshed: 0, apiCalls: 0, failures: 0, lastDurationMs: 0 };
   private readonly dexBase = process.env.DEXSCREENER_URL || 'https://api.dexscreener.com/latest';
 
-  // Pinned tokens that should never be rotated out or deleted
+  // Initial tokens - The first set of tokens manually added to the database
+  // These tokens are ensured to exist on startup (if missing, they're re-added)
+  // Other tokens can be added via the API endpoint and will join this list
   private readonly PINNED_TOKENS = [
     { address: 'gh8ers4yzkr3ukdvgvu8cqjfgzu4cu62mteg9bcj7ug6', chain: 'SOLANA', symbol: 'Michi' },
     { address: '0x660b571d34b91bc4c2fffbf8957ad50b5fac56f4', chain: 'BSC', symbol: 'VINU' },
@@ -88,9 +90,8 @@ export class RefreshWorker {
     this.run();
   }
 
-  // Cleanup old records to keep database lean (run every 6 hours)
-  // This is a safety measure to ensure the DB doesn't grow too large.
-  @Cron('0 */6 * * *')
+  // REMOVED: Automatic cleanup - Tokens are manually managed, no automatic deletion
+  // @Cron('0 */6 * * *') // DISABLED
   async cleanupOldRecords() {
     try {
       this.logger.log('🧹 Starting cleanup of old records...');
@@ -189,76 +190,14 @@ export class RefreshWorker {
     }
   }
 
-  // PILLAR 1: Fetch new tokens from feeds (discovery) and populate DB
-  // Runs at :00, :10, :20, :30, :40, :50 every hour (every 10 minutes)
-  // This only discovers new tokens - Pillar 1 vetting happens separately via processExistingUnvettedTokens
-  @Cron('0 */10 * * * *') 
+  // DISABLED: Token discovery from feeds - Tokens are now manually added via API
+  // Cron job disabled - tokens should be added using POST /api/listing/add endpoint
+  // @Cron('0 */10 * * * *') // DISABLED - Manual token addition only
   async scheduledFetchFeed() {
-    const started = Date.now();
-    let apiCalls = 0;
-    let failures = 0;
-    try {
-      this.logger.log('📊 [PILLAR 1] Scheduled fetch feed starting (token discovery)...');
-      
-      // Safety check: ensure pinned tokens are present if they were deleted manually
-      // This will only perform fetches for missing tokens
-      await this.ensurePinnedTokensExist();
-
-      // Fetch data from all sources in parallel for efficiency
-      const [dex, bird, heli, moralis, solscan] = await Promise.all([
-        this.getDexScreenerFeed().catch((e) => { failures++; this.logger.debug(e?.message || e); return null; }),
-        this.getBirdEyeFeed().catch((e) => { failures++; this.logger.debug(e?.message || e); return null; }),
-        this.getHeliusFeed().catch((e) => { failures++; this.logger.debug(e?.message || e); return null; }),
-        this.getMoralisFeed().catch((e) => { failures++; this.logger.debug(e?.message || e); return null; }),
-        this.getSolscanFeed().catch((e) => { failures++; this.logger.debug(e?.message || e); return null; })
-      ]);
-
-      // Merge data from all sources
-      const merged = this.mergeFeeds([dex, bird, heli, moralis, solscan]);
-      
-      // Enforce 100-token limit before upserting new tokens
-      await this.enforceTokenLimit();
-      
-      const deltas = await this.upsertFromMerged(merged);
-
-      // Broadcast deltas via WebSockets for real-time updates
-      // Ensure all required fields are present before emitting
-      if (deltas?.new?.length) {
-        this.logger.log(`🆕 Broadcasting ${deltas.new.length} new listings via WebSocket`);
-        deltas.new.forEach((d: any) => {
-          // Add timestamp to track when the update was sent
-          d.lastUpdated = Date.now();
-          this.gateway.emitNew(d);
-        });
-      }
-      
-      if (deltas?.updated?.length) {
-        this.logger.log(`📊 Broadcasting ${deltas.updated.length} listing updates via WebSocket`);
-        deltas.updated.forEach((d: any) => {
-          // Add timestamp to track when the update was sent
-          d.lastUpdated = Date.now();
-          this.gateway.emitUpdate(d);
-        });
-      }
-
-      // Track API calls for metrics
-      apiCalls += (dex ? dex.__calls ?? 1 : 0) + 
-                 (bird ? bird.__calls ?? 1 : 0) + 
-                 (heli ? heli.__calls ?? 1 : 0) + 
-                 (moralis ? moralis.__calls ?? 1 : 0) + 
-                 (solscan ? solscan.__calls ?? 1 : 0);
-      this.metrics.incCounter('listing_api_calls_total', apiCalls);
-      this.metrics.incCounter('listing_refresh_total', 1);
-      const total = (deltas?.new?.length ?? 0) + (deltas?.updated?.length ?? 0);
-      this.logger.log(`Listings refreshed: ${total} (new: ${deltas?.new?.length ?? 0}, updated: ${deltas?.updated?.length ?? 0})`);
-    } catch (e: any) {
-      failures += 1;
-      this.logger.warn(`Feed fetch failed: ${e.message}`);
-      this.metrics.incCounter('listing_refresh_failures_total', 1);
-    } finally {
-      const duration = (Date.now() - started) / 1000;
-      this.metrics.observeDuration('listing_refresh_duration_seconds', duration);
-    }
+    // DISABLED - This method is no longer used
+    // Tokens should be added manually via POST /api/listing/add
+    this.logger.warn('⚠️ scheduledFetchFeed() called but is disabled - tokens should be added manually via POST /api/listing/add');
+    return;
   }
 
   private async getDexScreenerFeed() {
@@ -1068,7 +1007,8 @@ export class RefreshWorker {
       return isOfficialNative || isPinned || age === null || age >= 14; 
     });
 
-    // Limit to 25 tokens max, sorted by Volume + Liquidity
+    // REMOVED: Token limit - No limits with manual token management
+    // Sort by Volume + Liquidity for ordering, but don't limit
     const sortedItems = filteredItems
       .sort((a, b) => {
         const aVolume = Number(a.market?.volume?.h24 ?? 0);
@@ -1076,8 +1016,7 @@ export class RefreshWorker {
         const aLiquidity = Number(a.market?.liquidityUsd ?? 0);
         const bLiquidity = Number(b.market?.liquidityUsd ?? 0);
         return (bVolume + bLiquidity) - (aVolume + aLiquidity);
-      })
-      .slice(0, 30); // Take 30 to allow for some vetting deletions
+      });
     
     this.logger.log(`🎯 Populating database with top ${sortedItems.length} candidate tokens`);
 
@@ -1221,12 +1160,8 @@ export class RefreshWorker {
     }
   }
 
-  /**
-   * Complete 24-Hour Rotation
-   * Wipes existing listings to allow a fresh set of 25 tokens to be fetched and vetted.
-   * This keeps the "Presentable Model" fresh and dynamic.
-   */
-  @Cron('0 0 * * *') // Every midnight
+  // REMOVED: Daily rotation - Tokens are manually managed, no automatic deletion
+  // @Cron('0 0 * * *') // DISABLED
   async dailyRotation() {
     try {
       this.logger.log('🌅 Starting Daily Rotation: Clearing database for fresh tokens (except pinned)...');
@@ -1387,14 +1322,10 @@ export class RefreshWorker {
     this.logger.log(`📍 Pinned tokens check complete. Injected: ${injectedCount}, Already existed: ${skippedCount}, Total: ${this.PINNED_TOKENS.length}`);
   }
 
-  /**
-   * Enforce 25-token limit and rotation (runs every 6 hours)
-   * This is a "sanity check" to keep the count at 25.
-   */
-  @Cron('0 0 */6 * * *') // Every 6 hours
+  // REMOVED: Token limit enforcement - No limits with manual token management
+  // @Cron('0 0 */6 * * *') // DISABLED
   async enforceTokenLimitRotation() {
-    this.logger.log('🔄 Running 6-hour token count check...');
-    await this.enforceTokenLimit();
+    // DISABLED - No token limits with manual management
   }
 
   // REMOVED: scheduledRefreshAll - This was re-vetting all tokens, which is Pillar 2's job.
