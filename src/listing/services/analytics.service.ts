@@ -106,22 +106,62 @@ export class AnalyticsService {
       const apiKey = this.configService.get('BIRDEYE_API_KEY');
       if (!apiKey) return null;
 
-      const url = `https://public-api.birdeye.so/defi/token_overview?address=${contractAddress}`;
+      // Try the v3 API endpoint first (newer format)
+      const url = `https://public-api.birdeye.so/v3/defi/token_overview?address=${contractAddress}`;
       const response = await axios.get(url, {
         headers: {
           'X-API-KEY': apiKey,
           'x-chain': 'solana'
         },
-        timeout: 10000
+        timeout: 10000,
+        validateStatus: (status) => status < 500 // Don't throw on 400, just return null
       });
 
-      if (response.data?.success && response.data?.data?.holder) {
-        return parseInt(response.data.data.holder, 10);
+      if (response.status === 200 && response.data?.success) {
+        // Try different possible response structures
+        const holderCount = response.data?.data?.holder || 
+                           response.data?.data?.holderCount || 
+                           response.data?.data?.holders ||
+                           response.data?.holder;
+        if (holderCount !== undefined && holderCount !== null) {
+          const parsed = parseInt(String(holderCount), 10);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+          }
+        }
+      }
+
+      // If v3 fails, try v2 (older format)
+      if (response.status === 400 || response.status === 404) {
+        const urlV2 = `https://public-api.birdeye.so/defi/token_overview?address=${contractAddress}`;
+        const responseV2 = await axios.get(urlV2, {
+          headers: {
+            'X-API-KEY': apiKey,
+            'x-chain': 'solana'
+          },
+          timeout: 10000,
+          validateStatus: (status) => status < 500
+        });
+
+        if (responseV2.status === 200 && responseV2.data?.success) {
+          const holderCount = responseV2.data?.data?.holder || 
+                             responseV2.data?.data?.holderCount || 
+                             responseV2.data?.data?.holders;
+          if (holderCount !== undefined && holderCount !== null) {
+            const parsed = parseInt(String(holderCount), 10);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              return parsed;
+            }
+          }
+        }
       }
 
       return null;
     } catch (error: any) {
       this.logger.debug(`Birdeye holder API error: ${error.message}`);
+      if (error.response) {
+        this.logger.debug(`Birdeye API response status: ${error.response.status}, data: ${JSON.stringify(error.response.data)}`);
+      }
       return null;
     }
   }
