@@ -188,12 +188,16 @@ export class AnalyticsService {
             }
           }
           
-          // Log response structure for debugging if we have data but no holders
+          // Log FULL response structure for debugging (first 500 chars to avoid huge logs)
           if (data) {
+            const responseStr = JSON.stringify(data).substring(0, 500);
+            this.logger.warn(`⚠️ Birdeye token_overview: No holder field found. Response structure (first 500 chars): ${responseStr}`);
             this.logger.debug(`Birdeye token_overview response keys: ${Object.keys(data).join(', ')}`);
+          } else {
+            this.logger.debug(`Birdeye token_overview: response.data.data is null/undefined`);
           }
         } else {
-          this.logger.debug(`Birdeye token_overview returned status ${response2.status}`);
+          this.logger.debug(`Birdeye token_overview returned status ${response2.status}, success: ${response2.data?.success}`);
         }
       } catch (e: any) {
         this.logger.debug(`Birdeye token_overview failed: ${e.message}`);
