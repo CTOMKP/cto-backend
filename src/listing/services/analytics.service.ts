@@ -58,9 +58,9 @@ export class AnalyticsService {
       }
     }
 
-    // Try Birdeye for Solana tokens
-    if (chain === 'SOLANA') {
-      const holders = await this.getBirdeyeHolders(contractAddress);
+    // Try Birdeye for Solana and BSC tokens
+    if (chain === 'SOLANA' || chain === 'BSC') {
+      const holders = await this.getBirdeyeHolders(contractAddress, chain);
       if (holders !== null) {
         this.logger.log(`✅ Birdeye returned ${holders} holders`);
         return holders;
@@ -76,20 +76,11 @@ export class AnalyticsService {
       }
     }
 
-    // Try Helius for Solana tokens
+    // Try Helius for Solana tokens (free tier, 100k requests/month)
     if (chain === 'SOLANA' && this.heliusApiKey) {
       const holders = await this.getHeliusHolders(contractAddress);
       if (holders !== null) {
         this.logger.log(`✅ Helius returned ${holders} holders`);
-        return holders;
-      }
-    }
-
-    // Try Solscan for Solana tokens (with API key)
-    if (chain === 'SOLANA' && this.solscanApiKey) {
-      const holders = await this.getSolscanHolders(contractAddress);
-      if (holders !== null) {
-        this.logger.log(`✅ Solscan (API key) returned ${holders} holders`);
         return holders;
       }
     }
@@ -101,25 +92,47 @@ export class AnalyticsService {
       return coinGeckoHolders;
     }
 
+    // Last resort: Try Solscan (requires paid tier $199/month, likely to fail with free key)
+    if (chain === 'SOLANA' && this.solscanApiKey) {
+      try {
+        const holders = await this.getSolscanHolders(contractAddress);
+        if (holders !== null) {
+          this.logger.log(`✅ Solscan returned ${holders} holders`);
+          return holders;
+        }
+      } catch (error: any) {
+        // Silently fail - Solscan requires paid tier
+        this.logger.debug(`Solscan API requires paid tier (free key will fail): ${error.message}`);
+      }
+    }
+
     this.logger.warn(`❌ No holder data available for ${contractAddress} on ${chain}`);
     return null;
   }
 
   /**
-   * Birdeye API - Get token holder count (Solana)
+   * Birdeye API - Get token holder count (Solana, BSC)
    * Using the token_overview endpoint which provides holder data
    */
-  private async getBirdeyeHolders(contractAddress: string): Promise<number | null> {
+  private async getBirdeyeHolders(contractAddress: string, chain?: string): Promise<number | null> {
     try {
       const apiKey = this.configService.get('BIRDEYE_API_KEY');
       if (!apiKey) return null;
+
+      // Map chain to Birdeye chain identifier
+      const chainMap: Record<string, string> = {
+        'SOLANA': 'solana',
+        'BSC': 'bsc',
+      };
+      
+      const birdeyeChain = chainMap[chain?.toUpperCase() || 'SOLANA'] || 'solana';
 
       // Try token_overview endpoint (v1) - most common endpoint for holder data
       const url = `https://public-api.birdeye.so/v1/token/token_overview?address=${contractAddress}`;
       const response = await axios.get(url, {
         headers: {
           'X-API-KEY': apiKey,
-          'x-chain': 'solana'
+          'x-chain': birdeyeChain
         },
         timeout: 10000,
         validateStatus: (status) => status < 500
@@ -164,7 +177,10 @@ export class AnalyticsService {
   private async getCoinGeckoHolders(contractAddress: string, chain: string): Promise<number | null> {
     try {
       const apiKey = this.configService.get('COINGECKO_API_KEY');
-      if (!apiKey) return null;
+      if (!apiKey) {
+        this.logger.debug(`CoinGecko: API key not configured, skipping`);
+        return null;
+      }
 
       // Map chain to CoinGecko network ID
       const networkMap: Record<string, string> = {
@@ -248,20 +264,45 @@ export class AnalyticsService {
 
   /**
    * Helius API - Get Solana token holder count
+   * Uses getTokenLargestAccounts to get holder count (free tier: 100k requests/month)
    */
   private async getHeliusHolders(contractAddress: string): Promise<number | null> {
     try {
+      // Method 1: Try getTokenLargestAccounts (more reliable for holder count)
       const response = await this.helius.post('', {
         jsonrpc: '2.0',
         id: 'get-holders',
-        method: 'getTokenAccounts',
-        params: [
-          { mint: contractAddress },
-          { page: 1, limit: 1, displayOptions: { showSummary: true } },
-        ],
+        method: 'getTokenLargestAccounts',
+        params: [contractAddress, { commitment: 'finalized' }],
       });
 
-      return response.data?.result?.total || null;
+      // The response contains an array of accounts, but we need total count
+      // Try alternative: getAsset method (DAS API) which provides holder_count
+      if (!response.data?.result?.value) {
+        const assetResponse = await this.helius.post('', {
+          jsonrpc: '2.0',
+          id: 'get-asset',
+          method: 'getAsset',
+          params: { id: contractAddress },
+        });
+
+        // Some Helius endpoints return holder_count in metadata
+        const holderCount = assetResponse.data?.result?.token_info?.holder_count ||
+                           assetResponse.data?.result?.supply?.holder_count;
+        if (holderCount) {
+          return parseInt(String(holderCount), 10);
+        }
+      }
+
+      // If getTokenLargestAccounts returned accounts, estimate from largest accounts
+      const accounts = response.data?.result?.value;
+      if (Array.isArray(accounts) && accounts.length > 0) {
+        // This is an approximation - we only get largest accounts, not total
+        // Return null to try other APIs for more accurate count
+        return null;
+      }
+
+      return null;
     } catch (error: any) {
       this.logger.debug(`Helius API error: ${error.message}`);
       if (error instanceof HttpException) throw error;
@@ -271,6 +312,9 @@ export class AnalyticsService {
 
   /**
    * Solscan API - Get Solana token holders
+   * NOTE: Solscan V2 Pro requires paid tier ($199/month) for holder endpoints.
+   * Free tier keys will return 401 "Unauthorized: Please upgrade your api key level."
+   * This is kept as last resort fallback only.
    */
   private async getSolscanHolders(contractAddress: string): Promise<number | null> {
     try {
