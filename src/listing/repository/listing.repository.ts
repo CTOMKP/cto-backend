@@ -169,12 +169,13 @@ export class ListingRepository {
     // Preserve existing community score from database (set by voting system) or set to null
     const existingCommunityScore = existing?.communityScore ?? null;
     
-    // CRITICAL: Preserve tier, riskScore, age, and summary when updating market metadata
+    // CRITICAL: Preserve tier, riskScore, age, summary, and vetted when updating market metadata
     // These fields are set by vetting/risk scoring and should NOT be overwritten by market updates
     const existingTier = existing?.tier ?? null;
     const existingRiskScore = existing?.riskScore ?? null;
     const existingSummary = existing?.summary ?? null;
     const existingAge = existing?.age ?? null; // Preserve actual token age
+    const existingVetted = existing?.vetted ?? false; // Preserve vetted status (new tokens default to false)
 
     return client.listing.upsert({
       where: { contractAddress },
@@ -224,11 +225,12 @@ export class ListingRepository {
         metadata: nextMeta,
         // Community score is based on user votes - preserve existing value
         communityScore: existingCommunityScore,
-        // CRITICAL: Preserve tier, riskScore, age, and summary - do NOT overwrite with null
+        // CRITICAL: Preserve tier, riskScore, age, summary, and vetted - do NOT overwrite with null/false
         tier: existingTier,
         riskScore: existingRiskScore,
         summary: existingSummary,
         age: existingAge, // Preserve actual token age (not time since last update)
+        vetted: existingVetted, // Preserve vetted status (Pillar 1 completion flag)
       },
     });
   }
@@ -390,6 +392,7 @@ export class ListingRepository {
         riskScore: vettingResults.overallScore,
         tier: tierValue,
         summary: `Risk Level: ${vettingResults.riskLevel}. ${vettingResults.allFlags[0] || 'Vetted'}`,
+        vetted: true, // Mark as vetted after Pillar 1 completes
       },
       update: {
         name,
@@ -401,6 +404,7 @@ export class ListingRepository {
         riskScore: vettingResults.overallScore,
         tier: tierValue,
         summary: `Risk Level: ${vettingResults.riskLevel}. ${vettingResults.allFlags[0] || 'Vetted'}`,
+        vetted: true, // Mark as vetted after Pillar 1 completes
       },
     });
   }

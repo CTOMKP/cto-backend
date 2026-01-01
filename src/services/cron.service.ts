@@ -40,31 +40,10 @@ export class CronService implements OnModuleInit {
     // Wait a bit for database connections to be ready
     await this.delay(5000);
 
-    const useBackendRiskScoring = this.configService.get('USE_BACKEND_RISK_SCORING', 'true') === 'true';
-    const autoRecalculate = this.configService.get('AUTO_RECALCULATE_RISK_SCORES', 'true') === 'true';
-
-    if (useBackendRiskScoring && autoRecalculate && !this.recalculationTriggered) {
-      this.logger.log('🚀 Application started - Auto-triggering risk score recalculation for existing tokens...');
-      
-      // Run in background (don't block startup)
-      this.recalculateRiskScoresForExistingTokens(10, 0)
-        .then((result) => {
-          if (result.success) {
-            this.logger.log(`✅ Auto-recalculation completed: ${result.processed} processed, ${result.updated} updated, ${result.failed} failed`);
-          } else {
-            this.logger.warn(`⚠️ Auto-recalculation failed: ${result.error}`);
-          }
-        })
-        .catch((error) => {
-          this.logger.error(`❌ Auto-recalculation error: ${error.message}`);
-        });
-
-      this.recalculationTriggered = true;
-    } else if (!useBackendRiskScoring) {
-      this.logger.log('ℹ️ Backend risk scoring is disabled - skipping auto-recalculation');
-    } else if (!autoRecalculate) {
-      this.logger.log('ℹ️ Auto-recalculation is disabled (set AUTO_RECALCULATE_RISK_SCORES=true to enable)');
-    }
+    // REMOVED: Startup recalculation - This was causing duplicate processing with Pillar 1
+    // Pillar 1 (RefreshWorker) handles initial vetting of new tokens
+    // Pillar 2 (handleTokenMonitoring) handles periodic monitoring/re-vetting of all vetted tokens
+    this.logger.log('ℹ️ CronService initialized - Pillar 2 monitoring will run on schedule');
   }
 
   /**
@@ -84,45 +63,17 @@ export class CronService implements OnModuleInit {
     return chainMap[chain.toLowerCase()] || Chain.UNKNOWN;
   }
 
-  /**
-   * Token Discovery Cron Job (Phase 1)
-   * Runs every 20 minutes to discover new tokens (increased from 2 minutes)
-   */
-  @Cron('0 */20 * * * *', {
-    name: 'token-discovery',
-    timeZone: 'UTC',
-  })
-  async handleTokenDiscovery() {
-    const isEnabled = this.configService.get('TOKEN_DISCOVERY_ENABLED', 'true') === 'true';
-    
-    if (!isEnabled) {
-      this.logger.debug('Token discovery cron job is disabled');
-      return;
-    }
-
-    this.logger.log('Starting token discovery cron job');
-
-    try {
-      const batchSize = parseInt(this.configService.get('TOKEN_DISCOVERY_BATCH_SIZE', '50'));
-      const chains = this.configService.get('TOKEN_DISCOVERY_CHAINS', 'solana').split(',');
-
-      // Discover tokens from each chain
-      for (const chain of chains) {
-        await this.discoverTokensForChain(chain.trim(), batchSize);
-      }
-
-      this.logger.log('Token discovery cron job completed successfully');
-    } catch (error) {
-      this.logger.error('Token discovery cron job failed:', error);
-    }
-  }
+  // REMOVED: handleTokenDiscovery - This was redundant with RefreshWorker.scheduledFetchFeed (Pillar 1)
+  // Token discovery is handled by RefreshWorker (Pillar 1)
+  // CronService (Pillar 2) only handles monitoring of already-vetted tokens
 
   /**
-   * Token Monitoring Cron Job (Phase 2)
-   * Runs every 30 minutes to monitor existing tokens (increased from 5 minutes)
+   * PILLAR 2: Token Monitoring Cron Job
+   * Runs every 30 minutes to monitor existing vetted tokens
+   * Runs at :00 and :30 every hour (offset from Pillar 1 to avoid conflicts)
    */
-  @Cron('0 */30 * * * *', {
-    name: 'token-monitoring',
+  @Cron('0,30 * * * *', {
+    name: 'pillar2-token-monitoring',
     timeZone: 'UTC',
   })
   async handleTokenMonitoring() {
@@ -727,14 +678,15 @@ export class CronService implements OnModuleInit {
    */
   private async getListingsForMonitoring(batchSize: number): Promise<Listing[]> {
     try {
-      // Get listings that have been vetted and haven't been monitored recently
+      // Get listings that have been vetted (Pillar 1 completed) for Pillar 2 monitoring
+      // Only process tokens that have vetted = true (Pillar 1 completed)
       const listings = await this.prisma.listing.findMany({
         where: {
-          // Assuming a listing is "approved" if it has a riskScore (i.e., has been vetted)
-          riskScore: { not: null }, 
+          vetted: true, // Only monitor tokens that have undergone Pillar 1
+          riskScore: { not: null }, // Additional safety check
           OR: [
-            { lastScannedAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } }, // Older than 5 minutes
-            { lastScannedAt: null }, // Never scanned
+            { lastScannedAt: { lt: new Date(Date.now() - 30 * 60 * 1000) } }, // Older than 30 minutes
+            { lastScannedAt: null }, // Never scanned (shouldn't happen if vetted=true, but safety check)
           ],
         },
         orderBy: {
@@ -855,11 +807,42 @@ export class CronService implements OnModuleInit {
       }
 
       // Fetch all listings that have been scanned (have lastScannedAt)
+      // EXCLUDE pinned tokens - they are handled by RefreshWorker (Pillar 1)
       // This includes tokens with and without risk scores, so we can:
       // 1. Calculate risk scores for tokens that don't have them
       // 2. Recalculate risk scores for tokens that do have them (to use new algorithm)
+      
+      // Get pinned token addresses from RefreshWorker (they're defined there)
+      // We'll exclude them by checking contract addresses
+      const pinnedAddresses: string[] = [
+        'gh8ers4yzkr3ukdvgvu8cqjfgzu4cu62mteg9bcj7ug6', // Michi
+        '0x660b571d34b91bc4c2fffbf8957ad50b5fac56f4', // VINU
+        '424kbbjyt6vksn7gekt9vh5yetutr1sbeyoya2nmbjpw', // SIGMA
+        'hypxcaat9ybu7vya5burgprsa23hmvdqxt5udsgqwdc', // Mini
+        '0x5c6919b79fac1c3555675ae59a9ac2484f3972f5', // $HOPPY
+        '0xfcc89a1f250d76de198767d33e1ca9138a7fb54b', // Mochi
+        '4fp4synbkisczqkwufpkcsxwfdbsvmktsnpbnlplyu9q', // snoofi
+        '5ffoyq4q8qxek4v3dax64ir7yuwsxxrjy2qxduet1st', // Kieth
+        '0x84196ac042ddb84137e15d1c3ff187adad61f811', // LCAT
+        '2bjky9pnytdvmpdhjhv8qbweykilzebd7i2tatyjxaze', // HARAMBE
+        '9uww4c36hictgrufpkwsn7ghrj9vd xktz8na8jv nzqu35pj', // BILLY
+        '0x184fb097196a4e2be8dfd44b341cb7d13b41ea7e', // BOOP
+        'bszedbevwrqvksaf558eppwpwcm16avepyhm2hgsq9wzyy', // SC
+        '0xd6df608d847ad85375fcf1783f8ccd57be6a16d2', // LUFFY
+        '0xbd85f61a1b755b6034c62f16938d6da7c85941705d9d10aa1843b809b0e35582', // FUD
+        'bduggvl2ylc41bhxmzevh3zjjz69svcx6lhwfy4b71mo', // VIBE
+        '35jzmqqc6ewrw6pefwdlhmtxbkvnc9mxpbes4rbws1ww', // jam
+        '0x3c79593e01a7f7fed5d0735b16621e2d52a6bc58', // Bob
+        '0x07f071aa224e2fc2cf03ca2e6558ec6181d66a90', // CaptainBNB
+        '0x58495ea0271d957632415b5494966899a1fa0be3', // Donkey
+        '0xea8b7ed6170e0ea3703dde6b496b065a8ececd7b', // Russel
+        '0x40a372f9ee1989d76ceb8e50941b04468f8551d091fb8a5d7211522e42e60aaf', // Blub
+        '0xb785e6eed355c1f8367c06d2b0cb9303ab167f8359a129bb003891ee54c6fce0', // hippo
+      ].map(addr => addr.toLowerCase().replace(/\s/g, '')); // Normalize addresses
+      
       const whereClause: any = {
         lastScannedAt: { not: null },
+        contractAddress: { notIn: pinnedAddresses }, // Exclude pinned tokens
       };
 
       const totalCount = await (this.prisma as any).listing.count({ where: whereClause });

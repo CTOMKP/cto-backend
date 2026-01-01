@@ -142,22 +142,27 @@ export class RefreshWorker {
    * Process existing unvetted tokens in batches
    * Runs every 10 minutes to vet tokens that were added before n8n integration
    */
-  @Cron('0 */30 * * * *', {
-    name: 'vet-existing-tokens',
+  // PILLAR 1: Process unvetted tokens (vetting/risk scoring)
+  // Runs at :05, :15, :25, :35, :45, :55 every hour (every 10 minutes, offset by 5 min from discovery)
+  @Cron('5,15,25,35,45,55 * * * *', {
+    name: 'pillar1-vet-tokens',
     timeZone: 'UTC',
   })
   async processExistingUnvettedTokens() {
-    this.logger.log('🔄 Starting processExistingUnvettedTokens cron job...');
+    this.logger.log('🔄 [PILLAR 1] Starting processExistingUnvettedTokens cron job (vetting)...');
     
     try {
       const client = (this.repo as any)['prisma'] as any;
-      // Get tokens that don't have a riskScore (unvetted) - more aggressive query
+      // Get tokens that haven't been vetted (Pillar 1) - query unvetted tokens only
       const unvettedTokens = await client.listing.findMany({
         where: {
-          riskScore: null,
+          OR: [
+            { vetted: false },
+            { riskScore: null },
+          ],
           chain: 'SOLANA', // Only process SOLANA tokens for now
         },
-        take: 20, // Process 20 at a time (increased from 10)
+        take: 20, // Process 20 at a time
         orderBy: { createdAt: 'asc' }, // Process oldest first
       });
 
@@ -184,15 +189,16 @@ export class RefreshWorker {
     }
   }
 
-  // Pull trending/new SOL pairs (approx) from DexScreener using /dex/tokens & /dex/search endpoints
-  // Temporarily set to every 5 minutes to quickly populate the "Presentable Model"
-  @Cron('0 */5 * * * *') 
+  // PILLAR 1: Fetch new tokens from feeds (discovery) and populate DB
+  // Runs at :00, :10, :20, :30, :40, :50 every hour (every 10 minutes)
+  // This only discovers new tokens - Pillar 1 vetting happens separately via processExistingUnvettedTokens
+  @Cron('0 */10 * * * *') 
   async scheduledFetchFeed() {
     const started = Date.now();
     let apiCalls = 0;
     let failures = 0;
     try {
-      this.logger.log('📊 Scheduled fetch feed starting...');
+      this.logger.log('📊 [PILLAR 1] Scheduled fetch feed starting (token discovery)...');
       
       // Safety check: ensure pinned tokens are present if they were deleted manually
       // This will only perform fetches for missing tokens
@@ -1147,21 +1153,21 @@ export class RefreshWorker {
         } as any;
         if (!before) {
           deltas.new.push(payload);
-          // ALWAYS trigger vetting for new tokens (no age check - process all tokens)
-          // This ensures all tokens go through Pillar 1 and get tier assigned
-          if (!after?.riskScore && this.n8nService && this.externalApisService) {
+          // Only trigger vetting for NEW unvetted tokens (Pillar 1)
+          // Check if token is unvetted (vetted = false OR riskScore IS NULL)
+          if ((after?.vetted === false || after?.riskScore === null) && this.n8nService && this.externalApisService) {
             this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
               this.logger.warn(`Failed to trigger vetting for new token ${address}: ${error.message}`);
             });
-          } else if (!after?.riskScore) {
+          } else if (after?.vetted === false || after?.riskScore === null) {
             // If n8n service not available, log warning
             this.logger.warn(`⚠️ New token ${address} created but vetting services not available - tier will remain null`);
           }
         } else {
-          // For existing tokens, trigger vetting if they don't have a tier yet
-          if (!after?.tier && !after?.riskScore && this.n8nService && this.externalApisService) {
+          // For existing tokens, only trigger vetting if they haven't been vetted (Pillar 1)
+          if ((after?.vetted === false || (after?.riskScore === null && after?.vetted !== true)) && this.n8nService && this.externalApisService) {
             this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
-              this.logger.warn(`Failed to trigger vetting for existing token ${address}: ${error.message}`);
+              this.logger.warn(`Failed to trigger vetting for existing unvetted token ${address}: ${error.message}`);
             });
           }
           deltas.updated.push(payload);
@@ -1357,9 +1363,9 @@ export class RefreshWorker {
           this.logger.log(`✅ Successfully saved pinned token ${t.symbol} (${address}) to database`);
           injectedCount++;
           
-          // Trigger vetting if risk score is missing
+          // Trigger vetting if token hasn't been vetted (Pillar 1)
           const saved = await this.repo.findOne(address);
-          if (saved && !saved.riskScore && this.n8nService && this.externalApisService) {
+          if (saved && (saved.vetted === false || saved.riskScore === null) && this.n8nService && this.externalApisService) {
             this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
               this.logger.warn(`Failed to trigger vetting for pinned token ${t.symbol}: ${error.message}`);
             });
@@ -1391,29 +1397,9 @@ export class RefreshWorker {
     await this.enforceTokenLimit();
   }
 
-  // Phase 1 live updating: refresh all listings every 5 minutes using scan enrichment
-  // Temporarily set to 5 minutes to quickly vet the initial 25 tokens
-  @Cron('0 */5 * * * *') 
-  async scheduledRefreshAll() {
-    const client = (this.repo as any)['prisma'] as any;
-    const rows: { contractAddress: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' }[] = await client.listing.findMany({ select: { contractAddress: true, chain: true } });
-
-    // Count per chain and total
-    const counts: Record<string, number> = {};
-    for (const r of rows) counts[r.chain] = (counts[r.chain] ?? 0) + 1;
-    const total = rows.length;
-    for (const [chain, count] of Object.entries(counts)) {
-      this.metrics.incCounter(`listing_per_chain_total{chain="${chain}"}`, count);
-    }
-
-    // Only enqueue SOLANA listings for enrichment
-    const solRows = rows.filter(r => r.chain === 'SOLANA');
-    this.logger.log(`Solana listings queued: ${solRows.length} / Total listings: ${total}`);
-
-    for (const { contractAddress } of solRows) {
-      this.enqueue({ address: contractAddress, chain: 'SOLANA' });
-    }
-  }
+  // REMOVED: scheduledRefreshAll - This was re-vetting all tokens, which is Pillar 2's job.
+  // Pillar 1 (processExistingUnvettedTokens) only processes unvetted tokens.
+  // Pillar 2 (CronService.handleTokenMonitoring) handles monitoring/re-vetting of all vetted tokens.
 
   private async run() {
     if (this.running) return;

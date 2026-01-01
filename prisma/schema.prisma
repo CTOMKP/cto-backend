@@ -120,6 +120,7 @@ model Listing {
   txCount24h      Int?
   metadata        Json?
   lastScannedAt   DateTime?
+  vetted          Boolean         @default(false)  // Track if token has undergone Pillar 1 (risk scoring)
   
   // New filter fields
   lpBurnedPercentage     Float?    // LP burned percentage (0-100)
