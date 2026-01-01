@@ -1379,12 +1379,10 @@ export class RefreshWorker {
         }
       }
       
-        // Add delay between tokens to avoid rate limiting (Birdeye free tier = 60 RPM = 1 req/sec)
-        // Using 2 seconds to account for multiple processes running simultaneously
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
-      } else {
-        // Token already exists with holder data, no delay needed for skipped tokens
-      }
+      // Add delay between tokens to avoid rate limiting (Birdeye free tier = 60 RPM = 1 req/sec)
+      // Using 2 seconds to account for multiple processes running simultaneously
+      // Note: delay already applied for updated tokens before continue, so this mainly applies to new tokens
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
     }
     this.logger.log(`📍 Initial tokens check complete. Injected: ${injectedCount}, Updated (holder data): ${updatedCount}, Already existed (complete): ${skippedCount}, Total: ${this.INITIAL_TOKENS.length}`);
   }
