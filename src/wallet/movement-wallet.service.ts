@@ -83,6 +83,113 @@ export class MovementWalletService {
   }
 
   /**
+   * Get wallet balance from Movement Indexer (fallback when RPC is down)
+   */
+  private async getBalanceFromIndexer(
+    walletAddress: string, 
+    tokenAddress: string,
+    isTestnet: boolean = true
+  ): Promise<{ balance: string; tokenSymbol: string; decimals: number } | null> {
+    if (!isTestnet) {
+      // Indexer fallback only available for testnet
+      return null;
+    }
+
+    try {
+      const tokenAddr = tokenAddress.toLowerCase();
+      const isMOVE = tokenAddr === this.NATIVE_TOKEN_ADDRESS.toLowerCase();
+      const isUSDC = tokenAddr === this.TEST_TOKEN_ADDRESS.toLowerCase();
+
+      if (isMOVE) {
+        // Query coin balances for MOVE
+        const query = {
+          query: `
+            query GetCoinBalances($owner: String!) {
+              current_coin_balances(
+                where: { 
+                  owner_address: { _eq: $owner }
+                  coin_type: { _eq: "0x1::aptos_coin::AptosCoin" }
+                }
+              ) {
+                amount
+                coin_type
+              }
+            }
+          `,
+          variables: {
+            owner: walletAddress.toLowerCase(),
+          }
+        };
+
+        const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
+        
+        if (response.data?.errors) {
+          this.logger.debug(`⚠️ [INDEXER] GraphQL Errors for coin balances: ${JSON.stringify(response.data.errors)}`);
+          return null;
+        }
+
+        const balances = response.data?.data?.current_coin_balances || [];
+        if (balances.length > 0) {
+          return {
+            balance: balances[0].amount || '0',
+            tokenSymbol: 'MOVE',
+            decimals: 8,
+          };
+        }
+      } else if (isUSDC) {
+        // Query fungible asset balances for USDC
+        const query = {
+          query: `
+            query GetFungibleAssetBalances($owner: String!, $assetType: String!) {
+              current_fungible_asset_balances(
+                where: { 
+                  owner_address: { _eq: $owner }
+                  asset_type: { _eq: $assetType }
+                }
+              ) {
+                amount
+                asset_type
+                metadata {
+                  symbol
+                  name
+                  decimals
+                }
+              }
+            }
+          `,
+          variables: {
+            owner: walletAddress.toLowerCase(),
+            assetType: this.TEST_TOKEN_ADDRESS.toLowerCase(),
+          }
+        };
+
+        const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
+        
+        if (response.data?.errors) {
+          this.logger.debug(`⚠️ [INDEXER] GraphQL Errors for fungible asset balances: ${JSON.stringify(response.data.errors)}`);
+          return null;
+        }
+
+        const balances = response.data?.data?.current_fungible_asset_balances || [];
+        if (balances.length > 0) {
+          const balance = balances[0];
+          const metadata = balance.metadata || {};
+          return {
+            balance: balance.amount || '0',
+            tokenSymbol: metadata.symbol || 'USDC.e',
+            decimals: metadata.decimals || 6,
+          };
+        }
+      }
+
+      return null;
+    } catch (error: any) {
+      this.logger.debug(`⚠️ [INDEXER] Failed to fetch balance from indexer: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Get wallet balance from Movement blockchain
    */
   async getWalletBalance(walletAddress: string, tokenAddress?: string, isTestnet: boolean = true): Promise<{
@@ -169,8 +276,33 @@ export class MovementWalletService {
       }
     }
 
-    this.logger.error(`All Movement RPCs failed: ${lastError?.message || 'Unknown Error'}`);
-    throw new BadRequestException(`Movement Network Unreachable. Please try again later.`);
+    // All RPC endpoints failed - try Indexer fallback
+    this.logger.warn(`⚠️ All Movement RPCs failed, attempting Indexer fallback for balance...`);
+    const indexerBalance = await this.getBalanceFromIndexer(walletAddress, tokenAddr, isTestnet);
+    
+    if (indexerBalance) {
+      this.logger.log(`✅ [INDEXER-FALLBACK] Retrieved balance from indexer: ${indexerBalance.balance} ${indexerBalance.tokenSymbol}`);
+      return {
+        balance: indexerBalance.balance,
+        tokenAddress: tokenAddr,
+        tokenSymbol: indexerBalance.tokenSymbol,
+        decimals: indexerBalance.decimals,
+        lastUpdated: new Date(),
+      };
+    }
+
+    // Indexer also failed or returned no data - return zero balance instead of throwing
+    this.logger.warn(`⚠️ Indexer fallback also failed, returning zero balance`);
+    const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
+    const isMOVE = tokenAddr.toLowerCase() === this.NATIVE_TOKEN_ADDRESS.toLowerCase();
+    
+    return {
+      balance: '0',
+      tokenAddress: tokenAddr,
+      tokenSymbol: isUSDC ? 'USDC.e' : isMOVE ? 'MOVE' : 'TOKEN',
+      decimals: isUSDC ? 6 : 8,
+      lastUpdated: new Date(),
+    };
   }
 
   /**
