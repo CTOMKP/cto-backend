@@ -101,10 +101,11 @@ export class MovementWalletService {
       const isUSDC = tokenAddr === this.TEST_TOKEN_ADDRESS.toLowerCase();
 
       if (isMOVE) {
-        // Query coin balances for MOVE
+        // Query BOTH coin balances AND fungible asset balances for MOVE
+        // Movement Bardock has migrated MOVE to FA standard, but legacy Coin balances may still exist
         const query = {
           query: `
-            query GetCoinBalances($owner: String!) {
+            query GetNativeBalances($owner: String!) {
               current_coin_balances(
                 where: { 
                   owner_address: { _eq: $owner }
@@ -113,6 +114,15 @@ export class MovementWalletService {
               ) {
                 amount
                 coin_type
+              }
+              current_fungible_asset_balances(
+                where: { 
+                  owner_address: { _eq: $owner }
+                  asset_type: { _eq: "0x1" }
+                }
+              ) {
+                amount
+                asset_type
               }
             }
           `,
@@ -124,14 +134,26 @@ export class MovementWalletService {
         const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
         
         if (response.data?.errors) {
-          this.logger.debug(`⚠️ [INDEXER] GraphQL Errors for coin balances: ${JSON.stringify(response.data.errors)}`);
+          this.logger.debug(`⚠️ [INDEXER] GraphQL Errors for native balances: ${JSON.stringify(response.data.errors)}`);
           return null;
         }
 
-        const balances = response.data?.data?.current_coin_balances || [];
-        if (balances.length > 0) {
+        const data = response.data?.data || {};
+        const coinBalances = data.current_coin_balances || [];
+        const faBalances = data.current_fungible_asset_balances || [];
+        
+        // Log for debugging
+        this.logger.debug(`🔍 [INDEXER-MOVE] Coin balances: ${coinBalances.length}, FA balances: ${faBalances.length}`);
+        
+        // Sum balances from both sources (legacy Coin + new FA)
+        const coinBalance = coinBalances.length > 0 ? parseInt(coinBalances[0].amount || '0', 10) : 0;
+        const faBalance = faBalances.length > 0 ? parseInt(faBalances[0].amount || '0', 10) : 0;
+        const totalBalance = coinBalance + faBalance;
+        
+        if (totalBalance > 0) {
+          this.logger.debug(`✅ [INDEXER-MOVE] Found balance: ${coinBalance} (Coin) + ${faBalance} (FA) = ${totalBalance} total`);
           return {
-            balance: balances[0].amount || '0',
+            balance: totalBalance.toString(),
             tokenSymbol: 'MOVE',
             decimals: 8,
           };
