@@ -60,33 +60,18 @@ export class AnalyticsService {
 
     // For Solana tokens, try multiple APIs in order of reliability
     if (chain === 'SOLANA') {
-      // 1. Try Birdeye first (most reliable for Solana)
+      // 1. Try Birdeye first (most reliable, returns total holder count via /defi/token_overview)
       const birdeyeHolders = await this.getBirdeyeHolders(contractAddress, chain);
       if (birdeyeHolders !== null && birdeyeHolders > 0) {
         this.logger.log(`✅ Birdeye returned ${birdeyeHolders} holders`);
         return birdeyeHolders;
       }
 
-      // 2. Try Moralis (has dedicated top-holders endpoint)
-      if (this.moralisApiKey) {
-        const moralisHolders = await this.getMoralisHolders(contractAddress, chain);
-        if (moralisHolders !== null && moralisHolders > 0) {
-          this.logger.log(`✅ Moralis returned ${moralisHolders} holders`);
-          return moralisHolders;
-        }
-      }
-
-      // 3. Try Helius (free tier, 100k requests/month)
-      if (this.heliusApiKey) {
-        try {
-          const heliusHolders = await this.getHeliusHolders(contractAddress);
-          if (heliusHolders !== null && heliusHolders > 0) {
-            this.logger.log(`✅ Helius returned ${heliusHolders} holders`);
-            return heliusHolders;
-          }
-        } catch (error: any) {
-          this.logger.debug(`Helius holder fetch failed: ${error.message}`);
-        }
+      // 2. Try CoinGecko On-Chain as fallback (returns attributes.holders.count)
+      const coinGeckoHolders = await this.getCoinGeckoHolders(contractAddress, chain);
+      if (coinGeckoHolders !== null && coinGeckoHolders > 0) {
+        this.logger.log(`✅ CoinGecko On-Chain (fallback) returned ${coinGeckoHolders} holders`);
+        return coinGeckoHolders;
       }
     }
 
@@ -99,19 +84,10 @@ export class AnalyticsService {
       }
     }
 
-    // Try Moralis for other chains
-    if (this.moralisApiKey) {
-      const moralisHolders = await this.getMoralisHolders(contractAddress, chain);
-      if (moralisHolders !== null && moralisHolders > 0) {
-        this.logger.log(`✅ Moralis returned ${moralisHolders} holders`);
-        return moralisHolders;
-      }
-    }
-
-    // Final fallback: Try CoinGecko On-Chain for all supported chains
+    // For other chains, try CoinGecko On-Chain
     const coinGeckoHolders = await this.getCoinGeckoHolders(contractAddress, chain);
     if (coinGeckoHolders !== null && coinGeckoHolders > 0) {
-      this.logger.log(`✅ CoinGecko On-Chain (fallback) returned ${coinGeckoHolders} holders`);
+      this.logger.log(`✅ CoinGecko On-Chain returned ${coinGeckoHolders} holders`);
       return coinGeckoHolders;
     }
 
@@ -135,7 +111,7 @@ export class AnalyticsService {
 
   /**
    * Birdeye API - Get token holder count (Solana, BSC)
-   * Tries multiple endpoints: token_security, token_overview, defi/token_security
+   * Uses /defi/token_overview endpoint which returns data.holder field with total count
    */
   private async getBirdeyeHolders(contractAddress: string, chain?: string): Promise<number | null> {
     try {
@@ -154,103 +130,50 @@ export class AnalyticsService {
       const birdeyeChain = chainMap[chain?.toUpperCase() || 'SOLANA'] || 'solana';
       const headers = {
         'X-API-KEY': apiKey,
-        'x-chain': birdeyeChain
+        'x-chain': birdeyeChain, // CRITICAL: This header is required to avoid "invalid format" errors
+        'accept': 'application/json',
       };
 
-      // Try endpoint 1: token_security (often has holder data)
+      // Primary endpoint: /defi/token_overview (returns data.holder field with total count)
       try {
-        const url1 = `https://public-api.birdeye.so/v1/token/token_security?address=${contractAddress}`;
-        const response1 = await axios.get(url1, {
+        const url = `https://public-api.birdeye.so/defi/token_overview?address=${contractAddress}`;
+        const response = await axios.get(url, {
           headers,
           timeout: 10000,
           validateStatus: (status) => status < 500
         });
 
-        if (response1.status === 200 && response1.data?.success) {
-          const data = response1.data?.data;
-          const holderCount = data?.holder_count || data?.holderCount || data?.total_holders || data?.holders;
+        if (response.status === 200) {
+          const data = response.data?.data || response.data;
+          // The /defi/token_overview endpoint returns holder count in the 'holder' field
+          const holderCount = data?.holder;
+          
           if (holderCount !== undefined && holderCount !== null) {
             const parsed = parseInt(String(holderCount), 10);
             if (Number.isFinite(parsed) && parsed > 0) {
-              this.logger.log(`✅ Birdeye (token_security) returned ${parsed} holders for ${contractAddress}`);
-              return parsed;
-            }
-          }
-        }
-      } catch (e: any) {
-        this.logger.debug(`Birdeye token_security failed: ${e.message}`);
-      }
-
-      // Try endpoint 2: token_overview
-      try {
-        const url2 = `https://public-api.birdeye.so/v1/token/token_overview?address=${contractAddress}`;
-        const response2 = await axios.get(url2, {
-          headers,
-          timeout: 10000,
-          validateStatus: (status) => status < 500
-        });
-
-        if (response2.status === 200) {
-          // Process response even if success field is undefined (some Birdeye endpoints don't return it)
-          const data = response2.data?.data || response2.data;
-          // Try different possible response structures
-          const holderCount = data?.holder || 
-                             data?.holderCount || 
-                             data?.holders ||
-                             data?.holder_count ||
-                             data?.totalHolders ||
-                             data?.total_holders;
-          if (holderCount !== undefined && holderCount !== null) {
-            const parsed = parseInt(String(holderCount), 10);
-            if (Number.isFinite(parsed) && parsed > 0) {
-              this.logger.log(`✅ Birdeye (token_overview) returned ${parsed} holders for ${contractAddress}`);
+              this.logger.log(`✅ Birdeye (/defi/token_overview) returned ${parsed} holders for ${contractAddress}`);
               return parsed;
             }
           }
           
-          // Log FULL response structure for debugging (first 1000 chars to avoid huge logs)
+          // Log if holder field is missing or zero (helps debug address mismatch issues)
           if (data) {
-            const responseStr = JSON.stringify(data).substring(0, 1000);
-            this.logger.warn(`⚠️ Birdeye token_overview: No holder field found. Response structure (first 1000 chars): ${responseStr}`);
-            this.logger.debug(`Birdeye token_overview response keys: ${Object.keys(data).join(', ')}`);
-          } else {
-            this.logger.warn(`⚠️ Birdeye token_overview: No data field. Full response: ${JSON.stringify(response2.data).substring(0, 500)}`);
+            this.logger.debug(`Birdeye /defi/token_overview: holder field not found or zero. Response keys: ${Object.keys(data).slice(0, 10).join(', ')}`);
           }
         } else {
-          this.logger.debug(`Birdeye token_overview returned status ${response2.status}`);
-        }
-      } catch (e: any) {
-        this.logger.debug(`Birdeye token_overview failed: ${e.message}`);
-        if (e.response) {
-          this.logger.debug(`Birdeye token_overview response: ${JSON.stringify(e.response.data)}`);
-        }
-      }
-
-      // Try endpoint 3: defi/token_security (alternative endpoint)
-      try {
-        const url3 = `https://public-api.birdeye.so/defi/token_security?address=${contractAddress}`;
-        const response3 = await axios.get(url3, {
-          headers,
-          timeout: 10000,
-          validateStatus: (status) => status < 500
-        });
-
-        if (response3.status === 200 && response3.data?.success) {
-          const data = response3.data?.data;
-          const holderCount = data?.holder_count || data?.holderCount || data?.total_holders || data?.holders;
-          if (holderCount !== undefined && holderCount !== null) {
-            const parsed = parseInt(String(holderCount), 10);
-            if (Number.isFinite(parsed) && parsed > 0) {
-              this.logger.log(`✅ Birdeye (defi/token_security) returned ${parsed} holders for ${contractAddress}`);
-              return parsed;
-            }
+          this.logger.debug(`Birdeye /defi/token_overview returned status ${response.status}`);
+          if (response.status === 400 && response.data?.message?.includes('invalid format')) {
+            this.logger.warn(`⚠️ Birdeye: Address format error for ${contractAddress}. May be a pair address instead of mint address.`);
           }
         }
       } catch (e: any) {
-        this.logger.debug(`Birdeye defi/token_security failed: ${e.message}`);
+        this.logger.debug(`Birdeye /defi/token_overview failed: ${e.message}`);
+        if (e.response?.status === 429) {
+          this.logger.debug('Birdeye rate limit hit, will try fallback APIs');
+        }
       }
 
-      this.logger.debug(`Birdeye: All endpoints failed for ${contractAddress} on ${birdeyeChain}`);
+      this.logger.debug(`Birdeye: Failed to get holder count for ${contractAddress} on ${birdeyeChain}`);
       return null;
     } catch (error: any) {
       this.logger.debug(`Birdeye holder API error: ${error.message}`);
@@ -295,7 +218,10 @@ export class AnalyticsService {
       });
 
       if (response.status === 200 && response.data?.data?.attributes) {
-        const holderCount = response.data.data.attributes.holder_count;
+        // CoinGecko returns holder count in attributes.holders.count (not holder_count)
+        const holders = response.data.data.attributes.holders;
+        const holderCount = holders?.count;
+        
         if (holderCount !== undefined && holderCount !== null) {
           const parsed = parseInt(String(holderCount), 10);
           if (Number.isFinite(parsed) && parsed > 0) {
