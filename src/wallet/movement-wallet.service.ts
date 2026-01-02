@@ -213,6 +213,8 @@ export class MovementWalletService {
     
     let lastError: any;
 
+    let rpcBalance: { balance: string; tokenAddress: string; tokenSymbol: string; decimals: number } | null = null;
+
     for (const rpcUrl of urls) {
       try {
         if (isFungibleAsset) {
@@ -225,13 +227,23 @@ export class MovementWalletService {
           const balance = response.data[0] || '0';
           const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
           
-          return {
+          rpcBalance = {
             balance: balance.toString(),
             tokenAddress: tokenAddr,
             tokenSymbol: isUSDC ? 'USDC.e' : 'FA',
             decimals: isUSDC ? 6 : 8,
-            lastUpdated: new Date(),
           };
+          
+          // If RPC returns non-zero balance, trust it and return immediately
+          if (balance && balance !== '0' && parseInt(balance.toString()) > 0) {
+            return {
+              ...rpcBalance,
+              lastUpdated: new Date(),
+            };
+          }
+          
+          // If RPC returns 0, continue to check Indexer (don't return yet)
+          break;
         }
 
         // Legacy Coin Standard
@@ -243,64 +255,94 @@ export class MovementWalletService {
         );
 
         if (!coinStore) {
-          return {
+          rpcBalance = {
             balance: '0',
             tokenAddress: tokenAddr,
             tokenSymbol: tokenAddr.includes('AptosCoin') ? 'MOVE' : 'COIN',
             decimals: 8,
-            lastUpdated: new Date(),
           };
+          // RPC returned 0 (no coinStore found), check Indexer
+          break;
         }
 
         const balanceValue = coinStore.data?.coin?.value || '0';
-        return {
+        rpcBalance = {
           balance: balanceValue.toString(),
           tokenAddress: tokenAddr,
           tokenSymbol: tokenAddr.includes('AptosCoin') ? 'MOVE' : 'COIN',
           decimals: 8,
-          lastUpdated: new Date(),
         };
+        
+        // If RPC returns non-zero balance, trust it and return immediately
+        if (balanceValue && balanceValue !== '0' && parseInt(balanceValue.toString()) > 0) {
+          return {
+            ...rpcBalance,
+            lastUpdated: new Date(),
+          };
+        }
+        
+        // If RPC returns 0, continue to check Indexer (don't return yet)
+        break;
       } catch (error: any) {
         lastError = error;
         if (error.response?.status === 404) {
-          return {
+          // 404 means wallet exists but has 0 balance - check Indexer anyway
+          rpcBalance = {
             balance: '0',
             tokenAddress: tokenAddr,
             tokenSymbol: isFungibleAsset ? 'USDC.e' : 'MOVE',
             decimals: isFungibleAsset ? 6 : 8,
-            lastUpdated: new Date(),
           };
+          break;
         }
         this.logger.warn(`Failed to reach Movement RPC ${rpcUrl}: ${error.message}`);
         continue;
       }
     }
 
-    // All RPC endpoints failed - try Indexer fallback
-    this.logger.warn(`⚠️ All Movement RPCs failed, attempting Indexer fallback for balance...`);
-    const indexerBalance = await this.getBalanceFromIndexer(walletAddress, tokenAddr, isTestnet);
-    
-    if (indexerBalance) {
-      this.logger.log(`✅ [INDEXER-FALLBACK] Retrieved balance from indexer: ${indexerBalance.balance} ${indexerBalance.tokenSymbol}`);
-      return {
-        balance: indexerBalance.balance,
-        tokenAddress: tokenAddr,
-        tokenSymbol: indexerBalance.tokenSymbol,
-        decimals: indexerBalance.decimals,
-        lastUpdated: new Date(),
-      };
+    // If RPC returned 0 (or all RPCs failed), check Indexer as fallback/secondary source
+    if (!rpcBalance || rpcBalance.balance === '0') {
+      this.logger.debug(`🔍 RPC returned zero balance, checking Indexer as secondary source...`);
+      const indexerBalance = await this.getBalanceFromIndexer(walletAddress, tokenAddr, isTestnet);
+      
+      if (indexerBalance && indexerBalance.balance !== '0' && parseInt(indexerBalance.balance) > 0) {
+        this.logger.log(`✅ [INDEXER-SYNC] Using indexer balance (${indexerBalance.balance} ${indexerBalance.tokenSymbol}) because RPC returned 0`);
+        return {
+          balance: indexerBalance.balance,
+          tokenAddress: tokenAddr,
+          tokenSymbol: indexerBalance.tokenSymbol,
+          decimals: indexerBalance.decimals,
+          lastUpdated: new Date(),
+        };
+      }
     }
 
-    // Indexer also failed or returned no data - return zero balance instead of throwing
-    this.logger.warn(`⚠️ Indexer fallback also failed, returning zero balance`);
+    // All RPC endpoints failed - try Indexer fallback
+    if (!rpcBalance) {
+      this.logger.warn(`⚠️ All Movement RPCs failed, attempting Indexer fallback for balance...`);
+      const indexerBalance = await this.getBalanceFromIndexer(walletAddress, tokenAddr, isTestnet);
+      
+      if (indexerBalance) {
+        this.logger.log(`✅ [INDEXER-FALLBACK] Retrieved balance from indexer: ${indexerBalance.balance} ${indexerBalance.tokenSymbol}`);
+        return {
+          balance: indexerBalance.balance,
+          tokenAddress: tokenAddr,
+          tokenSymbol: indexerBalance.tokenSymbol,
+          decimals: indexerBalance.decimals,
+          lastUpdated: new Date(),
+        };
+      }
+    }
+
+    // Return RPC balance (0) or zero if all failed
     const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
     const isMOVE = tokenAddr.toLowerCase() === this.NATIVE_TOKEN_ADDRESS.toLowerCase();
     
     return {
-      balance: '0',
+      balance: rpcBalance?.balance || '0',
       tokenAddress: tokenAddr,
-      tokenSymbol: isUSDC ? 'USDC.e' : isMOVE ? 'MOVE' : 'TOKEN',
-      decimals: isUSDC ? 6 : 8,
+      tokenSymbol: rpcBalance?.tokenSymbol || (isUSDC ? 'USDC.e' : isMOVE ? 'MOVE' : 'TOKEN'),
+      decimals: rpcBalance?.decimals || (isUSDC ? 6 : 8),
       lastUpdated: new Date(),
     };
   }
