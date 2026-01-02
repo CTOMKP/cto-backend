@@ -19,12 +19,18 @@ const JUPITER_API_KEY = process.env.JUPITER_API_KEY || '91b41fe6-81e7-40f8-8d84-
 const DRY_RUN = process.argv.includes('--dry-run');
 
 // Known correct mint addresses from INITIAL_TOKENS
+// Key is normalized (lowercase, no special chars) for flexible matching
 const INITIAL_TOKENS = {
-  'Michi': { address: 'gh8ers4yzkr3ukdvgvu8cqjfgzu4cu62mteg9bcj7ug6', chain: 'SOLANA' },
-  'SIGMA': { address: '424kbbjyt6vksn7gekt9vh5yetutr1sbeyoya2nmbjpw', chain: 'SOLANA' },
-  'snoofi': { address: '4fp4synbkisczqkwufpkcsxwfdbsvmktsnpbnlplyu9q', chain: 'SOLANA' },
-  'VIBE': { address: 'bduggvl2ylc41bhxmzevh3zjjz69svcx6lhwfy4b71mo', chain: 'SOLANA' },
-  'jam': { address: '35jzmqqc6ewrw6pefwdlhmtxbkvnc9mxpbes4rbws1ww', chain: 'SOLANA' },
+  'michi': { address: 'gh8ers4yzkr3ukdvgvu8cqjfgzu4cu62mteg9bcj7ug6', chain: 'SOLANA', originalSymbol: 'Michi' },
+  'sigma': { address: '424kbbjyt6vksn7gekt9vh5yetutr1sbeyoya2nmbjpw', chain: 'SOLANA', originalSymbol: 'SIGMA' },
+  'snoofi': { address: '4fp4synbkisczqkwufpkcsxwfdbsvmktsnpbnlplyu9q', chain: 'SOLANA', originalSymbol: 'snoofi' },
+  'vibe': { address: 'bduggvl2ylc41bhxmzevh3zjjz69svcx6lhwfy4b71mo', chain: 'SOLANA', originalSymbol: 'VIBE' },
+  'jam': { address: '35jzmqqc6ewrw6pefwdlhmtxbkvnc9mxpbes4rbws1ww', chain: 'SOLANA', originalSymbol: 'jam' },
+};
+
+// Known tokens not in INITIAL_TOKENS
+const KNOWN_TOKENS = {
+  'usdc': { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', chain: 'SOLANA', originalSymbol: 'USDC' },
 };
 
 /**
@@ -75,14 +81,34 @@ async function findMintFromDexScreener(currentAddress) {
 }
 
 /**
+ * Normalize symbol for matching (lowercase, remove special chars like $, /, etc.)
+ */
+function normalizeSymbol(symbol) {
+  if (!symbol) return null;
+  return symbol.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
  * Find correct mint address for a token
  */
 async function findCorrectMintAddress(listing) {
-  // First, check INITIAL_TOKENS if we know this symbol
-  if (listing.symbol && INITIAL_TOKENS[listing.symbol]) {
-    const correctAddress = INITIAL_TOKENS[listing.symbol].address;
-    console.log(`  ✅ Found in INITIAL_TOKENS: ${correctAddress}`);
-    return correctAddress;
+  // First, check INITIAL_TOKENS and KNOWN_TOKENS with flexible symbol matching
+  if (listing.symbol) {
+    const normalizedSymbol = normalizeSymbol(listing.symbol);
+    
+    // Check INITIAL_TOKENS
+    if (normalizedSymbol && INITIAL_TOKENS[normalizedSymbol]) {
+      const correctAddress = INITIAL_TOKENS[normalizedSymbol].address;
+      console.log(`  ✅ Found in INITIAL_TOKENS (matched "${listing.symbol}" → "${INITIAL_TOKENS[normalizedSymbol].originalSymbol}"): ${correctAddress}`);
+      return correctAddress;
+    }
+    
+    // Check KNOWN_TOKENS
+    if (normalizedSymbol && KNOWN_TOKENS[normalizedSymbol]) {
+      const correctAddress = KNOWN_TOKENS[normalizedSymbol].address;
+      console.log(`  ✅ Found in KNOWN_TOKENS (matched "${listing.symbol}" → "${KNOWN_TOKENS[normalizedSymbol].originalSymbol}"): ${correctAddress}`);
+      return correctAddress;
+    }
   }
 
   // Try to find from DexScreener
@@ -128,10 +154,16 @@ async function main() {
       console.log(`\nChecking: ${listing.symbol || 'Unknown'} (${listing.contractAddress.substring(0, 20)}...)`);
 
       // Verify if current address is a valid mint
+      // Note: Jupiter API sometimes returns 404 even for valid mints, so we also check against known tokens
       const isValidMint = await verifyMintWithJupiter(listing.contractAddress);
       
-      if (isValidMint) {
-        console.log('  ✅ Address is a valid mint, skipping');
+      // Also check if it's already a known correct address
+      const normalizedSymbol = normalizeSymbol(listing.symbol);
+      const knownAddress = normalizedSymbol ? (INITIAL_TOKENS[normalizedSymbol] || KNOWN_TOKENS[normalizedSymbol]) : null;
+      const isKnownCorrectAddress = knownAddress && knownAddress.address.toLowerCase() === listing.contractAddress.toLowerCase();
+      
+      if (isValidMint || isKnownCorrectAddress) {
+        console.log('  ✅ Address is a valid mint (or known correct address), skipping');
         skipped.push(listing);
         await new Promise(resolve => setTimeout(resolve, 500)); // Rate limit
         continue;
