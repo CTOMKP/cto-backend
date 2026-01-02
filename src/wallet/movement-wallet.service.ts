@@ -874,7 +874,7 @@ export class MovementWalletService {
         }
       }
 
-      // 3. Always sync BOTH MOVE and USDC balances at the end
+      // 3. Always sync BOTH MOVE and USDC balances at the end (but don't fail if RPC is down)
       const tokensToSync = [this.NATIVE_TOKEN_ADDRESS, this.TEST_TOKEN_ADDRESS];
       
       for (const tokenAddr of tokensToSync) {
@@ -903,8 +903,10 @@ export class MovementWalletService {
               lastUpdated: new Date(),
             },
           });
-        } catch (err) {
-          this.logger.warn(`Failed to sync balance for token ${tokenAddr}: ${err.message}`);
+        } catch (err: any) {
+          // Gracefully handle RPC failures - balance sync failures shouldn't break polling
+          this.logger.warn(`⚠️ Failed to sync balance for token ${tokenAddr} (RPC may be down): ${err.message}`);
+          // Continue with other tokens - don't throw, just log and continue
         }
       }
 
