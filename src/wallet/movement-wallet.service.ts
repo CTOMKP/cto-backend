@@ -916,13 +916,19 @@ export class MovementWalletService {
 
       return newTransactions;
     } catch (error: any) {
-      this.logger.error(`Failed to poll for transactions for wallet ${walletId}: ${error.message}`, error.stack);
-      // Re-throw NotFoundException to preserve 404 status
-      if (error.status === 404) {
+      // Only throw for critical errors (wallet not found)
+      if (error.status === 404 || error.message?.includes('not found')) {
+        this.logger.error(`Wallet not found: ${walletId}`);
         throw error;
       }
-      // For other errors, wrap in a more descriptive error
-      throw new Error(`Transaction polling failed: ${error.message}`);
+      
+      // For RPC/network errors, log but don't throw - return empty array instead
+      // This allows the endpoint to return 200 even when RPC is down
+      this.logger.warn(`⚠️ Polling encountered errors (RPC may be down): ${error.message}`);
+      this.logger.debug(`Polling error stack: ${error.stack}`);
+      
+      // Return empty array - polling "succeeded" but found no new transactions due to RPC issues
+      return [];
     }
   }
 

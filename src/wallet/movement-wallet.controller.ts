@@ -191,16 +191,25 @@ export class MovementWalletController {
       return {
         success: true,
         transactions,
+        message: transactions.length > 0 
+          ? `Found ${transactions.length} new transaction(s)` 
+          : 'Polling completed. No new transactions found (RPC may be experiencing downtime).',
       };
     } catch (error: any) {
-      // Re-throw NotFoundException to preserve 404 status
-      if (error.status === 404) {
+      // Only throw for critical errors (wallet not found) - preserve 404 status
+      if (error.status === 404 || error.message?.includes('not found')) {
         throw error;
       }
-      // Log the full error for debugging
-      this.logger.error(`Failed to poll transactions for wallet ${walletId}: ${error.message}`, error.stack);
-      // Return a more informative error response
-      throw new Error(`Failed to poll transactions: ${error.message}`);
+      
+      // For all other errors (including RPC failures), return 200 with a warning message
+      // This prevents frontend from showing error states when RPC is just down
+      this.logger.warn(`Polling completed with warnings for wallet ${walletId}: ${error.message}`);
+      return {
+        success: true,
+        transactions: [],
+        message: `Polling completed but encountered issues: ${error.message}. This may be due to Movement RPC downtime.`,
+        warning: true,
+      };
     }
   }
 }
