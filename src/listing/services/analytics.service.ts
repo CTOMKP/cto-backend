@@ -58,36 +58,18 @@ export class AnalyticsService {
       }
     }
 
-    // For Solana tokens, try multiple APIs in order of reliability
-    if (chain === 'SOLANA') {
-      // 1. Try Birdeye first (most reliable, returns total holder count via /defi/token_overview)
-      const birdeyeHolders = await this.getBirdeyeHolders(contractAddress, chain);
-      if (birdeyeHolders !== null && birdeyeHolders > 0) {
-        this.logger.log(`✅ Birdeye returned ${birdeyeHolders} holders`);
-        return birdeyeHolders;
-      }
-
-      // 2. Try CoinGecko On-Chain as fallback (returns attributes.holders.count)
-      const coinGeckoHolders = await this.getCoinGeckoHolders(contractAddress, chain);
-      if (coinGeckoHolders !== null && coinGeckoHolders > 0) {
-        this.logger.log(`✅ CoinGecko On-Chain (fallback) returned ${coinGeckoHolders} holders`);
-        return coinGeckoHolders;
-      }
+    // Try Birdeye first for supported chains (SOLANA, BSC, ETHEREUM, BASE, SUI)
+    // Birdeye is the most reliable and returns total holder count via /defi/token_overview
+    const birdeyeHolders = await this.getBirdeyeHolders(contractAddress, chain);
+    if (birdeyeHolders !== null && birdeyeHolders > 0) {
+      this.logger.log(`✅ Birdeye returned ${birdeyeHolders} holders`);
+      return birdeyeHolders;
     }
 
-    // For BSC tokens, try Birdeye
-    if (chain === 'BSC') {
-      const birdeyeHolders = await this.getBirdeyeHolders(contractAddress, chain);
-      if (birdeyeHolders !== null && birdeyeHolders > 0) {
-        this.logger.log(`✅ Birdeye returned ${birdeyeHolders} holders`);
-        return birdeyeHolders;
-      }
-    }
-
-    // For other chains, try CoinGecko On-Chain
+    // Fallback: Try CoinGecko On-Chain for all supported chains (returns attributes.holders.count)
     const coinGeckoHolders = await this.getCoinGeckoHolders(contractAddress, chain);
     if (coinGeckoHolders !== null && coinGeckoHolders > 0) {
-      this.logger.log(`✅ CoinGecko On-Chain returned ${coinGeckoHolders} holders`);
+      this.logger.log(`✅ CoinGecko On-Chain (fallback) returned ${coinGeckoHolders} holders`);
       return coinGeckoHolders;
     }
 
@@ -110,7 +92,7 @@ export class AnalyticsService {
   }
 
   /**
-   * Birdeye API - Get token holder count (Solana, BSC)
+   * Birdeye API - Get token holder count (Solana, BSC, Ethereum, Base, SUI)
    * Uses /defi/token_overview endpoint which returns data.holder field with total count
    */
   private async getBirdeyeHolders(contractAddress: string, chain?: string): Promise<number | null> {
@@ -121,13 +103,20 @@ export class AnalyticsService {
         return null;
       }
 
-      // Map chain to Birdeye chain identifier
+      // Map chain to Birdeye chain identifier (Birdeye supports multiple chains)
       const chainMap: Record<string, string> = {
         'SOLANA': 'solana',
         'BSC': 'bsc',
+        'ETHEREUM': 'ethereum',
+        'BASE': 'base',
+        'SUI': 'sui',
       };
       
-      const birdeyeChain = chainMap[chain?.toUpperCase() || 'SOLANA'] || 'solana';
+      const birdeyeChain = chainMap[chain?.toUpperCase() || 'SOLANA'];
+      if (!birdeyeChain) {
+        this.logger.debug(`Birdeye: Chain ${chain} not supported, skipping`);
+        return null;
+      }
       const headers = {
         'X-API-KEY': apiKey,
         'x-chain': birdeyeChain, // CRITICAL: This header is required to avoid "invalid format" errors
