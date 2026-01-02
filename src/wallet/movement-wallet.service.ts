@@ -731,11 +731,16 @@ export class MovementWalletService {
       }
 
       // Legacy fallback for MOVE tokens (which DO appear in account tx list)
-      const response = await axios.get(`${rpcUrl}/accounts/${wallet.address}/transactions?limit=10`, {
-        timeout: 10000,
-      });
-
-      const blockchainTxs = response.data || [];
+      let blockchainTxs: any[] = [];
+      try {
+        const response = await axios.get(`${rpcUrl}/accounts/${wallet.address}/transactions?limit=10`, {
+          timeout: 10000,
+        });
+        blockchainTxs = response.data || [];
+      } catch (rpcErr: any) {
+        this.logger.warn(`⚠️ [LEGACY-FALLBACK] Account transactions fetch failed (RPC unavailable): ${rpcErr.message}`);
+        // Continue with empty array - this is a fallback, so it's okay if it fails
+      }
 
       for (const tx of blockchainTxs) {
         if (tx.type !== 'user_transaction' || !tx.success) continue;
