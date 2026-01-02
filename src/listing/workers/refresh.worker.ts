@@ -1240,71 +1240,78 @@ export class RefreshWorker {
           existing = await this.repo.findBySymbolAndChain(t.symbol, t.chain as any);
         }
         if (existing) {
-          // If token exists but has no holder data, fetch and update it
-          if (existing.holders === null || existing.holders === undefined) {
-            this.logger.log(`🔍 Initial token ${t.symbol} (${t.address}) exists but missing holder data, fetching...`);
-            
-            const chain = t.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
-            
-            // FIX: For Solana tokens, try using the original INITIAL_TOKENS address (mint) if it's valid
-            // This fixes the issue where pair addresses were saved instead of mint addresses
-            let address = existing.contractAddress;
-            if (chain === 'SOLANA' && this.isSolanaMint(t.address) && t.address.toLowerCase() !== existing.contractAddress.toLowerCase()) {
-              const isValidMint = await this.verifyMintWithJupiter(t.address);
-              if (isValidMint) {
-                address = t.address; // Use the original mint address
-                this.logger.log(`✅ Using original mint address ${t.address} instead of stored address ${existing.contractAddress} for ${t.symbol}`);
-              }
-            }
-            
-            // Fetch holder count
-            let holdersNum = null;
-            try {
-              const holderCount = await this.analyticsService.getHolderCount(address, chain);
-              if (holderCount !== null && holderCount > 0) {
-                holdersNum = holderCount;
-                this.logger.log(`✅ Fetched ${holdersNum} holders for existing initial token ${t.symbol} (${address})`);
-              } else {
-                this.logger.warn(`⚠️ getHolderCount returned null/0 for existing initial token ${t.symbol} (${address}) on ${chain}`);
-              }
-            } catch (holderError: any) {
-              this.logger.warn(`⚠️ Could not fetch holder count for existing initial token ${t.symbol}: ${holderError.message}`);
-            }
-            
-            // Update only the holder data
-            if (holdersNum !== null) {
-              await this.repo.upsertMarketMetadata({
-                contractAddress: address,
-                chain: existing.chain,
-                symbol: existing.symbol,
-                name: existing.name,
-                market: {
-                  holders: holdersNum,
-                  // Preserve existing market data
-                  priceUsd: existing.priceUsd ?? 0,
-                  liquidityUsd: existing.liquidityUsd ?? 0,
-                  volume: existing.volume ?? { h24: 0 },
-                  priceChange: existing.priceChange ?? { m5: null, h1: null, h6: null, h24: null },
-                  riskScore: existing.riskScore,
-                  communityScore: existing.communityScore,
-                  age: existing.age,
-                  lastUpdated: Date.now()
-                },
-              });
-              this.logger.log(`✅ Updated holder data for initial token ${t.symbol} (${address}): ${holdersNum} holders`);
-              updatedCount++;
-            } else {
-              this.logger.warn(`⚠️ Could not fetch holder data for existing initial token ${t.symbol} (${address}) - keeping as null`);
-              skippedCount++;
-            }
-            
-            // Add delay between tokens to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            continue;
-          } else {
-            skippedCount++;
-            continue;
+          const chain = t.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
+          
+          // FIX: For Solana INITIAL_TOKENS, if the stored address doesn't match INITIAL_TOKENS address,
+          // delete the old record and recreate with correct address (pair address bug fix)
+          if (chain === 'SOLANA' && this.isSolanaMint(t.address) && t.address.toLowerCase() !== existing.contractAddress.toLowerCase()) {
+            this.logger.log(`🔧 Address mismatch detected for ${t.symbol}: stored=${existing.contractAddress}, INITIAL_TOKENS=${t.address}`);
+            this.logger.log(`🗑️ Deleting old record with pair address to recreate with correct mint address...`);
+            const client = (this.repo as any)['prisma'] as any;
+            await client.listing.delete({ where: { id: existing.id } });
+            this.logger.log(`✅ Deleted old record, will recreate with correct mint address`);
+            // Continue to the "missing" branch to recreate with correct address
+            existing = null;
           }
+          
+          if (existing) {
+            // If token exists but has no holder data, fetch and update it
+            if (existing.holders === null || existing.holders === undefined) {
+              this.logger.log(`🔍 Initial token ${t.symbol} (${t.address}) exists but missing holder data, fetching...`);
+              
+              // Use INITIAL_TOKENS address for Solana tokens (we trust it's correct)
+              const address = (chain === 'SOLANA' && this.isSolanaMint(t.address)) ? t.address : existing.contractAddress;
+              
+              // Fetch holder count
+              let holdersNum = null;
+              try {
+                const holderCount = await this.analyticsService.getHolderCount(address, chain);
+                if (holderCount !== null && holderCount > 0) {
+                  holdersNum = holderCount;
+                  this.logger.log(`✅ Fetched ${holdersNum} holders for existing initial token ${t.symbol} (${address})`);
+                } else {
+                  this.logger.warn(`⚠️ getHolderCount returned null/0 for existing initial token ${t.symbol} (${address}) on ${chain}`);
+                }
+              } catch (holderError: any) {
+                this.logger.warn(`⚠️ Could not fetch holder count for existing initial token ${t.symbol}: ${holderError.message}`);
+              }
+              
+              // Update only the holder data
+              if (holdersNum !== null) {
+                await this.repo.upsertMarketMetadata({
+                  contractAddress: existing.contractAddress, // Use existing address for update
+                  chain: existing.chain,
+                  symbol: existing.symbol,
+                  name: existing.name,
+                  market: {
+                    holders: holdersNum,
+                    // Preserve existing market data
+                    priceUsd: existing.priceUsd ?? 0,
+                    liquidityUsd: existing.liquidityUsd ?? 0,
+                    volume: existing.volume ?? { h24: 0 },
+                    priceChange: existing.priceChange ?? { m5: null, h1: null, h6: null, h24: null },
+                    riskScore: existing.riskScore,
+                    communityScore: existing.communityScore,
+                    age: existing.age,
+                    lastUpdated: Date.now()
+                  },
+                });
+                this.logger.log(`✅ Updated holder data for initial token ${t.symbol} (${existing.contractAddress}): ${holdersNum} holders`);
+                updatedCount++;
+              } else {
+                this.logger.warn(`⚠️ Could not fetch holder data for existing initial token ${t.symbol} (${existing.contractAddress}) - keeping as null`);
+                skippedCount++;
+              }
+              
+              // Add delay between tokens to avoid rate limiting
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              continue;
+            } else {
+              skippedCount++;
+              continue;
+            }
+          }
+          // If existing was deleted, fall through to recreate with correct address
         }
 
         this.logger.log(`🔍 Initial token ${t.symbol} (${t.address}) missing, fetching data...`);
