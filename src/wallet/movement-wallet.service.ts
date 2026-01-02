@@ -909,8 +909,13 @@ export class MovementWalletService {
 
       return newTransactions;
     } catch (error: any) {
-      this.logger.error(`Failed to poll for transactions: ${error.message}`);
-      throw error;
+      this.logger.error(`Failed to poll for transactions for wallet ${walletId}: ${error.message}`, error.stack);
+      // Re-throw NotFoundException to preserve 404 status
+      if (error.status === 404) {
+        throw error;
+      }
+      // For other errors, wrap in a more descriptive error
+      throw new Error(`Transaction polling failed: ${error.message}`);
     }
   }
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, Request, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { MovementWalletService } from './movement-wallet.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -6,6 +6,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @ApiTags('Movement Wallet')
 @Controller('wallet/movement')
 export class MovementWalletController {
+  private readonly logger = new Logger(MovementWalletController.name);
+
   constructor(private readonly movementWalletService: MovementWalletService) {}
 
   @Get('balance/:walletId')
@@ -181,14 +183,25 @@ export class MovementWalletController {
     @Param('walletId') walletId: string,
     @Body() body: { testnet?: boolean },
   ) {
-    const transactions = await this.movementWalletService.pollForTransactions(
-      walletId,
-      body.testnet ?? true,
-    );
-    return {
-      success: true,
-      transactions,
-    };
+    try {
+      const transactions = await this.movementWalletService.pollForTransactions(
+        walletId,
+        body.testnet ?? true,
+      );
+      return {
+        success: true,
+        transactions,
+      };
+    } catch (error: any) {
+      // Re-throw NotFoundException to preserve 404 status
+      if (error.status === 404) {
+        throw error;
+      }
+      // Log the full error for debugging
+      this.logger.error(`Failed to poll transactions for wallet ${walletId}: ${error.message}`, error.stack);
+      // Return a more informative error response
+      throw new Error(`Failed to poll transactions: ${error.message}`);
+    }
   }
 }
 
