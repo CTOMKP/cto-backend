@@ -239,6 +239,7 @@ export class MovementWalletService {
     networkStatus?: 'healthy' | 'degraded' | 'down';
     isStale?: boolean;
     lastSyncTime?: Date;
+    source?: 'rpc' | 'indexer' | 'db';
   }> {
     const urls = isTestnet 
       ? [
@@ -281,6 +282,8 @@ export class MovementWalletService {
               ...rpcBalance,
               lastUpdated: new Date(),
               networkStatus: 'healthy',
+              isStale: false,
+              source: 'rpc',
             };
           }
           
@@ -321,6 +324,8 @@ export class MovementWalletService {
             ...rpcBalance,
             lastUpdated: new Date(),
             networkStatus: 'healthy',
+            isStale: false,
+            source: 'rpc',
           };
         }
         
@@ -357,6 +362,8 @@ export class MovementWalletService {
           decimals: indexerBalance.decimals,
           lastUpdated: new Date(),
           networkStatus: 'degraded', // RPC failed but Indexer works - data may be delayed
+          isStale: false,
+          source: 'indexer',
         };
       }
     }
@@ -375,6 +382,8 @@ export class MovementWalletService {
           decimals: indexerBalance.decimals,
           lastUpdated: new Date(),
           networkStatus: 'degraded', // All RPCs failed but Indexer works - data may be delayed
+          isStale: false,
+          source: 'indexer',
         };
       }
     }
@@ -403,6 +412,7 @@ export class MovementWalletService {
             networkStatus: 'down', // Both RPC and Indexer failed
             isStale: true, // This is a stale balance from database
             lastSyncTime: lastKnownBalance.lastUpdated,
+            source: 'db',
           };
         }
       } catch (dbError: any) {
@@ -414,8 +424,9 @@ export class MovementWalletService {
     const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
     const isMOVE = tokenAddr.toLowerCase() === this.NATIVE_TOKEN_ADDRESS.toLowerCase();
     
-    // Determine network status: if we have rpcBalance, RPC worked (even if 0), otherwise it's down
-    const networkStatus: 'healthy' | 'degraded' | 'down' = rpcBalance ? 'healthy' : 'down';
+    // Determine network status: if rpcBalance exists but is zero, treat as degraded to avoid clobbering DB with zero
+    const rpcReturnedZero = rpcBalance && (!rpcBalance.balance || rpcBalance.balance === '0');
+    const networkStatus: 'healthy' | 'degraded' | 'down' = rpcReturnedZero ? 'degraded' : rpcBalance ? 'healthy' : 'down';
     
     return {
       balance: rpcBalance?.balance || '0',
@@ -424,6 +435,8 @@ export class MovementWalletService {
       decimals: rpcBalance?.decimals || (isUSDC ? 6 : 8),
       lastUpdated: new Date(),
       networkStatus,
+      isStale: rpcReturnedZero,
+      source: rpcReturnedZero ? 'rpc' : rpcBalance ? 'rpc' : undefined,
     };
   }
 
@@ -463,16 +476,21 @@ export class MovementWalletService {
       const balanceData = await this.getWalletBalance(wallet.address, tokenAddress, isTestnet, wallet.id);
 
       // STEP 3: Only update DB if we got a successful, non-stale response
-      // Don't overwrite good data with zeros from failed network calls
-      if (balanceData.isStale || (balanceData.balance === '0' && balanceData.networkStatus === 'down')) {
+      // Don't overwrite good data with zeros from failed or degraded network calls
+      const hasPositiveDb = existingBalance && existingBalance.balance && existingBalance.balance !== '0';
+      const networkNotHealthy = balanceData.networkStatus === 'down' || balanceData.networkStatus === 'degraded';
+      const isZeroResult = balanceData.balance === '0';
+
+      if (balanceData.isStale || (networkNotHealthy && isZeroResult)) {
         // Network failed or returned zero - return existing DB value (don't overwrite)
-        if (existingBalance && existingBalance.balance && existingBalance.balance !== '0') {
+        if (hasPositiveDb) {
           this.logger.log(`📦 [STALE-DB] Returning last known balance from DB (${existingBalance.balance} ${existingBalance.tokenSymbol}) - network unavailable`);
           return {
             ...existingBalance,
             networkStatus: 'down',
             isStale: true,
             lastSyncTime: existingBalance.lastUpdated,
+            source: 'db',
           };
         }
         
@@ -492,6 +510,7 @@ export class MovementWalletService {
           networkStatus: balanceData.networkStatus,
           isStale: true,
           lastSyncTime: existingBalance?.lastUpdated || new Date(),
+          source: balanceData.source || 'rpc',
         };
       }
 
