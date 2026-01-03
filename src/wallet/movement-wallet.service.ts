@@ -220,14 +220,25 @@ export class MovementWalletService {
 
   /**
    * Get wallet balance from Movement blockchain
+   * @param walletAddress - The wallet address to query
+   * @param tokenAddress - Optional token address (defaults to USDC)
+   * @param isTestnet - Whether to use testnet
+   * @param walletId - Optional wallet ID for database fallback (last known balance)
    */
-  async getWalletBalance(walletAddress: string, tokenAddress?: string, isTestnet: boolean = true): Promise<{
+  async getWalletBalance(
+    walletAddress: string, 
+    tokenAddress?: string, 
+    isTestnet: boolean = true,
+    walletId?: string
+  ): Promise<{
     balance: string;
     tokenAddress: string;
     tokenSymbol: string;
     decimals: number;
     lastUpdated?: Date;
     networkStatus?: 'healthy' | 'degraded' | 'down';
+    isStale?: boolean;
+    lastSyncTime?: Date;
   }> {
     const urls = isTestnet 
       ? [
@@ -368,7 +379,38 @@ export class MovementWalletService {
       }
     }
 
-    // Return RPC balance (0) or zero if all failed
+    // All sources failed (RPC and Indexer) - check database for last known balance
+    if (walletId) {
+      try {
+        const lastKnownBalance = await (this.prisma as any).walletBalance.findFirst({
+          where: {
+            walletId: walletId,
+            tokenAddress: tokenAddr,
+          },
+          orderBy: {
+            lastUpdated: 'desc',
+          },
+        });
+
+        if (lastKnownBalance && lastKnownBalance.balance && lastKnownBalance.balance !== '0') {
+          this.logger.log(`📦 [STALE-BALANCE] Using last known balance from database: ${lastKnownBalance.balance} ${lastKnownBalance.tokenSymbol} (last synced: ${lastKnownBalance.lastUpdated})`);
+          return {
+            balance: lastKnownBalance.balance,
+            tokenAddress: lastKnownBalance.tokenAddress,
+            tokenSymbol: lastKnownBalance.tokenSymbol,
+            decimals: lastKnownBalance.decimals || (tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase() ? 6 : 8),
+            lastUpdated: new Date(),
+            networkStatus: 'down', // Both RPC and Indexer failed
+            isStale: true, // This is a stale balance from database
+            lastSyncTime: lastKnownBalance.lastUpdated,
+          };
+        }
+      } catch (dbError: any) {
+        this.logger.debug(`Could not fetch last known balance from database: ${dbError.message}`);
+      }
+    }
+
+    // Return RPC balance (0) or zero if all failed and no database fallback available
     const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
     const isMOVE = tokenAddr.toLowerCase() === this.NATIVE_TOKEN_ADDRESS.toLowerCase();
     
@@ -387,6 +429,7 @@ export class MovementWalletService {
 
   /**
    * Sync wallet balance to database
+   * Follows "Stale-While-Revalidate" pattern: Only updates DB when network succeeds, otherwise returns last known balance
    */
   async syncWalletBalance(walletId: string, tokenAddress?: string, isTestnet: boolean = true): Promise<any> {
     try {
@@ -403,13 +446,56 @@ export class MovementWalletService {
         throw new BadRequestException('Wallet is not a Movement wallet');
       }
 
-      // Fetch balance from blockchain
-      const balanceData = await this.getWalletBalance(wallet.address, tokenAddress, isTestnet);
+      const tokenAddr = tokenAddress || this.TEST_TOKEN_ADDRESS;
+      const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
 
-      // If this is the admin wallet address, we use USDC.e defaults
-      const isUSDC = balanceData.tokenAddress.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
-      
-      // Upsert balance in database
+      // STEP 1: Get existing balance from DB FIRST (for fallback)
+      const existingBalance = await (this.prisma as any).walletBalance.findUnique({
+        where: {
+          walletId_tokenAddress: {
+            walletId: wallet.id,
+            tokenAddress: tokenAddr,
+          },
+        },
+      });
+
+      // STEP 2: Try to fetch fresh balance from blockchain (RPC/Indexer)
+      const balanceData = await this.getWalletBalance(wallet.address, tokenAddress, isTestnet, wallet.id);
+
+      // STEP 3: Only update DB if we got a successful, non-stale response
+      // Don't overwrite good data with zeros from failed network calls
+      if (balanceData.isStale || (balanceData.balance === '0' && balanceData.networkStatus === 'down')) {
+        // Network failed or returned zero - return existing DB value (don't overwrite)
+        if (existingBalance && existingBalance.balance && existingBalance.balance !== '0') {
+          this.logger.log(`📦 [STALE-DB] Returning last known balance from DB (${existingBalance.balance} ${existingBalance.tokenSymbol}) - network unavailable`);
+          return {
+            ...existingBalance,
+            networkStatus: 'down',
+            isStale: true,
+            lastSyncTime: existingBalance.lastUpdated,
+          };
+        }
+        
+        // No existing balance in DB - return the zero/stale value
+        this.logger.warn(`⚠️ No previous balance in DB, returning zero/stale balance: ${balanceData.balance} ${balanceData.tokenSymbol}`);
+        return {
+          id: existingBalance?.id || null,
+          walletId: wallet.id,
+          tokenAddress: tokenAddr,
+          tokenSymbol: isUSDC ? 'USDC.e' : balanceData.tokenSymbol,
+          tokenName: isUSDC ? 'USDC.e (Fungible Asset)' : 'Movement Network Token',
+          decimals: isUSDC ? 6 : 8,
+          balance: balanceData.balance,
+          lastUpdated: existingBalance?.lastUpdated || new Date(),
+          createdAt: existingBalance?.createdAt || new Date(),
+          updatedAt: existingBalance?.updatedAt || new Date(),
+          networkStatus: balanceData.networkStatus,
+          isStale: true,
+          lastSyncTime: existingBalance?.lastUpdated || new Date(),
+        };
+      }
+
+      // STEP 4: Network succeeded - update DB with fresh balance
       const balance = await (this.prisma as any).walletBalance.upsert({
         where: {
           walletId_tokenAddress: {
@@ -432,7 +518,7 @@ export class MovementWalletService {
         },
       });
 
-      this.logger.log(`✅ Synced balance for wallet ${wallet.address}: ${balanceData.balance} ${balanceData.tokenSymbol}`);
+      this.logger.log(`✅ Synced fresh balance for wallet ${wallet.address}: ${balanceData.balance} ${balanceData.tokenSymbol} (${balanceData.networkStatus})`);
 
       // STRATEGIC ADDITION: Also poll for transactions to ensure history (CREDITS/DEBITS) is updated
       try {
@@ -441,7 +527,13 @@ export class MovementWalletService {
         this.logger.warn(`Balance synced but transaction polling failed: ${pollError.message}`);
       }
 
-      return balance;
+      // Return balance with network status
+      return {
+        ...balance,
+        networkStatus: balanceData.networkStatus,
+        isStale: false,
+        lastSyncTime: balance.lastUpdated,
+      };
     } catch (error: any) {
       this.logger.error(`Failed to sync wallet balance: ${error.message}`);
       throw error;
@@ -1091,7 +1183,7 @@ export class MovementWalletService {
       
       for (const tokenAddr of tokensToSync) {
         try {
-          const balanceData = await this.getWalletBalance(wallet.address, tokenAddr, isTestnet);
+          const balanceData = await this.getWalletBalance(wallet.address, tokenAddr, isTestnet, walletId);
           const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
           
           await (this.prisma as any).walletBalance.upsert({
