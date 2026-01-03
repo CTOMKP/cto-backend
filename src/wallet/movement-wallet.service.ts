@@ -142,8 +142,17 @@ export class MovementWalletService {
         const coinBalances = data.current_coin_balances || [];
         const faBalances = data.current_fungible_asset_balances || [];
         
-        // Log for debugging
+        // Enhanced logging for debugging
         this.logger.debug(`🔍 [INDEXER-MOVE] Coin balances: ${coinBalances.length}, FA balances: ${faBalances.length}`);
+        if (coinBalances.length > 0) {
+          this.logger.debug(`🔍 [INDEXER-MOVE] Coin balance data: ${JSON.stringify(coinBalances[0])}`);
+        }
+        if (faBalances.length > 0) {
+          this.logger.debug(`🔍 [INDEXER-MOVE] FA balance data: ${JSON.stringify(faBalances[0])}`);
+        }
+        if (coinBalances.length === 0 && faBalances.length === 0) {
+          this.logger.debug(`⚠️ [INDEXER-MOVE] No balances found for wallet ${walletAddress}, query response: ${JSON.stringify(data)}`);
+        }
         
         // Sum balances from both sources (legacy Coin + new FA)
         const coinBalance = coinBalances.length > 0 ? parseInt(coinBalances[0].amount || '0', 10) : 0;
