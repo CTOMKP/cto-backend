@@ -103,31 +103,26 @@ export class MovementWalletService {
       if (isMOVE) {
         // Query BOTH coin balances AND fungible asset balances for MOVE
         // Movement Bardock has migrated MOVE to FA standard, but legacy Coin balances may still exist
-        // Try multiple asset_type patterns since the Indexer might store MOVE differently
+        // Simplified query: Check both known MOVE addresses (0x1::aptos_coin::AptosCoin and 0x1)
+        // If Indexer returns 0 for both, gracefully return null (will show 0.00 on frontend)
         const query = {
           query: `
-            query GetNativeBalances($owner: String!) {
-              current_coin_balances(
-                where: { 
-                  owner_address: { _eq: $owner }
+            query GetMoveBalances($owner: String!) {
+              coin: current_coin_balances(
+                where: {
+                  owner_address: { _eq: $owner }, 
                   coin_type: { _eq: "0x1::aptos_coin::AptosCoin" }
                 }
               ) {
                 amount
-                coin_type
               }
-              # Query ALL fungible asset balances to see what's available
-              current_fungible_asset_balances(
-                where: { 
-                  owner_address: { _eq: $owner }
+              fa: current_fungible_asset_balances(
+                where: {
+                  owner_address: { _eq: $owner }, 
+                  asset_type: { _eq: "0x1" }
                 }
               ) {
                 amount
-                asset_type
-                metadata {
-                  symbol
-                  name
-                }
               }
             }
           `,
@@ -136,56 +131,39 @@ export class MovementWalletService {
           }
         };
 
-        const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
-        
-        if (response.data?.errors) {
-          this.logger.debug(`⚠️ [INDEXER] GraphQL Errors for native balances: ${JSON.stringify(response.data.errors)}`);
-          return null;
-        }
+        try {
+          const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
+          
+          if (response.data?.errors) {
+            this.logger.debug(`⚠️ [INDEXER-MOVE] GraphQL Errors: ${JSON.stringify(response.data.errors)}`);
+            return null;
+          }
 
-        const data = response.data?.data || {};
-        const coinBalances = data.current_coin_balances || [];
-        const allFABalances = data.current_fungible_asset_balances || [];
-        
-        // Filter for MOVE-related FA balances (try multiple patterns)
-        const moveFABalances = allFABalances.filter((fa: any) => {
-          const assetType = (fa.asset_type || '').toLowerCase();
-          const symbol = (fa.metadata?.symbol || '').toLowerCase();
-          // Check if it's MOVE by asset_type or symbol
-          return assetType.includes('aptos_coin') || 
-                 assetType.includes('0x1::aptos') ||
-                 assetType === '0x1' ||
-                 symbol === 'move' ||
-                 symbol === 'apt';
-        });
-        
-        // Enhanced logging for debugging
-        this.logger.debug(`🔍 [INDEXER-MOVE] Coin balances: ${coinBalances.length}, All FA balances: ${allFABalances.length}, MOVE FA balances: ${moveFABalances.length}`);
-        if (coinBalances.length > 0) {
-          this.logger.debug(`🔍 [INDEXER-MOVE] Coin balance data: ${JSON.stringify(coinBalances[0])}`);
-        }
-        if (moveFABalances.length > 0) {
-          this.logger.debug(`🔍 [INDEXER-MOVE] MOVE FA balance data: ${JSON.stringify(moveFABalances[0])}`);
-        }
-        if (allFABalances.length > 0 && moveFABalances.length === 0) {
-          this.logger.debug(`🔍 [INDEXER-MOVE] Found ${allFABalances.length} FA balances but none match MOVE. Sample: ${JSON.stringify(allFABalances.slice(0, 3).map((fa: any) => ({ asset_type: fa.asset_type, symbol: fa.metadata?.symbol })))}`);
-        }
-        if (coinBalances.length === 0 && moveFABalances.length === 0) {
-          this.logger.debug(`⚠️ [INDEXER-MOVE] No balances found for wallet ${walletAddress}, query response: ${JSON.stringify(data)}`);
-        }
-        
-        // Sum balances from both sources (legacy Coin + new FA)
-        const coinBalance = coinBalances.length > 0 ? parseInt(coinBalances[0].amount || '0', 10) : 0;
-        const faBalance = moveFABalances.length > 0 ? parseInt(moveFABalances[0].amount || '0', 10) : 0;
-        const totalBalance = coinBalance + faBalance;
-        
-        if (totalBalance > 0) {
-          this.logger.debug(`✅ [INDEXER-MOVE] Found balance: ${coinBalance} (Coin) + ${faBalance} (FA) = ${totalBalance} total`);
-          return {
-            balance: totalBalance.toString(),
-            tokenSymbol: 'MOVE',
-            decimals: 8,
-          };
+          const data = response.data?.data || {};
+          const coinBalances = data.coin || [];
+          const faBalances = data.fa || [];
+          
+          // Sum balances from both sources (legacy Coin + new FA)
+          const coinBalance = coinBalances.length > 0 ? parseInt(coinBalances[0].amount || '0', 10) : 0;
+          const faBalance = faBalances.length > 0 ? parseInt(faBalances[0].amount || '0', 10) : 0;
+          const totalBalance = coinBalance + faBalance;
+          
+          if (totalBalance > 0) {
+            this.logger.debug(`✅ [INDEXER-MOVE] Found balance: ${coinBalance} (Coin) + ${faBalance} (FA) = ${totalBalance} total`);
+            return {
+              balance: totalBalance.toString(),
+              tokenSymbol: 'MOVE',
+              decimals: 8,
+            };
+          }
+          
+          // Indexer returned 0 for both - this is expected if Indexer balance tables are lagging
+          // Gracefully return null (frontend will show 0.00, but app remains stable)
+          this.logger.debug(`⚠️ [INDEXER-MOVE] No balance found (Coin: ${coinBalance}, FA: ${faBalance}). Indexer balance tables may be lagging.`);
+          return null;
+        } catch (error: any) {
+          this.logger.debug(`⚠️ [INDEXER-MOVE] Query failed: ${error.message}`);
+          return null;
         }
       } else if (isUSDC) {
         // Query fungible asset balances for USDC
