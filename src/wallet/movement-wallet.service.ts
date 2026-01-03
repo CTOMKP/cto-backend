@@ -132,7 +132,7 @@ export class MovementWalletService {
         };
 
         try {
-          const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
+          const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 5000 });
           
           if (response.data?.errors) {
             this.logger.debug(`⚠️ [INDEXER-MOVE] GraphQL Errors: ${JSON.stringify(response.data.errors)}`);
@@ -192,7 +192,7 @@ export class MovementWalletService {
           }
         };
 
-        const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 10000 });
+        const response = await axios.post(this.MOVEMENT_INDEXER_URL, query, { timeout: 5000 });
         
         if (response.data?.errors) {
           this.logger.debug(`⚠️ [INDEXER] GraphQL Errors for fungible asset balances: ${JSON.stringify(response.data.errors)}`);
@@ -227,6 +227,7 @@ export class MovementWalletService {
     tokenSymbol: string;
     decimals: number;
     lastUpdated?: Date;
+    networkStatus?: 'healthy' | 'degraded' | 'down';
   }> {
     const urls = isTestnet 
       ? [
@@ -268,6 +269,7 @@ export class MovementWalletService {
             return {
               ...rpcBalance,
               lastUpdated: new Date(),
+              networkStatus: 'healthy',
             };
           }
           
@@ -307,6 +309,7 @@ export class MovementWalletService {
           return {
             ...rpcBalance,
             lastUpdated: new Date(),
+            networkStatus: 'healthy',
           };
         }
         
@@ -342,6 +345,7 @@ export class MovementWalletService {
           tokenSymbol: indexerBalance.tokenSymbol,
           decimals: indexerBalance.decimals,
           lastUpdated: new Date(),
+          networkStatus: 'degraded', // RPC failed but Indexer works - data may be delayed
         };
       }
     }
@@ -359,6 +363,7 @@ export class MovementWalletService {
           tokenSymbol: indexerBalance.tokenSymbol,
           decimals: indexerBalance.decimals,
           lastUpdated: new Date(),
+          networkStatus: 'degraded', // All RPCs failed but Indexer works - data may be delayed
         };
       }
     }
@@ -367,12 +372,16 @@ export class MovementWalletService {
     const isUSDC = tokenAddr.toLowerCase() === this.TEST_TOKEN_ADDRESS.toLowerCase();
     const isMOVE = tokenAddr.toLowerCase() === this.NATIVE_TOKEN_ADDRESS.toLowerCase();
     
+    // Determine network status: if we have rpcBalance, RPC worked (even if 0), otherwise it's down
+    const networkStatus: 'healthy' | 'degraded' | 'down' = rpcBalance ? 'healthy' : 'down';
+    
     return {
       balance: rpcBalance?.balance || '0',
       tokenAddress: tokenAddr,
       tokenSymbol: rpcBalance?.tokenSymbol || (isUSDC ? 'USDC.e' : isMOVE ? 'MOVE' : 'TOKEN'),
       decimals: rpcBalance?.decimals || (isUSDC ? 6 : 8),
       lastUpdated: new Date(),
+      networkStatus,
     };
   }
 
