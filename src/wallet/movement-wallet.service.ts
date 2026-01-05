@@ -882,8 +882,14 @@ export class MovementWalletService {
               // Movement Indexer uses specific Move event strings for type detection
               // Credit (Incoming): 0x1::coin::DepositEvent or 0x1::fungible_asset::DepositEvent
               // Debit (Outgoing): 0x1::coin::WithdrawEvent or 0x1::fungible_asset::WithdrawEvent
-              const isDepositEvent = activity.type.includes('DepositEvent') || 
-                                     activity.type.includes('CoinDeposit');
+              // Check both type and activity_type fields as they might be different
+              const activityType = activity.type || activity.activity_type;
+              this.logger.debug(`🔍 [USDC-TX] Activity type: ${activityType}, Activity details: ${JSON.stringify(activity)}`);
+              
+              const isDepositEvent = activityType.includes('deposit') || 
+                                     activityType.includes('Deposit') ||
+                                     activityType.includes('DepositEvent') || 
+                                     activityType.includes('CoinDeposit');
               const txType = isDepositEvent ? 'CREDIT' : 'DEBIT';
               const recorded = await this.recordTransaction({
                 walletId,
@@ -927,8 +933,14 @@ export class MovementWalletService {
               // Movement Indexer uses specific Move event strings for type detection
               // Credit (Incoming): 0x1::coin::DepositEvent or 0x1::fungible_asset::DepositEvent
               // Debit (Outgoing): 0x1::coin::WithdrawEvent or 0x1::fungible_asset::WithdrawEvent
-              const isDepositEvent = activity.type.includes('DepositEvent') || 
-                                     activity.type.includes('CoinDeposit');
+              // Check both type and activity_type fields as they might be different
+              const activityType = activity.type || activity.activity_type;
+              this.logger.debug(`🔍 [USDC-TX] Activity type: ${activityType}, Activity details: ${JSON.stringify(activity)}`);
+              
+              const isDepositEvent = activityType.includes('deposit') || 
+                                     activityType.includes('Deposit') ||
+                                     activityType.includes('DepositEvent') || 
+                                     activityType.includes('CoinDeposit');
               const txType = isDepositEvent ? 'CREDIT' : 'DEBIT';
               
               // Record if it's a deposit (CREDIT) or a significant withdrawal (DEBIT)
