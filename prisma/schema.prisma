@@ -121,13 +121,13 @@ model Listing {
   metadata        Json?
   lastScannedAt   DateTime?
   vetted          Boolean         @default(false)  // Track if token has undergone Pillar 1 (risk scoring)
- 
+  
   // New filter fields
   lpBurnedPercentage     Float?    // LP burned percentage (0-100)
   top10HoldersPercentage  Float?    // Top 10 holders percentage (0-100)
   mintAuthDisabled       Boolean?  // Mint authority disabled
   raidingDetected        Boolean?  // Raiding activity detected
- 
+  
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -218,11 +218,11 @@ model Meme {
   mimeType     String   // image/jpeg, image/png, etc.
   description  String?  // Optional description
   category     String?  // Optional category/tag
- 
+  
   // Admin who uploaded
   uploadedById Int
   uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
- 
+  
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -235,7 +235,7 @@ model Waitlist {
   id        String   @id @default(cuid())
   email     String   @unique
   createdAt DateTime @default(now())
- 
+
   @@index([createdAt])
 }
 
@@ -244,35 +244,35 @@ model Payment {
   id                String        @id @default(cuid())
   userId            Int
   user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
- 
+  
   // Payment type and related entity
   paymentType       PaymentType   // LISTING | AD_BOOST
   listingId         String?       // Reference to UserListing
   adBoostId         String?       // Reference to AdBoost
- 
+  
   // Payment details
   amount            Float
   currency          String        @default("USDC")
   status            PaymentStatus @default(PENDING)
- 
+  
   // Circle transaction details
   transferId        String?       @unique  // Circle transfer ID
   txHash            String?                // Blockchain transaction hash
   fromWalletId      String?                // Source wallet (user's wallet)
   toAddress         String?                // Destination address (platform wallet)
- 
+  
   // Metadata
   description       String?
   metadata          Json?
- 
+  
   // Timestamps
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   completedAt       DateTime?
- 
+  
   // Relations
   walletTransactions WalletTransaction[]
- 
+
   @@index([userId])
   @@index([paymentType])
   @@index([status])
@@ -303,22 +303,22 @@ model WalletBalance {
   id            String   @id @default(cuid())
   walletId      String   // Reference to Wallet.id
   wallet        Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
- 
+  
   // Token details
   tokenAddress  String   // Movement test token contract address
   tokenSymbol   String   // e.g., "MOV", "TEST"
   tokenName     String?  // Full token name
   decimals      Int      @default(8) // Movement token decimals
- 
+  
   // Balance
   balance       String   @default("0") // Stored as string to handle large numbers
   balanceUsd    Float?   // USD value if available
- 
+  
   // Metadata
   lastUpdated   DateTime @default(now())
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
- 
+
   @@unique([walletId, tokenAddress])
   @@index([walletId])
   @@index([tokenAddress])
@@ -329,34 +329,34 @@ model WalletTransaction {
   id            String   @id @default(cuid())
   walletId      String   // Reference to Wallet.id
   wallet        Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
- 
+  
   // Transaction details
   txHash        String   // Movement transaction hash
   txType        String   // CREDIT | DEBIT | TRANSFER
   amount        String   // Amount as string
   tokenAddress  String   // Token contract address
   tokenSymbol   String   // Token symbol
- 
+  
   // Transaction parties
   fromAddress   String?  // Sender address
   toAddress     String?  // Recipient address
- 
+  
   // Related entities
   paymentId     String?  // Reference to Payment.id if this is a payment
   payment       Payment?  @relation(fields: [paymentId], references: [id])
- 
+  
   // Status
   status        String   @default("COMPLETED") // PENDING | COMPLETED | FAILED
   blockNumber   String?  // Block number
   blockTime     DateTime? // Block timestamp
- 
+  
   // Metadata
   description   String?
   metadata      Json?
- 
+  
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
- 
+
   @@unique([walletId, txHash])
   @@index([walletId])
   @@index([txHash])
@@ -365,44 +365,69 @@ model WalletTransaction {
   @@index([createdAt])
 }
 
+// Pillar 2: Alerts detected during monitoring
+
+model Alert {
+  id                  String   @id @default(cuid())
+  contractAddress     String   // Reference to Listing.contractAddress
+  severity            String   // 'low' | 'medium' | 'high' | 'critical'
+  triggerType         String   // 'liquidity_drop' | 'holder_loss' | 'price_crash' | etc.
+  conditionDescription String? // Human-readable description of what triggered alert
+  actionTaken         String?  // What action was taken (e.g., 'monitoring_detected', 'tier_downgraded')
+  message             String?  // Alert message
+  detected            Boolean  @default(true)
+  resolved            Boolean  @default(false)
+  resolvedAt          DateTime?
+  resolvedBy          Int?     // User ID who resolved it (if manual)
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([contractAddress])
+  @@index([severity])
+  @@index([triggerType])
+  @@index([detected])
+  @@index([createdAt])
+}
+
 // Pillar 2: Monitoring snapshots for continuous tracking
 model MonitoringSnapshot {
   id                String   @id @default(cuid())
   contractAddress   String   // Reference to Listing.contractAddress
   scannedAt         DateTime @default(now())
- 
+  
   // Current state
   currentTier       String?
- 
+  
   // Market metrics
   price             Float?   @default(0)
   marketCap         Float?   @default(0)
   liquidity         Float?   @default(0)
   volume24h         Float?   @default(0)
   priceChange24h    Float?   @default(0)
- 
+  
   // Holder metrics
   totalHolders      Int?     @default(0)
   holderChange24h   Int?     @default(0)
   topHolderPct      Float?   @default(0)
   top10HoldersPct   Float?   @default(0)
- 
+  
   // Activity metrics
   txns24h           Int?     @default(0)
   buys24h           Int?     @default(0)
   sells24h          Int?     @default(0)
   uniqueWallets24h  Int?     @default(0)
- 
+  
   // Trends
   liquidityTrend    String?  // 'increasing' | 'decreasing' | 'stable'
   holderTrend       String?  // 'increasing' | 'decreasing' | 'stable'
   activityTrend     String?  // 'increasing' | 'decreasing' | 'stable'
- 
+  
   // Raw data for reference
   rawData           Json?
- 
+  
   createdAt         DateTime @default(now())
- 
+  
   @@index([contractAddress])
   @@index([scannedAt])
 }

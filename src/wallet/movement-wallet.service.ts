@@ -890,22 +890,22 @@ export class MovementWalletService {
                                      activityType.includes('Deposit') ||
                                      activityType.includes('DepositEvent') || 
                                      activityType.includes('CoinDeposit');
-              const txType = isDepositEvent ? 'CREDIT' : 'DEBIT';
+              const txTypeUSDC = isDepositEvent ? 'CREDIT' : 'DEBIT';
               const recorded = await this.recordTransaction({
                 walletId,
                 txHash: activity.transaction_hash,
-                txType: txType as any,
+                txType: txTypeUSDC as any,
                 amount: activity.amount.toString(),
                 tokenAddress: this.TEST_TOKEN_ADDRESS,
                 tokenSymbol: 'USDC.e',
-                fromAddress: txType === 'CREDIT' ? activity.requestor_address : wallet.address,
-                toAddress: txType === 'DEBIT' ? activity.requestor_address : wallet.address,
-                description: `USDC ${txType === 'CREDIT' ? 'deposit' : 'withdrawal'} detected via indexer`,
+                fromAddress: txTypeUSDC === 'CREDIT' ? activity.requestor_address : wallet.address,
+                toAddress: txTypeUSDC === 'DEBIT' ? activity.requestor_address : wallet.address,
+                description: `USDC ${txTypeUSDC === 'CREDIT' ? 'deposit' : 'withdrawal'} detected via indexer`,
                 status: 'COMPLETED',
                 metadata: { version: activity.transaction_version, timestamp: activity.transaction_timestamp }
               });
               newTransactions.push(recorded);
-              this.logger.log(`✅ [INDEXER] Recorded USDC ${txType} for ${wallet.address}`);
+              this.logger.log(`✅ [INDEXER] Recorded USDC ${txTypeUSDC} for ${wallet.address}`);
             } catch (e) {
               this.logger.warn(`Failed to record indexed USDC tx: ${e.message}`);
             }
