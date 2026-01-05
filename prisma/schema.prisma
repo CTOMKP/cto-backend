@@ -430,4 +430,3 @@ model Alert {
   @@index([triggerType])
   @@index([detected])
   @@index([createdAt])
-}

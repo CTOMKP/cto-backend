@@ -100,4 +100,3 @@ UPDATE "Listing" SET "vetted" = true WHERE "riskScore" IS NOT NULL;
 - [ ] Pillar 2 only processes vetted tokens
 - [ ] No duplicate processing of same token
 - [ ] Scheduling doesn't overlap (Pillar 1 at :05/:15/:25/:35/:45/:55, Pillar 2 at :00/:30)
-

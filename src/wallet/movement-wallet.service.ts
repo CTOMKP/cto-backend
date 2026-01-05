@@ -879,7 +879,12 @@ export class MovementWalletService {
 
           if (!existingTx) {
             try {
-              const txType = activity.type.toUpperCase().includes('DEPOSIT') ? 'CREDIT' : 'DEBIT';
+              // Movement Indexer uses specific Move event strings for type detection
+              // Credit (Incoming): 0x1::coin::DepositEvent or 0x1::fungible_asset::DepositEvent
+              // Debit (Outgoing): 0x1::coin::WithdrawEvent or 0x1::fungible_asset::WithdrawEvent
+              const isDepositEvent = activity.type.includes('DepositEvent') || 
+                                     activity.type.includes('CoinDeposit');
+              const txType = isDepositEvent ? 'CREDIT' : 'DEBIT';
               const recorded = await this.recordTransaction({
                 walletId,
                 txHash: activity.transaction_hash,
@@ -919,7 +924,12 @@ export class MovementWalletService {
 
           if (!existingTx) {
             try {
-              const txType = activity.type.toUpperCase().includes('DEPOSIT') ? 'CREDIT' : 'DEBIT';
+              // Movement Indexer uses specific Move event strings for type detection
+              // Credit (Incoming): 0x1::coin::DepositEvent or 0x1::fungible_asset::DepositEvent
+              // Debit (Outgoing): 0x1::coin::WithdrawEvent or 0x1::fungible_asset::WithdrawEvent
+              const isDepositEvent = activity.type.includes('DepositEvent') || 
+                                     activity.type.includes('CoinDeposit');
+              const txType = isDepositEvent ? 'CREDIT' : 'DEBIT';
               
               // Record if it's a deposit (CREDIT) or a significant withdrawal (DEBIT)
               const amount = BigInt(activity.amount);

@@ -986,22 +986,22 @@ export class RefreshWorker {
       const tokensToRemove = nonPinnedCount - 25;
       
       // Remove the oldest non-initial tokens
-      const tokensToDelete = await client.listing.findMany({
+        const tokensToDelete = await client.listing.findMany({
         where: { contractAddress: { notIn: pinnedAddresses } },
         orderBy: [
           { riskScore: 'asc' }, 
           { createdAt: 'asc' }  
         ],
-        take: tokensToRemove,
+          take: tokensToRemove,
         select: { id: true }
-      });
-      
-      if (tokensToDelete.length > 0) {
-        const idsToDelete = tokensToDelete.map((t: any) => t.id);
-        await client.listing.deleteMany({
-          where: { id: { in: idsToDelete } }
         });
         
+        if (tokensToDelete.length > 0) {
+          const idsToDelete = tokensToDelete.map((t: any) => t.id);
+          await client.listing.deleteMany({
+          where: { id: { in: idsToDelete } }
+          });
+          
         this.logger.log(`🗑️ Rotation: Removed ${tokensToDelete.length} non-initial tokens.`);
       }
     } catch (error: any) {
@@ -1052,7 +1052,7 @@ export class RefreshWorker {
       });
     
     this.logger.log(`🎯 Populating database with top ${sortedItems.length} candidate tokens`);
-
+    
     for (const x of sortedItems) {
       const chain = x?.chain as 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN';
       const address = x?.address as string;
@@ -1247,7 +1247,7 @@ export class RefreshWorker {
           if (chain === 'SOLANA' && this.isSolanaMint(t.address) && t.address.toLowerCase() !== existing.contractAddress.toLowerCase()) {
             this.logger.log(`🔧 Address mismatch detected for ${t.symbol}: stored=${existing.contractAddress}, INITIAL_TOKENS=${t.address}`);
             this.logger.log(`🗑️ Deleting old record with pair address to recreate with correct mint address...`);
-            const client = (this.repo as any)['prisma'] as any;
+    const client = (this.repo as any)['prisma'] as any;
             await client.listing.delete({ where: { id: existing.id } });
             this.logger.log(`✅ Deleted old record, will recreate with correct mint address`);
             // Continue to the "missing" branch to recreate with correct address

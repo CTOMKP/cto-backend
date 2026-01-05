@@ -129,4 +129,3 @@ Once the migration is applied:
 - ✅ Pillar 1 will process unvetted tokens and set `vetted = true` after vetting
 - ✅ Pillar 2 will only process tokens where `vetted = true`
 - ✅ No duplicate processing of the same token
-
