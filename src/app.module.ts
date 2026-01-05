@@ -19,6 +19,7 @@ import { StatsModule } from './stats/stats.module';
 import { PfpModule } from './pfp/pfp.module';
 import { TokenVettingModule } from './services/token-vetting.module';
 import { MovementWalletModule } from './wallet/movement-wallet.module';
+import { SentioModule } from './sentio/sentio.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { MovementWalletModule } from './wallet/movement-wallet.module';
     PfpModule,
     TokenVettingModule,
     MovementWalletModule,
+    SentioModule,
   ],
   controllers: [HealthController],
   providers: [],
