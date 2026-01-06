@@ -376,6 +376,7 @@ export class Pillar2MonitoringService {
     }
 
     // Save alerts to database
+    const alertClient = (this.prisma as any)?.alert;
     for (const alert of alerts) {
       try {
         // Verify listing exists
@@ -387,7 +388,7 @@ export class Pillar2MonitoringService {
         if (listing) {
           // Create alert using Prisma model
           try {
-            await this.prisma.alert.create({
+            await alertClient?.create({
               data: {
                 contractAddress,
                 severity: alert.severity,

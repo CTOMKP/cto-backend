@@ -46,6 +46,9 @@ export class SentioService {
       process.env.SENTIO_API_URL || 'https://api.sentio.xyz/v1/trades';
 
     try {
+      this.logger.log(
+        `Sentio request: url=${baseUrl} token=${tokenAddress} limit=${safeLimit}`,
+      );
       const response = await firstValueFrom(
         this.http.get(baseUrl, {
           params: { tokenAddress, limit: safeLimit },
@@ -58,12 +61,29 @@ export class SentioService {
         }),
       );
 
+      this.logger.log(
+        `Sentio response ${response.status} for token=${tokenAddress} body=${this.previewBody(
+          response.data,
+        )}`,
+      );
+
       const raw = this.normalizeResponse(response.data);
       const trades = raw.map((event) => this.toTradeEvent(event));
+
+      if (!trades.length) {
+        this.logger.warn(`Sentio returned 0 trades for token=${tokenAddress}`);
+      }
 
       this.cache.set(cacheKey, { data: trades, expiresAt: now + this.ttlMs });
       return trades;
     } catch (error) {
+      const status = error?.response?.status;
+      const bodyPreview = this.previewBody(error?.response?.data);
+      if (status) {
+        this.logger.warn(
+          `Sentio request failed for ${tokenAddress} with status ${status}: ${bodyPreview}`,
+        );
+      }
       this.logger.warn(
         `Sentio request failed for ${tokenAddress}: ${error?.message || error}`,
       );
@@ -115,5 +135,18 @@ export class SentioService {
         event?.tx ||
         '',
     };
+  }
+
+  private previewBody(body: any): string {
+    try {
+      const serialized =
+        typeof body === 'string' ? body : JSON.stringify(body ?? '');
+      const trimmed = serialized.length > 500
+        ? `${serialized.slice(0, 500)}...`
+        : serialized;
+      return trimmed.replace(/\s+/g, ' ').trim();
+    } catch {
+      return '[unserializable body]';
+    }
   }
 }
