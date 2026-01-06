@@ -884,13 +884,29 @@ export class MovementWalletService {
               // Debit (Outgoing): 0x1::coin::WithdrawEvent or 0x1::fungible_asset::WithdrawEvent
               // Check both type and activity_type fields as they might be different
               const activityType = activity.type || activity.activity_type;
-              this.logger.debug(`🔍 [USDC-TX] Activity type: ${activityType}, Activity details: ${JSON.stringify(activity)}`);
+              const normalizedType = (activityType || '').toLowerCase();
+              this.logger.debug(`dY"? [USDC-TX] Activity type: ${activityType}, Activity details: ${JSON.stringify(activity)}`);
               
-              const isDepositEvent = activityType.includes('deposit') || 
-                                     activityType.includes('Deposit') ||
-                                     activityType.includes('DepositEvent') || 
-                                     activityType.includes('CoinDeposit');
-              const txTypeUSDC = isDepositEvent ? 'CREDIT' : 'DEBIT';
+              const isDepositEvent = normalizedType.includes('deposit') || 
+                                     normalizedType.includes('receive') ||
+                                     normalizedType.includes('credit') || 
+                                     normalizedType.includes('coindeposit');
+              const isWithdrawEvent = normalizedType.includes('withdraw');
+              const isPositiveAmount = (() => {
+                try {
+                  return BigInt(activity.amount || 0) >= 0;
+                } catch {
+                  return true; // default to credit if parsing fails
+                }
+              })();
+
+              const txTypeUSDC = isDepositEvent
+                ? 'CREDIT'
+                : isWithdrawEvent
+                  ? 'DEBIT'
+                  : isPositiveAmount
+                    ? 'CREDIT'
+                    : 'DEBIT';
               const recorded = await this.recordTransaction({
                 walletId,
                 txHash: activity.transaction_hash,
@@ -937,11 +953,28 @@ export class MovementWalletService {
               const activityType = activity.type || activity.activity_type;
               this.logger.debug(`🔍 [USDC-TX] Activity type: ${activityType}, Activity details: ${JSON.stringify(activity)}`);
               
-              const isDepositEvent = activityType.includes('deposit') || 
-                                     activityType.includes('Deposit') ||
-                                     activityType.includes('DepositEvent') || 
-                                     activityType.includes('CoinDeposit');
-              const txType = isDepositEvent ? 'CREDIT' : 'DEBIT';
+              const normalizedType = (activityType || '').toLowerCase();
+              const isDepositEvent = normalizedType.includes('deposit') || 
+                                     normalizedType.includes('coindeposit') ||
+                                     normalizedType.includes('receive') ||
+                                     normalizedType.includes('credit');
+              const isWithdrawEvent = normalizedType.includes('withdraw');
+
+              const isPositiveAmount = (() => {
+                try {
+                  return BigInt(activity.amount || 0) >= 0;
+                } catch {
+                  return true;
+                }
+              })();
+
+              const txType = isDepositEvent
+                ? 'CREDIT'
+                : isWithdrawEvent
+                  ? 'DEBIT'
+                  : isPositiveAmount
+                    ? 'CREDIT'
+                    : 'DEBIT';
               
               // Record if it's a deposit (CREDIT) or a significant withdrawal (DEBIT)
               const amount = BigInt(activity.amount);
