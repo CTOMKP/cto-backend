@@ -757,19 +757,23 @@ export class MovementWalletService {
       const rpcUrl = this.getRpcUrl();
 
       for (const activity of activities) {
+        let txHash: string | null = null;
+        let sender: string | null = null;
         try {
           // Fetch real hash and sender from version since indexer fields vary
           const txRes = await axios.get(`${rpcUrl}/transactions/by_version/${activity.transaction_version}`);
-          if (txRes.data?.hash) {
-            detailedActivities.push({
-              ...activity,
-              transaction_hash: txRes.data.hash,
-              requestor_address: txRes.data.sender || walletAddress // Fallback to walletAddress if sender unknown
-            });
-          }
+          txHash = txRes.data?.hash || null;
+          sender = txRes.data?.sender || null;
         } catch (e) {
-          this.logger.warn(`⚠️ [INDEXER] Could not fetch hash for version ${activity.transaction_version}`);
+          this.logger.warn(`?s??,? [INDEXER] Could not fetch hash for version ${activity.transaction_version}`);
         }
+
+        // Fallback: if hash isn't available, still emit the activity using version as pseudo-hash
+        detailedActivities.push({
+          ...activity,
+          transaction_hash: txHash || `version-${activity.transaction_version}`,
+          requestor_address: sender || walletAddress // Fallback to walletAddress if sender unknown
+        });
       }
 
       return detailedActivities;
@@ -824,20 +828,24 @@ export class MovementWalletService {
       const rpcUrl = this.getRpcUrl();
 
       for (const activity of activities) {
+        let txHash: string | null = null;
+        let sender: string | null = null;
         try {
           // Fetch real hash and sender from version
           const txRes = await axios.get(`${rpcUrl}/transactions/by_version/${activity.transaction_version}`);
-          if (txRes.data?.hash) {
-            detailedActivities.push({
-              ...activity,
-              transaction_hash: txRes.data.hash,
-              requestor_address: txRes.data.sender || walletAddress,
-              type: activity.activity_type // Map activity_type to type
-            });
-          }
+          txHash = txRes.data?.hash || null;
+          sender = txRes.data?.sender || null;
         } catch (e) {
-          this.logger.warn(`⚠️ [INDEXER-MOVE] Could not fetch hash for version ${activity.transaction_version}`);
+          this.logger.warn(`?s??,? [INDEXER-MOVE] Could not fetch hash for version ${activity.transaction_version}`);
         }
+
+        // Fallback: if hash isn't available, still emit the activity using version as pseudo-hash
+        detailedActivities.push({
+          ...activity,
+          transaction_hash: txHash || `version-${activity.transaction_version}`,
+          requestor_address: sender || walletAddress,
+          type: activity.activity_type // Map activity_type to type
+        });
       }
 
       return detailedActivities;
