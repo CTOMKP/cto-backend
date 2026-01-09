@@ -59,6 +59,18 @@ export class ScanService {
         throw new HttpException('Token not found or data unavailable. Please try again in a moment.', HttpStatus.SERVICE_UNAVAILABLE);
       }
 
+      // Enrich holder count using analytics service if available (more reliable than free Solscan)
+      let analyticsHolderCount: number | null = null;
+      try {
+        analyticsHolderCount = await this.analyticsService.getHolderCount(contractAddress, 'SOLANA');
+      } catch (error) {
+        this.logger.warn(`ƒ?O Holder count enrichment failed for ${contractAddress}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (analyticsHolderCount && analyticsHolderCount > 0) {
+        tokenData.holder_count = analyticsHolderCount;
+        tokenData.total_holders = analyticsHolderCount;
+      }
+
       // Transform to Pillar 1 Vetting Data format (Same as RefreshWorker)
       const vettingData = this.transformToVettingData(contractAddress, tokenData, 'SOLANA');
       
@@ -85,6 +97,7 @@ export class ScanService {
               project_age_days: vettingData.tokenAge,
               age_display: formatTokenAge(vettingData.tokenAge),
               age_display_short: formatTokenAgeShort(vettingData.tokenAge),
+              creation_date: tokenData.creation_date,
               lp_amount_usd: vettingData.trading.liquidity,
               token_price: vettingData.trading.price,
               volume_24h: vettingData.trading.volume24h,
@@ -122,6 +135,7 @@ export class ScanService {
           project_age_days: vettingData.tokenAge,
           age_display: formatTokenAge(vettingData.tokenAge),
           age_display_short: formatTokenAgeShort(vettingData.tokenAge),
+          creation_date: tokenData.creation_date,
           lp_amount_usd: vettingData.trading.liquidity,
           token_price: vettingData.trading.price,
           volume_24h: vettingData.trading.volume24h,
