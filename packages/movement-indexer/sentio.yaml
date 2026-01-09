@@ -1,0 +1,4 @@
+project: ctomarketplace2025/cto-movement-tracker
+version: "0.1"
+language: typescript
+processor: processor.ts

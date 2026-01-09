@@ -1,9 +1,9 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { SentioService } from './sentio.service';
+import { TradeHistoryService } from '../trades/trade-history.service';
 
 @Controller('tokens')
 export class SentioController {
-  constructor(private readonly sentioService: SentioService) {}
+  constructor(private readonly tradeHistoryService: TradeHistoryService) {}
 
   @Get(':address/trades')
   async getTrades(
@@ -15,6 +15,6 @@ export class SentioController {
       ? Math.min(Math.max(parsedLimit, 1), 200)
       : 50;
 
-    return this.sentioService.getTokenTrades(address, safeLimit);
+    return this.tradeHistoryService.getTrades(address, safeLimit);
   }
 }

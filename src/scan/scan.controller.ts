@@ -17,6 +17,8 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { ScanService } from './services/scan.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { formatTokenAge, formatTokenAgeShort } from '../utils/age-formatter';
 import { ScanRequestDto, BatchScanRequestDto } from './dto/scan-request.dto';
 import { ScanResultDto, BatchScanResponseDto } from './dto/scan-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -26,7 +28,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 export class ScanController {
   private readonly logger = new Logger(ScanController.name);
 
-  constructor(private readonly scanService: ScanService) {}
+  constructor(
+    private readonly scanService: ScanService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post('scan')
   @ApiOperation({ summary: 'Scan a single token', description: 'Performs comprehensive analysis of a single Solana token' })
@@ -42,6 +47,49 @@ export class ScanController {
       this.logger.log(`Single token scan requested for: ${scanRequest.contractAddress}`);
       const userId = req?.user?.userId as number | undefined;
       const chain = (scanRequest as any)?.chain ?? 'SOLANA';
+      const now = Date.now();
+      const cacheWindowMs = 24 * 60 * 60 * 1000;
+      const recentScan = await (this.prisma as any).scanResult.findFirst({
+        where: {
+          contractAddress: scanRequest.contractAddress,
+          createdAt: { gte: new Date(now - cacheWindowMs) },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (recentScan?.resultData) {
+        const stored = recentScan.resultData as any;
+        const riskScore = stored?.risk_score ?? recentScan.riskScore ?? null;
+        const tier = stored?.tier ?? recentScan.tier ?? null;
+        const eligible =
+          stored?.eligible ??
+          (typeof riskScore === 'number' ? riskScore >= 50 : false);
+        const summary = stored?.summary ?? recentScan.summary ?? null;
+        const riskLevel = stored?.risk_level ?? null;
+        const metadata = stored?.metadata ?? stored;
+
+        if (metadata && !metadata.creation_date && typeof metadata.project_age_days === 'number') {
+          const createdAt = new Date(Date.now() - metadata.project_age_days * 24 * 60 * 60 * 1000);
+          metadata.creation_date = createdAt;
+        }
+        if (metadata && !metadata.age_display && typeof metadata.project_age_days === 'number') {
+          metadata.age_display = formatTokenAge(metadata.project_age_days);
+        }
+        if (metadata && !metadata.age_display_short && typeof metadata.project_age_days === 'number') {
+          metadata.age_display_short = formatTokenAgeShort(metadata.project_age_days);
+        }
+
+        this.logger.log(`Single token scan served from cache for: ${scanRequest.contractAddress}`);
+        return {
+          tier,
+          risk_score: riskScore,
+          risk_level: riskLevel,
+          eligible,
+          summary,
+          metadata,
+        } as any;
+      }
+
       const result = await this.scanService.scanToken(scanRequest.contractAddress, userId, chain);
       this.logger.log(`Single token scan completed for: ${scanRequest.contractAddress}`);
       // If chain unsupported, normalize to ScanResultDto shape with eligible=false

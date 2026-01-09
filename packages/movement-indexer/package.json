@@ -1,0 +1,14 @@
+{
+  "name": "cto-movement-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "main": "processor.ts",
+  "scripts": {
+    "build": "sentio build",
+    "dev": "sentio dev",
+    "deploy": "sentio deploy"
+  },
+  "dependencies": {
+    "@sentio/sdk": "^2.36.0"
+  }
+}

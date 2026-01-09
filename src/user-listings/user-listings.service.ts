@@ -15,6 +15,43 @@ export class UserListingsService {
   async scan(userId: number | undefined, dto: ScanDto) {
     const chain = dto.chain || 'SOLANA';
     try {
+      const now = Date.now();
+      const cacheWindowMs = 24 * 60 * 60 * 1000;
+      const recentScan = await (this.prisma as any).scanResult.findFirst({
+        where: {
+          contractAddress: dto.contractAddr,
+          createdAt: { gte: new Date(now - cacheWindowMs) },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (recentScan?.resultData) {
+        const stored = recentScan.resultData as any;
+        const riskScore = stored?.risk_score ?? recentScan.riskScore ?? 0;
+        const tier = stored?.tier ?? recentScan.tier ?? 'Seed';
+        const eligible =
+          stored?.eligible ??
+          (typeof riskScore === 'number' &&
+            riskScore >= this.MIN_QUALIFYING_SCORE);
+
+        const metadata = stored?.metadata ?? stored;
+        const summary = stored?.summary ?? recentScan.summary ?? null;
+        const riskLevel = stored?.risk_level ?? null;
+
+        return {
+          success: eligible,
+          risk_score: riskScore,
+          tier,
+          risk_level: riskLevel,
+          eligible,
+          summary,
+          metadata,
+          vettingScore: riskScore,
+          vettingTier: tier,
+          details: stored,
+        };
+      }
+
       // Delegate to existing ScanService; use userId to persist scan result linkage
       const result = await this.scanService.scanToken(dto.contractAddr, userId, chain as any);
 
