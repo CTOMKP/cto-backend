@@ -66,6 +66,7 @@ export class ScanService {
       } catch (error) {
         this.logger.warn(`ƒ?O Holder count enrichment failed for ${contractAddress}: ${error instanceof Error ? error.message : String(error)}`);
       }
+      this.logger.debug(`ƒo. Holder count enrichment for ${contractAddress}: ${analyticsHolderCount ?? 'null'}`);
       if (analyticsHolderCount && analyticsHolderCount > 0) {
         tokenData.holder_count = analyticsHolderCount;
         tokenData.total_holders = analyticsHolderCount;
@@ -73,6 +74,14 @@ export class ScanService {
 
       // Transform to Pillar 1 Vetting Data format (Same as RefreshWorker)
       const vettingData = this.transformToVettingData(contractAddress, tokenData, 'SOLANA');
+      const creationDate =
+        tokenData.creation_date ??
+        (Number.isFinite(vettingData.tokenAge)
+          ? new Date(Date.now() - vettingData.tokenAge * 24 * 60 * 60 * 1000)
+          : null);
+      if (creationDate) {
+        this.logger.debug(`ƒo. creation_date for ${contractAddress}: ${new Date(creationDate).toISOString()}`);
+      }
       
       // Calculate risk score using Pillar1RiskScoringService
       const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
@@ -97,7 +106,7 @@ export class ScanService {
               project_age_days: vettingData.tokenAge,
               age_display: formatTokenAge(vettingData.tokenAge),
               age_display_short: formatTokenAgeShort(vettingData.tokenAge),
-              creation_date: tokenData.creation_date,
+              creation_date: creationDate ?? null,
               lp_amount_usd: vettingData.trading.liquidity,
               token_price: vettingData.trading.price,
               volume_24h: vettingData.trading.volume24h,
@@ -135,7 +144,7 @@ export class ScanService {
           project_age_days: vettingData.tokenAge,
           age_display: formatTokenAge(vettingData.tokenAge),
           age_display_short: formatTokenAgeShort(vettingData.tokenAge),
-          creation_date: tokenData.creation_date,
+          creation_date: creationDate ?? null,
           lp_amount_usd: vettingData.trading.liquidity,
           token_price: vettingData.trading.price,
           volume_24h: vettingData.trading.volume24h,
