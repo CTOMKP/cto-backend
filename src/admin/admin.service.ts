@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApproveListingDto, RejectListingDto } from './dto/admin.dto';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class AdminService {
@@ -153,12 +154,12 @@ export class AdminService {
       const skip = Math.max(Number(offset) || 0, 0);
       const query = (search || '').trim();
 
-      const where = query
+      const where: Prisma.UserWhereInput | undefined = query
         ? {
             OR: [
-              { email: { contains: query, mode: 'insensitive' } },
-              { name: { contains: query, mode: 'insensitive' } },
-              { privyDid: { contains: query, mode: 'insensitive' } }
+              { email: { contains: query, mode: Prisma.QueryMode.insensitive } },
+              { name: { contains: query, mode: Prisma.QueryMode.insensitive } },
+              { privyDid: { contains: query, mode: Prisma.QueryMode.insensitive } }
             ]
           }
         : undefined;
