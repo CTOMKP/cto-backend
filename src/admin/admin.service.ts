@@ -106,6 +106,143 @@ export class AdminService {
     }
   }
 
+  // Get rejected listings
+  async getRejectedListings() {
+    try {
+      const rejectedListings = await this.prisma.userListing.findMany({
+        where: {
+          status: 'REJECTED'
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true
+            }
+          },
+          boosts: {
+            where: {
+              endDate: {
+                gte: new Date()
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      return {
+        success: true,
+        listings: rejectedListings,
+        total: rejectedListings.length,
+        message: 'Rejected listings retrieved successfully'
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to get rejected listings:', error instanceof Error ? error.message : 'Unknown error');
+      throw new BadRequestException(`Failed to get rejected listings: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // Get users (admin view)
+  async getUsers(search?: string, limit?: string, offset?: string) {
+    try {
+      const take = Math.min(Math.max(Number(limit) || 50, 1), 200);
+      const skip = Math.max(Number(offset) || 0, 0);
+      const query = (search || '').trim();
+
+      const where = query
+        ? {
+            OR: [
+              { email: { contains: query, mode: 'insensitive' } },
+              { name: { contains: query, mode: 'insensitive' } },
+              { privyDid: { contains: query, mode: 'insensitive' } }
+            ]
+          }
+        : undefined;
+
+      const [users, total] = await Promise.all([
+        this.prisma.user.findMany({
+          where,
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            privyDid: true,
+            lastLoginAt: true,
+            createdAt: true,
+            wallets: {
+              select: {
+                id: true,
+                address: true,
+                blockchain: true,
+                walletClient: true,
+                isPrimary: true,
+                createdAt: true,
+                walletBalances: {
+                  select: {
+                    tokenAddress: true,
+                    tokenSymbol: true,
+                    tokenName: true,
+                    decimals: true,
+                    balance: true,
+                    balanceUsd: true,
+                    lastUpdated: true
+                  }
+                },
+                walletTransactions: {
+                  select: {
+                    txHash: true,
+                    txType: true,
+                    amount: true,
+                    tokenSymbol: true,
+                    fromAddress: true,
+                    toAddress: true,
+                    status: true,
+                    createdAt: true
+                  },
+                  orderBy: {
+                    createdAt: 'desc'
+                  },
+                  take: 5
+                }
+              }
+            },
+            _count: {
+              select: {
+                wallets: true,
+                userListings: true,
+                payments: true,
+                scanResults: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          },
+          skip,
+          take
+        }),
+        this.prisma.user.count({ where })
+      ]);
+
+      return {
+        success: true,
+        users,
+        total,
+        limit: take,
+        offset: skip,
+        message: 'Users retrieved successfully'
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to get users:', error instanceof Error ? error.message : 'Unknown error');
+      throw new BadRequestException(`Failed to get users: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   // Approve listing
   async approveListing(dto: ApproveListingDto) {
     try {

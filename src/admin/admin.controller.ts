@@ -3,10 +3,11 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { AdminService } from './admin.service';
 import { ApproveListingDto, RejectListingDto, UpdateUserRoleDto } from './dto/admin.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
 
 @ApiTags('admin')
 @Controller('admin')
-// @UseGuards(JwtAuthGuard, AdminGuard) // Uncomment when implementing auth guards
+@UseGuards(JwtAuthGuard, AdminGuard)
 @ApiBearerAuth()
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
@@ -63,6 +64,37 @@ export class AdminController {
   @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
   async getPublishedListings() {
     return this.adminService.getPublishedListings();
+  }
+
+  @Get('listings/rejected')
+  @ApiOperation({ 
+    summary: 'Get all rejected listings',
+    description: 'Get all user listings with status REJECTED. Admin only.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Rejected listings retrieved successfully',
+    schema: {
+      type: 'array',
+      items: { type: 'object' }
+    }
+  })
+  async getRejectedListings() {
+    return this.adminService.getRejectedListings();
+  }
+
+  @Get('users')
+  @ApiOperation({ summary: 'Get users list (admin only)' })
+  @ApiQuery({ name: 'search', required: false, description: 'Search by name or email' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Max results (default 50)' })
+  @ApiQuery({ name: 'offset', required: false, description: 'Pagination offset (default 0)' })
+  @ApiResponse({ status: 200, description: 'Users retrieved successfully' })
+  async getUsers(
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string
+  ) {
+    return this.adminService.getUsers(search, limit, offset);
   }
 
   @Post('listings/approve')
