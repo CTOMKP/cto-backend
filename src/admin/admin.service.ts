@@ -372,13 +372,28 @@ export class AdminService {
         take: 100 // Limit to last 100 payments
       });
 
+      const listingIds = Array.from(
+        new Set(payments.map((payment) => payment.listingId).filter((id): id is string => Boolean(id)))
+      );
+      const listings = listingIds.length
+        ? await this.prisma.userListing.findMany({
+            where: { id: { in: listingIds } },
+            select: { id: true, title: true }
+          })
+        : [];
+      const listingsById = new Map(listings.map((listing) => [listing.id, listing]));
+      const paymentsWithListings = payments.map((payment) => ({
+        ...payment,
+        listing: payment.listingId ? listingsById.get(payment.listingId) || null : null
+      }));
+
       const totalAmount = payments
         .filter(p => p.status === 'COMPLETED')
         .reduce((sum, p) => sum + p.amount, 0);
 
       return {
         success: true,
-        payments,
+        payments: paymentsWithListings,
         total: payments.length,
         totalAmount: totalAmount,
         currency: 'USDC',
