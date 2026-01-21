@@ -12,6 +12,27 @@ export class UserListingsService {
 
   constructor(private prisma: PrismaService, private scanService: ScanService) {}
 
+  private async getLatestScan(contractAddress: string) {
+    if (!contractAddress) return null;
+    return (this.prisma as any).scanResult.findFirst({
+      where: { contractAddress },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  private enrichWithScan<T extends { contractAddr: string }>(item: T, scan: any) {
+    const scanData = scan?.resultData ?? null;
+    const metadata = scanData?.metadata ?? scanData ?? null;
+
+    return {
+      ...item,
+      scanMetadata: metadata,
+      scanSummary: scan?.summary ?? scanData?.summary ?? null,
+      scanRiskScore: scan?.riskScore ?? scanData?.risk_score ?? null,
+      scanTier: scan?.tier ?? scanData?.tier ?? null,
+    };
+  }
+
   async scan(userId: number | undefined, dto: ScanDto) {
     const chain = dto.chain || 'SOLANA';
     try {
@@ -184,7 +205,36 @@ export class UserListingsService {
       where: { userId },
       orderBy: { updatedAt: 'desc' },
     });
-    return { success: true, items };
+    if (!items.length) return { success: true, items };
+
+    const contractAddresses = items.map((item) => item.contractAddr);
+    const scanResults = await (this.prisma as any).scanResult.findMany({
+      where: { contractAddress: { in: contractAddresses } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const scanMap = new Map<string, any>();
+    scanResults.forEach((scan: any) => {
+      if (!scanMap.has(scan.contractAddress)) {
+        scanMap.set(scan.contractAddress, scan);
+      }
+    });
+
+    const enriched = items.map((item) => {
+      const scan = scanMap.get(item.contractAddr);
+      const scanData = scan?.resultData ?? null;
+      const metadata = scanData?.metadata ?? scanData ?? null;
+
+      return {
+        ...item,
+        scanMetadata: metadata,
+        scanSummary: scan?.summary ?? scanData?.summary ?? null,
+        scanRiskScore: scan?.riskScore ?? scanData?.risk_score ?? null,
+        scanTier: scan?.tier ?? scanData?.tier ?? null,
+      };
+    });
+
+    return { success: true, items: enriched };
   }
 
   async findPublic(page = 1, limit = 20) {
@@ -198,20 +248,42 @@ export class UserListingsService {
         take: limit,
       }),
     ]);
-    return { page, limit, total, items };
+    if (!items.length) return { page, limit, total, items };
+
+    const contractAddresses = items.map((item) => item.contractAddr);
+    const scanResults = await (this.prisma as any).scanResult.findMany({
+      where: { contractAddress: { in: contractAddresses } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const scanMap = new Map<string, any>();
+    scanResults.forEach((scan: any) => {
+      if (!scanMap.has(scan.contractAddress)) {
+        scanMap.set(scan.contractAddress, scan);
+      }
+    });
+
+    const enriched = items.map((item) => {
+      const scan = scanMap.get(item.contractAddr);
+      return this.enrichWithScan(item, scan);
+    });
+
+    return { page, limit, total, items: enriched };
   }
 
   async findOnePublic(id: string) {
     const found = await this.prisma.userListing.findUnique({ where: { id } });
     if (!found || found.status !== 'PUBLISHED') throw new NotFoundException('Listing not found');
-    return { success: true, data: found };
+    const scan = await this.getLatestScan(found.contractAddr);
+    return { success: true, data: this.enrichWithScan(found, scan) };
   }
 
   async findMyListing(userId: number, id: string) {
     const found = await this.prisma.userListing.findUnique({ where: { id } });
     if (!found) throw new NotFoundException('Listing not found');
     if (found.userId !== userId) throw new ForbiddenException('Not your listing');
-    return { success: true, data: found };
+    const scan = await this.getLatestScan(found.contractAddr);
+    return { success: true, data: this.enrichWithScan(found, scan) };
   }
 
   async addAdBoost(userId: number, id: string, dto: CreateAdBoostDto) {

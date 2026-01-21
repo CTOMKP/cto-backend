@@ -77,6 +77,10 @@ export class UserListingsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: "Get current user's listings" })
+  @ApiResponse({
+    status: 200,
+    description: 'Listings retrieved successfully (includes scanMetadata when available).',
+  })
   async mine(@Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
     return this.svc.findMine(Number(userId));
@@ -86,6 +90,10 @@ export class UserListingsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: "Get one of current user's listings (including DRAFT)" })
+  @ApiResponse({
+    status: 200,
+    description: 'Listing retrieved successfully (includes scanMetadata when available).',
+  })
   async getMyListing(@Param('id') id: string, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
     return this.svc.findMyListing(Number(userId), id);
