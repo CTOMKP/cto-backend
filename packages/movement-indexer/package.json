@@ -9,6 +9,9 @@
     "deploy": "sentio deploy"
   },
   "dependencies": {
-    "@sentio/sdk": "^2.36.0"
+    "@sentio/sdk": "^3.2.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1"
   }
 }

@@ -63,7 +63,7 @@ AptosModulesProcessor.bind({
   })
   .onEvent("TransferEvent", async (event, ctx) => {
     const tokenAddress =
-      event?.token ?? event?.coin_type ?? event?.type || "";
+      (event?.token ?? event?.coin_type ?? event?.type) || "";
 
     // Only track USDC ledger transfers for metrics
     if (

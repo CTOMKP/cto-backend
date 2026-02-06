@@ -219,16 +219,33 @@ export class ScanService {
         try {
           const tokenData = await this.solanaApiService.fetchTokenData(contractAddress);
           if (!tokenData) {
-            return { contractAddress, success: false, error: 'Token not found or invalid contract address', eligible: false };
+            return {
+              contractAddress,
+              chain: 'SOLANA',
+              success: false,
+              error: 'Token not found or invalid contract address',
+              eligible: false,
+            };
           }
+          const logoUrl = (tokenData as any).icon || (tokenData as any).image || null;
           if (tokenData.project_age_days < 14) {
             const ageDisplay = formatTokenAge(tokenData.project_age_days);
             return {
               contractAddress,
+              chain: 'SOLANA',
               success: false,
               error: `Token is too young for listing. Minimum age requirement is 14 days. This token is ${ageDisplay} old.`,
               eligible: false,
-              metadata: { token_symbol: tokenData.symbol, token_name: tokenData.name, project_age_days: tokenData.project_age_days, age_display: ageDisplay, minimum_age_required: 14 },
+              metadata: {
+                token_symbol: tokenData.symbol,
+                token_name: tokenData.name,
+                logo_url: logoUrl,
+                chain: 'SOLANA',
+                community_score: null,
+                project_age_days: tokenData.project_age_days,
+                age_display: ageDisplay,
+                minimum_age_required: 14,
+              },
             };
           }
           // Transform and calculate risk score using Pillar1RiskScoringService
@@ -238,6 +255,7 @@ export class ScanService {
           if (!vettingResults.dataSufficient || !vettingResults.overallScore || vettingResults.overallScore < 50) {
             return {
               contractAddress,
+              chain: 'SOLANA',
               success: false,
               error: !vettingResults.dataSufficient 
                 ? `Insufficient data. Missing: ${vettingResults.missingData.join(', ')}`
@@ -246,6 +264,9 @@ export class ScanService {
               metadata: {
                 token_symbol: tokenData.symbol,
                 token_name: tokenData.name,
+                logo_url: logoUrl,
+                chain: 'SOLANA',
+                community_score: null,
                 lp_amount_usd: tokenData.lp_amount_usd,
                 project_age_days: tokenData.project_age_days,
                 holder_count: tokenData.holder_count,
@@ -266,6 +287,7 @@ export class ScanService {
           const summary = generateAISummary(tokenData, { name: vettingResults.eligibleTier }, riskScore);
           return {
             contractAddress,
+            chain: 'SOLANA',
             success: true,
             tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
             risk_score: riskScore,
@@ -275,6 +297,9 @@ export class ScanService {
             metadata: {
               token_symbol: tokenData.symbol,
               token_name: tokenData.name,
+              logo_url: logoUrl,
+              chain: 'SOLANA',
+              community_score: null,
               project_age_days: tokenData.project_age_days,
               age_display: formatTokenAge(tokenData.project_age_days),
               age_display_short: formatTokenAgeShort(tokenData.project_age_days),
@@ -576,7 +601,7 @@ export class ScanService {
     const isFreezable = !!tokenData.freeze_authority;
 
     // Create image URL (fallback to identicon if not available)
-    const imageUrl = tokenData.icon || tokenData.image || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(contractAddress)}`;
+    const imageUrl = (tokenData as any).icon || (tokenData as any).image || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(contractAddress)}`;
 
     return {
       contractAddress,

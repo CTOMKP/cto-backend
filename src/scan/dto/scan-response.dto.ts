@@ -20,6 +20,9 @@ export class ScanResultDto {
   metadata: {
     token_symbol: string;
     token_name: string;
+    logo_url?: string;
+    chain?: string;
+    community_score?: number | null;
     project_age_days: number;
     age_display: string;
     age_display_short: string;
