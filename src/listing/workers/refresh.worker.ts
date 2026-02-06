@@ -1193,35 +1193,8 @@ export class RefreshWorker {
     }
   }
 
-  // REMOVED: Daily rotation - Tokens are manually managed, no automatic deletion
-  // @Cron('0 0 * * *') // DISABLED
-  async dailyRotation() {
-    try {
-      this.logger.log('🌅 Starting Daily Rotation: Clearing database for fresh tokens (except pinned)...');
-      const client = (this.repo as any)['prisma'] as any;
-      const pinnedAddresses = this.INITIAL_TOKENS.map(t => t.address);
-      
-      const deletedListings = await client.listing.deleteMany({
-        where: { contractAddress: { notIn: pinnedAddresses } }
-      });
-      const deletedScans = await client.scanResult.deleteMany({
-        where: { contractAddress: { notIn: pinnedAddresses } }
-      });
-      
-      this.logger.log(`✅ Daily Rotation Complete: Deleted ${deletedListings.count} listings and ${deletedScans.count} scans.`);
-      
-      // Re-fetch initial tokens to ensure they are up to date
-      await this.ensureInitialTokensExist();
-
-      // Immediately trigger multiple fetches to ensure we find enough mature tokens
-      for (let i = 0; i < 3; i++) {
-        await this.scheduledFetchFeed();
-        if (i < 2) await new Promise(resolve => setTimeout(resolve, 5000)); // Short gap
-      }
-    } catch (error: any) {
-      this.logger.error('❌ Daily Rotation failed:', error);
-    }
-  }
+  // REMOVED: Daily rotation - Tokens are manually managed via POST /api/listing/add
+  // No automatic deletion or rotation. All tokens are manually curated.
 
   /**
    * Specifically fetch and ensure the initial tokens are in the database.
@@ -1455,10 +1428,7 @@ export class RefreshWorker {
   }
 
   // REMOVED: Token limit enforcement - No limits with manual token management
-  // @Cron('0 0 */6 * * *') // DISABLED
-  async enforceTokenLimitRotation() {
-    // DISABLED - No token limits with manual management
-  }
+  // All tokens are manually curated via POST /api/listing/add endpoint
 
   // REMOVED: scheduledRefreshAll - This was re-vetting all tokens, which is Pillar 2's job.
   // Pillar 1 (processExistingUnvettedTokens) only processes unvetted tokens.

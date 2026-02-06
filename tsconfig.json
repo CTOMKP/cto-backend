@@ -42,6 +42,7 @@
     "src/assets/**/*",
     "src/dune/**/*",
     "src/stats/**/*",
-    "src/pfp/**/*"
+    "src/pfp/**/*",
+    "src/legacy/**/*"
   ]
 }

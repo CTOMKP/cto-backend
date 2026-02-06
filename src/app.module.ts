@@ -7,7 +7,6 @@ import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { ListingModule } from './listing/listing.module';
-import { CircleModule } from './circle/circle.module';
 import { UserListingsModule } from './user-listings/user-listings.module';
 import { MemeModule } from './meme/meme.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
@@ -38,7 +37,6 @@ import { SentioModule } from './sentio/sentio.module';
     ImageModule,
     AuthModule,
     ListingModule,
-    CircleModule,
     UserListingsModule,
     MemeModule,
     WaitlistModule,
