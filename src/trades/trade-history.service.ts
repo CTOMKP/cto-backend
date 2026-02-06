@@ -251,7 +251,7 @@ export class TradeHistoryService {
   async syncSentioTradesToUserTrade(
     userId: number,
     walletAddress: string,
-    walletId: string,
+    walletId?: string,
   ): Promise<number> {
     const apiKey = this.configService.get('SENTIO_API_KEY');
     if (!apiKey) {
@@ -327,24 +327,31 @@ export class TradeHistoryService {
           row.token_in?.toLowerCase().includes('usdc');
 
         try {
+          const tradeData: any = {
+            userId,
+            chain: 'movement',
+            type: isBuy ? 'BUY' : 'SELL',
+            tokenInAddress: row.token_in || '',
+            tokenOutAddress: row.token_out || '',
+            tokenInSymbol: this.extractSymbol(row.token_in),
+            tokenOutSymbol: this.extractSymbol(row.token_out),
+            amountIn: String(row.amount_in || '0'),
+            amountOut: String(row.amount_out || '0'),
+            slippageBps: 50, // Default slippage (0.5%) - can be updated later if needed
+            txHash,
+            status: 'completed',
+            completedAt: row.block_time
+              ? new Date(row.block_time)
+              : new Date(),
+          };
+
+          // Only include walletId if provided
+          if (walletId) {
+            tradeData.walletId = walletId;
+          }
+
           await this.prisma.userTrade.create({
-            data: {
-              userId,
-              chain: 'movement',
-              type: isBuy ? 'BUY' : 'SELL',
-              tokenInAddress: row.token_in || '',
-              tokenOutAddress: row.token_out || '',
-              tokenInSymbol: this.extractSymbol(row.token_in),
-              tokenOutSymbol: this.extractSymbol(row.token_out),
-              amountIn: String(row.amount_in || '0'),
-              amountOut: String(row.amount_out || '0'),
-              txHash,
-              status: 'completed',
-              walletId,
-              completedAt: row.block_time
-                ? new Date(row.block_time)
-                : new Date(),
-            },
+            data: tradeData,
           });
           syncedCount++;
         } catch (error: any) {
