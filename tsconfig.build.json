@@ -21,7 +21,8 @@
     "src/pfp/**/*",
     "src/image/**/*",
     "src/storage/**/*",
-    "src/user-listings/**/*"
+    "src/user-listings/**/*",
+    "src/legacy/**/*"
   ]
 }
 
