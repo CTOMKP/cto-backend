@@ -39,6 +39,8 @@ model User {
   userListings    UserListing[]
   uploadedMemes   Meme[]
   payments        Payment[]
+  userTrades      UserTrade[]
+  pendingOrders   PendingOrder[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -132,6 +134,7 @@ model Listing {
   updatedAt       DateTime        @updatedAt
 
   // Back-relations
+
   @@index([chain])
   @@index([category])
   @@index([tier])
@@ -149,7 +152,7 @@ model Wallet {
   type                 String?                              // e.g., USER_CONTROLLED, PRIVY_EMBEDDED, PRIVY_EXTERNAL
   walletClient         String?                              // e.g., metamask, phantom, coinbase_wallet, APTOS_EMBEDDED
   description          String?
-  isPrimary            Boolean  @default(false)             // Primary wallet for user
+  isPrimary            Boolean  @default(false)             // Primary wallet for the user
   encryptedPrivateKey  String?                              // Encrypted private key for server-managed wallets (Aptos)
 
   userId         Int
@@ -158,6 +161,7 @@ model Wallet {
   // Relations
   walletBalances WalletBalance[]
   walletTransactions WalletTransaction[]
+  userTrades      UserTrade[]
 
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -235,7 +239,7 @@ model Waitlist {
   id        String   @id @default(cuid())
   email     String   @unique
   createdAt DateTime @default(now())
-
+  
   @@index([createdAt])
 }
 
@@ -272,7 +276,7 @@ model Payment {
   
   // Relations
   walletTransactions WalletTransaction[]
-
+  
   @@index([userId])
   @@index([paymentType])
   @@index([status])
@@ -318,7 +322,7 @@ model WalletBalance {
   lastUpdated   DateTime @default(now())
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-
+  
   @@unique([walletId, tokenAddress])
   @@index([walletId])
   @@index([tokenAddress])
@@ -356,37 +360,12 @@ model WalletTransaction {
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-
+  
   @@unique([walletId, txHash])
   @@index([walletId])
   @@index([txHash])
   @@index([paymentId])
   @@index([txType])
-  @@index([createdAt])
-}
-
-// Pillar 2: Alerts detected during monitoring
-
-model Alert {
-  id                  String   @id @default(cuid())
-  contractAddress     String   // Reference to Listing.contractAddress
-  severity            String   // 'low' | 'medium' | 'high' | 'critical'
-  triggerType         String   // 'liquidity_drop' | 'holder_loss' | 'price_crash' | etc.
-  conditionDescription String? // Human-readable description of what triggered alert
-  actionTaken         String?  // What action was taken (e.g., 'monitoring_detected', 'tier_downgraded')
-  message             String?  // Alert message
-  detected            Boolean  @default(true)
-  resolved            Boolean  @default(false)
-  resolvedAt          DateTime?
-  resolvedBy          Int?     // User ID who resolved it (if manual)
-  
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  
-  @@index([contractAddress])
-  @@index([severity])
-  @@index([triggerType])
-  @@index([detected])
   @@index([createdAt])
 }
 
@@ -430,4 +409,111 @@ model MonitoringSnapshot {
   
   @@index([contractAddress])
   @@index([scannedAt])
+}
+
+// Pillar 2: Alerts detected during monitoring
+model Alert {
+  id                  String   @id @default(cuid())
+  contractAddress     String   // Reference to Listing.contractAddress
+  severity            String   // 'low' | 'medium' | 'high' | 'critical'
+  triggerType         String   // 'liquidity_drop' | 'holder_loss' | 'price_crash' | etc.
+  conditionDescription String? // Human-readable description of what triggered the alert
+  actionTaken         String?  // What action was taken (e.g., 'monitoring_detected', 'tier_downgraded')
+  message             String?  // Alert message
+  detected            Boolean  @default(true)
+  resolved            Boolean  @default(false)
+  resolvedAt          DateTime?
+  resolvedBy          Int?     // User ID who resolved it (if manual)
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([contractAddress])
+  @@index([severity])
+  @@index([triggerType])
+  @@index([detected])
+  @@index([createdAt])
+}
+
+// User trading history
+model UserTrade {
+  id            String   @id @default(cuid())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Chain and trade type
+  chain         String   // "solana" | "movement"
+  type          String   // "BUY" | "SELL"
+  
+  // Token information
+  tokenInAddress  String   // Input token contract address
+  tokenOutAddress String   // Output token contract address
+  tokenInSymbol   String?  // For display
+  tokenOutSymbol  String?  // For display
+  
+  // Amounts (stored as strings for precision)
+  amountIn        String
+  amountOut       String
+  price           Decimal? // Price per token
+  
+  // Trade execution details
+  slippageBps     Int      // Slippage in basis points (e.g., 50 = 0.5%)
+  priceImpact     Decimal? // Price impact percentage
+  
+  // Transaction details
+  txHash          String   @unique
+  status          String   // "pending" | "completed" | "failed"
+  
+  // Wallet used for trade
+  walletId        String?  // Reference to Wallet.id
+  wallet          Wallet?  @relation(fields: [walletId], references: [id])
+  
+  // Optional: Link to Listing (token being traded)
+  listingId       String?  // Reference to Listing.id (via contractAddress)
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+  
+  @@index([userId])
+  @@index([txHash])
+  @@index([chain, createdAt])
+  @@index([walletId])
+  @@index([listingId])
+}
+
+// Pending trading orders (quotes awaiting execution)
+model PendingOrder {
+  id            String   @id @default(cuid())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Chain and order type
+  chain         String   // "solana" | "movement"
+  type          String   // "BUY" | "SELL"
+  
+  // Token information
+  tokenInAddress  String
+  tokenOutAddress String
+  amount          String   // Amount to trade
+  
+  // Quote data (stored as JSON)
+  quote         Json     // Full Jupiter/Panora quote response
+  
+  // Slippage
+  slippageBps   Int      // Slippage in basis points
+  
+  // Status tracking
+  status        String   // "pending" | "executing" | "completed" | "cancelled" | "failed"
+  
+  // Execution result
+  txHash        String?
+  errorMessage  String?
+  
+  // Timestamps
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime // When the quote becomes invalid
+  
+  @@index([userId, status])
+  @@index([expiresAt])
 }

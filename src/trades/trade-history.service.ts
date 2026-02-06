@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 import axios from 'axios';
 
 export type UnifiedTradeType = 'BUY' | 'SELL';
@@ -25,7 +26,10 @@ export class TradeHistoryService {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly ttlMs = 8_000;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async getTrades(address: string, limit = 50): Promise<UnifiedTrade[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 200);
@@ -238,5 +242,208 @@ export class TradeHistoryService {
       );
       return [];
     }
+  }
+
+  /**
+   * Sync Movement trades from Sentio to UserTrade table
+   * This bridges external Sentio data with PostgreSQL for unified user view
+   */
+  async syncSentioTradesToUserTrade(
+    userId: number,
+    walletAddress: string,
+    walletId: string,
+  ): Promise<number> {
+    const apiKey = this.configService.get('SENTIO_API_KEY');
+    if (!apiKey) {
+      this.logger.warn('SENTIO_API_KEY missing; cannot sync trades.');
+      return 0;
+    }
+
+    const project =
+      this.configService.get('SENTIO_PROJECT') ||
+      'ctomarketplace2025/cto-movement-tracker';
+    const sqlUrl =
+      this.configService.get('SENTIO_SQL_URL') ||
+      `https://api.sentio.xyz/v1/projects/${project}/sql`;
+
+    // Query Sentio for trades by this wallet address
+    const query = `
+      SELECT 
+        transaction_hash as tx_hash,
+        block_time,
+        token_in,
+        token_out,
+        amount_in,
+        amount_out,
+        trader_address
+      FROM movement_trades
+      WHERE trader_address = :wallet_address
+      ORDER BY block_time DESC
+      LIMIT 100
+    `;
+
+    try {
+      const response = await axios.post(
+        sqlUrl,
+        { query, params: { wallet_address: walletAddress } },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'x-api-key': apiKey,
+          },
+          timeout: 10_000,
+        },
+      );
+
+      const rows =
+        response.data?.data?.rows ||
+        response.data?.data ||
+        response.data?.rows ||
+        [];
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return 0;
+      }
+
+      // Get existing txHashes to avoid duplicates
+      const existingTxHashes = await this.prisma.userTrade.findMany({
+        where: { userId, txHash: { in: rows.map((r: any) => r.tx_hash) } },
+        select: { txHash: true },
+      });
+      const existingSet = new Set(existingTxHashes.map((t) => t.txHash));
+
+      // Insert new trades
+      let syncedCount = 0;
+      for (const row of rows) {
+        const txHash = row.tx_hash || row.transaction_hash;
+        if (!txHash || existingSet.has(txHash)) {
+          continue;
+        }
+
+        // Determine trade type: BUY if token_out is the target token, SELL otherwise
+        // For Movement, if token_in is aptos_coin or USDC, it's a BUY
+        const isBuy =
+          row.token_in?.toLowerCase().includes('aptos_coin') ||
+          row.token_in?.toLowerCase().includes('usdc');
+
+        try {
+          await this.prisma.userTrade.create({
+            data: {
+              userId,
+              chain: 'movement',
+              type: isBuy ? 'BUY' : 'SELL',
+              tokenInAddress: row.token_in || '',
+              tokenOutAddress: row.token_out || '',
+              tokenInSymbol: this.extractSymbol(row.token_in),
+              tokenOutSymbol: this.extractSymbol(row.token_out),
+              amountIn: String(row.amount_in || '0'),
+              amountOut: String(row.amount_out || '0'),
+              txHash,
+              status: 'completed',
+              walletId,
+              completedAt: row.block_time
+                ? new Date(row.block_time)
+                : new Date(),
+            },
+          });
+          syncedCount++;
+        } catch (error: any) {
+          // Skip if duplicate (unique constraint on txHash)
+          if (error.code !== 'P2002') {
+            this.logger.warn(
+              `Failed to sync trade ${txHash}: ${error.message}`,
+            );
+          }
+        }
+      }
+
+      this.logger.log(
+        `Synced ${syncedCount} Movement trades for user ${userId}`,
+      );
+      return syncedCount;
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to sync Sentio trades for user ${userId}: ${error.message}`,
+      );
+      return 0;
+    }
+  }
+
+  /**
+   * Extract token symbol from Movement token address/type
+   */
+  private extractSymbol(tokenAddress: string): string | null {
+    if (!tokenAddress) return null;
+    // Extract symbol from type strings like "0x1::aptos_coin::AptosCoin"
+    const parts = tokenAddress.split('::');
+    if (parts.length >= 3) {
+      return parts[2].replace('Coin', '').toUpperCase();
+    }
+    return null;
+  }
+
+  /**
+   * Get user's trade history (unified query combining UserTrade + Listing)
+   */
+  async getUserTradeHistory(
+    userId: number,
+    limit: number = 50,
+  ): Promise<any[]> {
+    const safeLimit = Math.min(Math.max(limit, 1), 200);
+
+    // Use Prisma's query builder for the unified query
+    const trades = await this.prisma.userTrade.findMany({
+      where: { userId },
+      take: safeLimit,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        wallet: {
+          select: {
+            address: true,
+            blockchain: true,
+          },
+        },
+      },
+    });
+
+    // Enrich with Listing data (token metadata)
+    const enrichedTrades = await Promise.all(
+      trades.map(async (trade) => {
+        // Find the token listing (tokenOutAddress is the token being traded)
+        const listing = await this.prisma.listing.findFirst({
+          where: {
+            contractAddress: trade.tokenOutAddress,
+            chain: trade.chain.toUpperCase() as any, // Convert to Chain enum
+          },
+          select: {
+            symbol: true,
+            name: true,
+          },
+        });
+
+        return {
+          id: trade.id,
+          txHash: trade.txHash,
+          chain: trade.chain,
+          type: trade.type,
+          tokenInSymbol: trade.tokenInSymbol || listing?.symbol,
+          tokenOutSymbol: trade.tokenOutSymbol || listing?.symbol,
+          tokenInAddress: trade.tokenInAddress,
+          tokenOutAddress: trade.tokenOutAddress,
+          tokenName: listing?.name,
+          amountIn: trade.amountIn,
+          amountOut: trade.amountOut,
+          price: trade.price,
+          slippageBps: trade.slippageBps,
+          priceImpact: trade.priceImpact,
+          status: trade.status,
+          walletAddress: trade.wallet?.address,
+          createdAt: trade.createdAt,
+          completedAt: trade.completedAt,
+        };
+      }),
+    );
+
+    return enrichedTrades;
   }
 }
