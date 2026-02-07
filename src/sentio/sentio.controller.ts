@@ -56,6 +56,12 @@ export class SentioController {
       ? Math.min(Math.max(parsedLimit, 1), 200)
       : 50;
 
-    return this.tradeHistoryService.getTrades(address, safeLimit);
+    const trades = await this.tradeHistoryService.getTrades(address, safeLimit);
+
+    // Return in format expected by frontend: { data: [...] }
+    return {
+      data: trades,
+      count: trades.length,
+    };
   }
 }

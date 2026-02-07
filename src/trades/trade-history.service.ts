@@ -96,6 +96,8 @@ export class TradeHistoryService {
   ): Promise<UnifiedTrade[]> {
     // Directive 1: Use Helius Enhanced Transactions as PRIMARY source
     // Helius parses raw Solana transactions into "Swap" readable format
+    this.logger.debug(`Fetching Solana trades for ${mintAddress}`);
+    
     const heliusTrades = await this.getHeliusEnhancedTrades(mintAddress, limit);
     if (heliusTrades.length > 0) {
       this.logger.log(
@@ -106,9 +108,19 @@ export class TradeHistoryService {
 
     // Fallback: Use Birdeye if Helius returns no data
     this.logger.log(
-      `Helius returned no trades, trying Birdeye fallback for ${mintAddress}`,
+      `Helius returned no trades for ${mintAddress}, trying Birdeye fallback`,
     );
-    return await this.getBirdeyeTrades(mintAddress, limit);
+    const birdeyeTrades = await this.getBirdeyeTrades(mintAddress, limit);
+    if (birdeyeTrades.length > 0) {
+      this.logger.log(
+        `✅ Found ${birdeyeTrades.length} trades from Birdeye for ${mintAddress}`,
+      );
+    } else {
+      this.logger.warn(
+        `⚠️ No trades found for ${mintAddress} from Helius or Birdeye`,
+      );
+    }
+    return birdeyeTrades;
   }
 
   /**
@@ -131,6 +143,8 @@ export class TradeHistoryService {
     try {
       // Helius Enhanced Transactions API - GET request
       // Endpoint: GET https://api.helius.xyz/v0/addresses/{address}/transactions?api-key={API_KEY}&limit={limit}
+      this.logger.debug(`Fetching Helius trades for ${mintAddress} (limit: ${limit})`);
+      
       const response = await axios.get(
         `https://api.helius.xyz/v0/addresses/${mintAddress}/transactions`,
         {
@@ -144,8 +158,11 @@ export class TradeHistoryService {
 
       const transactions = response.data || [];
       if (!Array.isArray(transactions)) {
+        this.logger.debug(`Helius returned non-array response for ${mintAddress}: ${typeof transactions}`);
         return [];
       }
+
+      this.logger.debug(`Helius returned ${transactions.length} transactions for ${mintAddress}`);
 
       const trades: UnifiedTrade[] = [];
 
@@ -157,11 +174,13 @@ export class TradeHistoryService {
         if (trades.length >= limit) break;
       }
 
+      this.logger.debug(`Extracted ${trades.length} swap trades from ${transactions.length} transactions for ${mintAddress}`);
       return trades.slice(0, limit);
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message;
-      this.logger.debug(
-        `Helius Enhanced Transactions failed for ${mintAddress}: ${errorMessage}`,
+      const statusCode = error.response?.status;
+      this.logger.warn(
+        `Helius Enhanced Transactions failed for ${mintAddress} (${statusCode || 'n/a'}): ${errorMessage}`,
       );
       return [];
     }
@@ -303,6 +322,8 @@ export class TradeHistoryService {
     }
 
     try {
+      this.logger.debug(`Fetching Birdeye trades for ${mintAddress} (limit: ${limit})`);
+      
       const response = await axios.get(
         'https://public-api.birdeye.so/defi/txs/token',
         {
@@ -319,13 +340,26 @@ export class TradeHistoryService {
         },
       );
 
+      // Check for error response
+      if (response.data?.success === false) {
+        this.logger.warn(
+          `Birdeye API error for ${mintAddress}: ${response.data?.message || 'Unknown error'}`,
+        );
+        return [];
+      }
+
       const items =
         response.data?.data?.items ||
         response.data?.data ||
         response.data?.items ||
         [];
 
-      if (!Array.isArray(items)) return [];
+      if (!Array.isArray(items)) {
+        this.logger.debug(`Birdeye returned non-array response for ${mintAddress}: ${typeof items}`);
+        return [];
+      }
+
+      this.logger.debug(`Birdeye returned ${items.length} trades for ${mintAddress}`);
 
       return items.map((item: any) => {
         const rawType =
