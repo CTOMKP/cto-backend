@@ -416,6 +416,24 @@ export class TradeHistoryService {
   // Removed: getHeliusTransactions - now using getHeliusEnhancedTrades instead
 
   /**
+   * Normalize Movement token address
+   * Extracts the address part from type tags like "0x123::MODULE::STRUCT"
+   * Returns just the address part for matching
+   */
+  private normalizeMovementTokenAddress(tokenAddress: string): string {
+    if (!tokenAddress) return tokenAddress;
+
+    // If it's a type tag format (contains ::), extract the address part
+    if (tokenAddress.includes('::')) {
+      const parts = tokenAddress.split('::');
+      return parts[0]; // Return the address part (before first ::)
+    }
+
+    // Otherwise return as-is
+    return tokenAddress;
+  }
+
+  /**
    * Get Base chain trades using Birdeye Base endpoint
    * Endpoint: https://public-api.birdeye.so/defi/history_price?address=${address}&address_type=token&type=1m
    * Alternative: Use DexScreener for actual trades
@@ -634,6 +652,14 @@ export class TradeHistoryService {
       this.configService.get('SENTIO_SQL_URL') ||
       `https://api.sentio.xyz/v1/projects/${project}/sql`;
 
+    // Normalize token address: Extract address part from type tags like "0x123::MODULE::STRUCT"
+    const normalizedToken = this.normalizeMovementTokenAddress(tokenAddress);
+    this.logger.debug(
+      `Querying Movement trades for token: ${tokenAddress} (normalized: ${normalizedToken})`,
+    );
+
+    // Try exact match first (works for both full type tags and address-only)
+    // If that returns no results, we'll know the token format in DB is different
     const query = `
       select
         tx_hash as "txHash",
@@ -659,7 +685,8 @@ export class TradeHistoryService {
     `;
 
     try {
-      const response = await axios.post(
+      // First try with the original token address (full type tag)
+      let response = await axios.post(
         sqlUrl,
         { query, params: { token: tokenAddress, limit } },
         {
@@ -671,13 +698,47 @@ export class TradeHistoryService {
         },
       );
 
-      const rows =
+      let rows =
         response.data?.data?.rows ||
         response.data?.data ||
         response.data?.rows ||
         [];
 
-      if (!Array.isArray(rows)) return [];
+      // If no results with full type tag, try with just the address part
+      if (!Array.isArray(rows) || rows.length === 0) {
+        if (normalizedToken !== tokenAddress) {
+          this.logger.debug(
+            `No trades found with full type tag, trying normalized address: ${normalizedToken}`,
+          );
+          response = await axios.post(
+            sqlUrl,
+            { query, params: { token: normalizedToken, limit } },
+            {
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'x-api-key': apiKey,
+              },
+              timeout: 10_000,
+            },
+          );
+          rows =
+            response.data?.data?.rows ||
+            response.data?.data ||
+            response.data?.rows ||
+            [];
+        }
+      }
+
+      if (!Array.isArray(rows)) {
+        this.logger.debug(
+          `Sentio returned non-array response for ${tokenAddress}: ${typeof rows}`,
+        );
+        return [];
+      }
+
+      this.logger.debug(
+        `Sentio returned ${rows.length} trades for ${tokenAddress}`,
+      );
 
       return rows.map((row: any) => ({
         txHash: row.txHash || row.tx_hash || '',
@@ -691,11 +752,19 @@ export class TradeHistoryService {
     } catch (error: any) {
       const status = error?.response?.status;
       const body = error?.response?.data;
-      this.logger.warn(
-        `Sentio SQL fetch failed for ${tokenAddress} (${status || 'n/a'}): ${
-          body?.message || error?.message || error
-        }`,
-      );
+      
+      // 404 means the token might not be indexed yet, which is okay
+      if (status === 404) {
+        this.logger.debug(
+          `Token ${tokenAddress} not found in Sentio indexer (404). This may mean the token has no trades yet or isn't indexed.`,
+        );
+      } else {
+        this.logger.warn(
+          `Sentio SQL fetch failed for ${tokenAddress} (${status || 'n/a'}): ${
+            body?.message || error?.message || 'Unknown error'
+          }`,
+        );
+      }
       return [];
     }
   }
