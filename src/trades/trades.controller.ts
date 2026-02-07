@@ -10,13 +10,19 @@ import {
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TradeHistoryService } from './trade-history.service';
+import { QuoteService } from './quote.service';
+import { ExecutionService } from './execution.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { QuoteRequestDto } from './dto/quote.dto';
+import { BuildTransactionRequestDto, ExecuteTradeRequestDto } from './dto/execute.dto';
 
 @ApiTags('trades')
 @Controller('trades')
 export class TradesController {
   constructor(
     private readonly tradeHistoryService: TradeHistoryService,
+    private readonly quoteService: QuoteService,
+    private readonly executionService: ExecutionService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -34,7 +40,7 @@ export class TradesController {
   @ApiQuery({
     name: 'chain',
     required: false,
-    description: 'Filter by chain: solana | movement',
+    description: 'Filter by chain: solana | movement | base',
     example: 'solana',
   })
   @ApiQuery({
@@ -81,31 +87,66 @@ export class TradesController {
   /**
    * Get swap quote
    * Directive 2: POST /api/v1/trades/quote
-   * TODO: Implement quote fetching from Jupiter (Solana) and Panora (Movement)
    */
   @Post('quote')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get swap quote',
-    description: 'Fetches price quote from Jupiter (Solana) or Panora (Movement)',
+    description: 'Fetches price quote from Jupiter (Solana/Base) or Panora (Movement)',
   })
   @ApiResponse({
     status: 200,
     description: 'Quote retrieved successfully',
   })
-  async getQuote(@Body() body: any) {
-    // TODO: Implement quote service
+  async getQuote(@Body() quoteRequest: QuoteRequestDto) {
+    // Auto-detect chain if not provided
+    let chain = quoteRequest.chain;
+    if (!chain) {
+      chain = await this.quoteService.detectChainFromTokens(
+        quoteRequest.inputToken,
+        quoteRequest.outputToken,
+      );
+    }
+
+    const quote = await this.quoteService.getQuote({
+      ...quoteRequest,
+      chain,
+    });
+
     return {
-      message: 'Quote endpoint - implementation pending',
-      body,
+      success: true,
+      data: quote,
+    };
+  }
+
+  /**
+   * Build unsigned transaction for frontend signing
+   * POST /api/v1/trades/build-transaction
+   */
+  @Post('build-transaction')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Build unsigned transaction',
+    description: 'Builds unsigned transaction for frontend to sign with Privy wallet',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Transaction built successfully',
+  })
+  async buildTransaction(@Body() request: BuildTransactionRequestDto) {
+    const unsignedTx = await this.executionService.buildUnsignedTransaction(request);
+
+    return {
+      success: true,
+      data: unsignedTx,
     };
   }
 
   /**
    * Execute trade (buy or sell)
    * Directive 2: POST /api/v1/trades/execute
-   * TODO: Implement transaction broadcasting and UserTrade recording
    */
   @Post('execute')
   @UseGuards(JwtAuthGuard)
@@ -118,13 +159,34 @@ export class TradesController {
     status: 200,
     description: 'Trade executed successfully',
   })
-  async executeTrade(@Request() req: any, @Body() body: any) {
-    // TODO: Implement execution service
+  async executeTrade(@Request() req: any, @Body() executeRequest: ExecuteTradeRequestDto) {
     const userId = req.user?.id || req.user?.sub;
-    return {
-      message: 'Execute endpoint - implementation pending',
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+
+    // Find user's wallet for the chain
+    const wallet = await this.prisma.wallet.findFirst({
+      where: {
+        userId,
+        blockchain: executeRequest.chain.toUpperCase() as any,
+      },
+    });
+
+    const result = await this.executionService.broadcastTransaction({
+      chain: executeRequest.chain,
+      signedTransaction: executeRequest.signedTransaction,
       userId,
-      body,
+      quote: executeRequest.quote,
+      walletId: executeRequest.walletId || wallet?.id,
+    });
+
+    return {
+      success: true,
+      data: {
+        txHash: result.txHash,
+        status: result.status,
+      },
     };
   }
 }
