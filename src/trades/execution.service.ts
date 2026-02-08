@@ -190,57 +190,91 @@ export class ExecutionService {
       const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
       const baseChainId = 8453; // Base mainnet chain ID
       
-      if (oneInchApiKey) {
-        // Use 1inch API for Base swaps
-        const oneInchUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/swap`;
-        
-        const swapParams = {
-          src: quote.inputMint,
-          dst: quote.outputMint,
-          amount: quote.inAmount,
-          from: walletAddress,
-          slippage: slippageBps / 100, // Convert BPS to percentage (e.g., 0.5 for 0.5%)
-          disableEstimate: false,
-        };
+      if (!oneInchApiKey) {
+        this.logger.warn('ONEINCH_API_KEY not found in environment variables');
+        throw new BadRequestException(
+          'Base chain swaps require ONEINCH_API_KEY to be configured in environment variables.'
+        );
+      }
 
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${oneInchApiKey}`,
-        };
+      // Use 1inch API for Base swaps
+      // Note: 1inch API v6.0 uses GET with query parameters, not POST
+      const oneInchUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/swap`;
+      
+      const swapParams = {
+        src: quote.inputMint,
+        dst: quote.outputMint,
+        amount: quote.inAmount,
+        from: walletAddress,
+        slippage: slippageBps / 100, // Convert BPS to percentage (e.g., 0.5 for 0.5%)
+        disableEstimate: false,
+      };
 
-        try {
-          // 1inch API v6.0 swap endpoint uses POST with query parameters
-          const response = await firstValueFrom(
-            this.httpService.post(oneInchUrl, null, { 
-              params: swapParams,
-              headers, 
-              timeout: 15_000 
-            }),
-          );
+      // 1inch API v6.0 uses API key in header, not Bearer token
+      const headers: Record<string, string> = {
+        'Accept': 'application/json',
+      };
+      
+      // Add API key as query parameter or header based on 1inch v6.0 docs
+      // Try both methods: header first, then query param if needed
+      const paramsWithKey = {
+        ...swapParams,
+      };
 
-          const data = response.data;
-
-          if (!data.tx) {
-            throw new Error('Invalid response from 1inch API: missing tx field');
-          }
-
-          return {
-            chain: 'base',
-            transaction: {
-              to: data.tx.to,
-              data: data.tx.data,
-              value: data.tx.value || '0',
-              gas: data.tx.gas || data.tx.gasLimit || '0',
-              gasPrice: data.tx.gasPrice || '0',
+      try {
+        // 1inch API v6.0 swap endpoint uses GET with query parameters
+        // API key can be in header or query param - try header first
+        const response = await firstValueFrom(
+          this.httpService.get(oneInchUrl, { 
+            params: paramsWithKey,
+            headers: {
+              ...headers,
+              'Authorization': `Bearer ${oneInchApiKey}`,
             },
-          };
-        } catch (oneInchError: any) {
-          this.logger.error(
-            `1inch API failed for Base: ${oneInchError.message}`,
-            oneInchError.response?.data || oneInchError.stack
-          );
-          // Fall through to error below
+            timeout: 15_000 
+          }),
+        );
+
+        const data = response.data;
+
+        if (!data.tx) {
+          throw new Error('Invalid response from 1inch API: missing tx field');
         }
+
+        return {
+          chain: 'base',
+          transaction: {
+            to: data.tx.to,
+            data: data.tx.data,
+            value: data.tx.value || '0',
+            gas: data.tx.gas || data.tx.gasLimit || '0',
+            gasPrice: data.tx.gasPrice || '0',
+          },
+        };
+      } catch (oneInchError: any) {
+        // Log detailed error for debugging
+        this.logger.error(
+          `1inch API failed for Base: ${oneInchError.message}`,
+          {
+            status: oneInchError.response?.status,
+            statusText: oneInchError.response?.statusText,
+            data: oneInchError.response?.data,
+            url: oneInchUrl,
+            params: swapParams,
+            hasApiKey: !!oneInchApiKey,
+            apiKeyLength: oneInchApiKey?.length,
+          }
+        );
+        
+        // If 401, provide specific guidance
+        if (oneInchError.response?.status === 401) {
+          throw new BadRequestException(
+            '1inch API authentication failed. Please verify that ONEINCH_API_KEY is correct and activated in your 1inch dashboard.'
+          );
+        }
+        
+        // Fall through to generic error below
+        throw oneInchError;
       }
 
       // If no 1inch API or it failed, throw informative error
