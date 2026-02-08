@@ -198,7 +198,7 @@ export class ExecutionService {
       }
 
       // Use 1inch API for Base swaps
-      // 1inch API v6.0 swap endpoint uses POST method
+      // 1inch API v6.0 swap endpoint uses GET method with query parameters
       const oneInchUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/swap`;
       
       // Validate quote structure
@@ -213,30 +213,30 @@ export class ExecutionService {
         throw new BadRequestException('Wallet address is required for Base transaction');
       }
       
-      // Ensure token addresses are lowercase (EVM standard)
+      // Ensure token addresses are lowercase (EVM standard) - CRITICAL for 1inch API
       const srcToken = (quote.inputMint || '').toLowerCase();
       const dstToken = (quote.outputMint || '').toLowerCase();
       const fromAddress = (walletAddress || '').toLowerCase();
       
+      // 1inch swap endpoint uses GET with query parameters
       const swapParams = {
         src: srcToken,
         dst: dstToken,
         amount: quote.inAmount,
         from: fromAddress,
         slippage: slippageBps / 100, // Convert BPS to percentage (e.g., 0.5 for 0.5%)
-        disableEstimate: false,
       };
 
       const headers: Record<string, string> = {
         'Accept': 'application/json',
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${oneInchApiKey}`,
       };
 
       try {
-        // 1inch API v6.0 swap endpoint uses POST method
+        // 1inch API v6.0 swap endpoint uses GET method with query parameters
         const response = await firstValueFrom(
-          this.httpService.post(oneInchUrl, swapParams, { 
+          this.httpService.get(oneInchUrl, { 
+            params: swapParams,
             headers,
             timeout: 15_000 
           }),
