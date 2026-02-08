@@ -411,10 +411,16 @@ export class QuoteService {
     const baseChainId = 8453; // Base mainnet
     const quoteUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/quote`;
 
+    // Ensure token addresses are lowercase (EVM addresses should be lowercase for 1inch)
+    const srcToken = inputToken.toLowerCase();
+    const dstToken = outputToken.toLowerCase();
+
     const params = {
-      src: inputToken,
-      dst: outputToken,
+      src: srcToken,
+      dst: dstToken,
       amount: amount,
+      // Add slippage parameter (1inch expects percentage, not BPS)
+      slippage: (slippageBps / 100).toString(),
     };
 
     const headers: Record<string, string> = {
@@ -423,18 +429,23 @@ export class QuoteService {
     };
 
     try {
-      this.logger.debug(`Fetching 1inch quote: ${quoteUrl}`, { params });
+      this.logger.debug(`Fetching 1inch quote: ${quoteUrl}`, { 
+        params,
+        srcToken,
+        dstToken,
+      });
       
       const response = await firstValueFrom(
         this.httpService.get(quoteUrl, {
           params,
           headers,
-          timeout: 5_000, // 5 seconds - 1inch is usually fast (200ms-1s)
+          timeout: 10_000, // Increased timeout to 10 seconds
         }),
       );
 
       const data = response.data;
 
+      // 1inch API response structure
       // Calculate price impact (if not provided)
       const priceImpactPct = data.priceImpact
         ? parseFloat(data.priceImpact)
@@ -445,21 +456,35 @@ export class QuoteService {
         inputMint: inputToken,
         outputMint: outputToken,
         inAmount: amount,
-        outAmount: data.dstAmount || '0',
+        outAmount: data.dstAmount || data.toTokenAmount || '0',
         priceImpactPct,
         slippageBps,
         routePlan: data.protocols || [],
         validFor: 30, // 1inch quotes valid for 30 seconds
-        estimatedGas: data.gas || '0.0001',
+        estimatedGas: data.gas || data.estimatedGas || '0.0001',
         rawQuote: data,
       };
     } catch (error: any) {
-      this.logger.error(`1inch quote API error: ${error.message}`, {
+      const errorDetails = {
         status: error.response?.status,
         statusText: error.response?.statusText,
         data: error.response?.data,
         url: quoteUrl,
-      });
+        params,
+        message: error.message,
+      };
+      
+      this.logger.error(`1inch quote API error: ${error.message}`, errorDetails);
+      
+      // If 404, provide more helpful error message
+      if (error.response?.status === 404) {
+        throw new Error(
+          `1inch API returned 404. This may indicate: invalid token addresses, unsupported token pair, or API endpoint issue. ` +
+          `Token addresses: ${srcToken} -> ${dstToken}. ` +
+          `Check 1inch API documentation or try 0x API fallback.`
+        );
+      }
+      
       throw error;
     }
   }
@@ -474,13 +499,18 @@ export class QuoteService {
     amount: string,
     slippageBps: number,
   ): Promise<QuoteResponse> {
+    // 0x API works without API key for basic quotes (free tier)
     const zeroXApiKey = this.configService.get('0X_API_KEY');
     const baseChainId = 8453; // Base mainnet
     const quoteUrl = 'https://api.0x.org/swap/v1/quote';
 
+    // Ensure token addresses are lowercase (EVM addresses should be lowercase)
+    const sellToken = inputToken.toLowerCase();
+    const buyToken = outputToken.toLowerCase();
+
     const params = {
-      sellToken: inputToken,
-      buyToken: outputToken,
+      sellToken: sellToken,
+      buyToken: buyToken,
       sellAmount: amount,
       chainId: baseChainId,
       slippagePercentage: slippageBps / 100, // Convert BPS to percentage
@@ -490,8 +520,12 @@ export class QuoteService {
       'Accept': 'application/json',
     };
 
+    // 0x API key is optional - free tier works without it
     if (zeroXApiKey) {
       headers['0x-api-key'] = zeroXApiKey;
+      this.logger.debug('Using 0x API with API key');
+    } else {
+      this.logger.debug('Using 0x API without API key (free tier)');
     }
 
     try {
