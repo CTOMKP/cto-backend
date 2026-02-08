@@ -368,19 +368,7 @@ export class QuoteService {
     // Try 1inch API first (primary for Base chain)
     // Note: Jupiter does NOT support Base chain - it's Solana-only
     const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
-
-    try {
-      const params = new URLSearchParams({
-        inputMint: inputToken,
-        outputMint: outputToken,
-        amount,
-        slippageBps: slippageBps.toString(),
-        swapMode,
-      });
-
-      const headers: Record<string, string> = {
-        'x-chain': 'base', // Specify Base chain
-      };
+    
     if (oneInchApiKey) {
       try {
         return await this.getBaseQuoteFrom1inch(inputToken, outputToken, amount, slippageBps);
