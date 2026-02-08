@@ -355,7 +355,8 @@ export class QuoteService {
   }
 
   /**
-   * Get Base quote from Jupiter (supports Base chain) or Birdeye
+   * Get Base quote from 1inch API (primary) or 0x API (fallback)
+   * Note: Jupiter does NOT support Base chain - it's Solana-only
    */
   private async getBaseQuote(
     inputToken: string,
@@ -427,53 +428,140 @@ export class QuoteService {
   }
 
   /**
-   * Fallback: Get Base quote from Birdeye
+   * Get Base quote from 1inch API v6.0 quote endpoint
+   * Endpoint: GET https://api.1inch.dev/swap/v6.0/8453/quote
    */
-  private async getBaseQuoteFromBirdeye(
+  private async getBaseQuoteFrom1inch(
     inputToken: string,
     outputToken: string,
     amount: string,
     slippageBps: number,
   ): Promise<QuoteResponse> {
-    const apiKey =
-      this.configService.get('BIRDEYE_API_KEY') ||
-      '725a2e88183e417f99ab52b92e2bf6f5';
+    const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
+    if (!oneInchApiKey) {
+      throw new Error('ONEINCH_API_KEY not configured');
+    }
+
+    const baseChainId = 8453; // Base mainnet
+    const quoteUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/quote`;
+
+    const params = {
+      src: inputToken,
+      dst: outputToken,
+      amount: amount,
+    };
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${oneInchApiKey}`,
+    };
 
     try {
-      // Birdeye doesn't have a direct quote API, so we'll use price data
-      // This is a simplified approach - you may need a different aggregator
+      this.logger.debug(`Fetching 1inch quote: ${quoteUrl}`, { params });
+      
       const response = await firstValueFrom(
-        this.httpService.get(`https://public-api.birdeye.so/defi/price`, {
-          params: {
-            address: outputToken,
-          },
-          headers: {
-            'X-API-KEY': apiKey,
-            'x-chain': 'base',
-          },
-          timeout: 10_000,
+        this.httpService.get(quoteUrl, {
+          params,
+          headers,
+          timeout: 5_000, // 5 seconds - 1inch is usually fast (200ms-1s)
         }),
       );
 
-      const price = parseFloat(response.data?.data?.value || '0');
-      const amountNum = parseFloat(amount);
-      const outAmount = (amountNum * price).toString();
+      const data = response.data;
+
+      // Calculate price impact (if not provided)
+      const priceImpactPct = data.priceImpact
+        ? parseFloat(data.priceImpact)
+        : this.calculatePriceImpact(parseFloat(amount), parseFloat(data.dstAmount || '0'));
 
       return {
         chain: 'base',
         inputMint: inputToken,
         outputMint: outputToken,
         inAmount: amount,
-        outAmount,
-        priceImpactPct: 0.5, // Estimate
+        outAmount: data.dstAmount || '0',
+        priceImpactPct,
         slippageBps,
-        validFor: 30,
-        estimatedGas: '0.0001',
-        rawQuote: response.data,
+        routePlan: data.protocols || [],
+        validFor: 30, // 1inch quotes valid for 30 seconds
+        estimatedGas: data.gas || '0.0001',
+        rawQuote: data,
       };
     } catch (error: any) {
-      this.logger.error(`Birdeye Base quote failed: ${error.message}`);
-      throw new BadRequestException(`Failed to get Base quote: ${error.message}`);
+      this.logger.error(`1inch quote API error: ${error.message}`, {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        url: quoteUrl,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get Base quote from 0x API (fallback)
+   * Endpoint: GET https://api.0x.org/swap/v1/quote
+   */
+  private async getBaseQuoteFrom0x(
+    inputToken: string,
+    outputToken: string,
+    amount: string,
+    slippageBps: number,
+  ): Promise<QuoteResponse> {
+    const zeroXApiKey = this.configService.get('0X_API_KEY');
+    const baseChainId = 8453; // Base mainnet
+    const quoteUrl = 'https://api.0x.org/swap/v1/quote';
+
+    const params = {
+      sellToken: inputToken,
+      buyToken: outputToken,
+      sellAmount: amount,
+      chainId: baseChainId,
+      slippagePercentage: slippageBps / 100, // Convert BPS to percentage
+    };
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
+
+    if (zeroXApiKey) {
+      headers['0x-api-key'] = zeroXApiKey;
+    }
+
+    try {
+      this.logger.debug(`Fetching 0x quote: ${quoteUrl}`, { params });
+      
+      const response = await firstValueFrom(
+        this.httpService.get(quoteUrl, {
+          params,
+          headers,
+          timeout: 5_000, // 5 seconds
+        }),
+      );
+
+      const data = response.data;
+
+      return {
+        chain: 'base',
+        inputMint: inputToken,
+        outputMint: outputToken,
+        inAmount: amount,
+        outAmount: data.buyAmount || '0',
+        priceImpactPct: parseFloat(data.estimatedPriceImpact || '0'),
+        slippageBps,
+        routePlan: data.sources || [],
+        validFor: 30, // 0x quotes valid for 30 seconds
+        estimatedGas: data.estimatedGas || '0.0001',
+        rawQuote: data,
+      };
+    } catch (error: any) {
+      this.logger.error(`0x quote API error: ${error.message}`, {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        url: quoteUrl,
+      });
+      throw error;
     }
   }
 
