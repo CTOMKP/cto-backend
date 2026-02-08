@@ -92,7 +92,8 @@ export class QuoteService {
     slippageBps: number,
   ): Promise<QuoteResponse> {
     const apiKey = this.configService.get('JUPITER_API_KEY');
-    const baseUrl = 'https://quote-api.jup.ag/v6';
+    // Jupiter V6 API - use the correct endpoint
+    const baseUrl = this.configService.get('JUPITER_API_URL') || 'https://quote-api.jup.ag/v6';
 
     try {
       const params = new URLSearchParams({
@@ -101,15 +102,24 @@ export class QuoteService {
         amount,
         slippageBps: slippageBps.toString(),
         swapMode,
+        onlyDirectRoutes: 'false', // Allow multi-hop routes
       });
 
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
+      this.logger.debug(`Fetching Jupiter quote: ${baseUrl}/quote?${params.toString()}`);
+
       const response = await firstValueFrom(
-        this.httpService.get(`${baseUrl}/quote?${params.toString()}`, { headers, timeout: 10_000 }),
+        this.httpService.get(`${baseUrl}/quote?${params.toString()}`, { 
+          headers, 
+          timeout: 15_000,
+          validateStatus: (status) => status < 500,
+        }),
       );
 
       const data = response.data;
@@ -128,9 +138,24 @@ export class QuoteService {
         rawQuote: data, // Store full response for transaction building
       };
     } catch (error: any) {
-      this.logger.error(`Jupiter quote failed: ${error.message}`, error.stack);
+      const errorMessage = error.message || 'Unknown error';
+      const isNetworkError = errorMessage.includes('ENOTFOUND') || 
+                             errorMessage.includes('ECONNREFUSED') ||
+                             errorMessage.includes('ETIMEDOUT') ||
+                             errorMessage.includes('getaddrinfo');
+      
+      if (isNetworkError) {
+        this.logger.error(
+          `Jupiter API network error: ${errorMessage}. URL: ${baseUrl}. This may be a DNS or connectivity issue on the server.`,
+        );
+        throw new BadRequestException(
+          `Network error: Cannot connect to Jupiter API. This may be a server connectivity issue. Please contact support if this persists.`,
+        );
+      }
+      
+      this.logger.error(`Jupiter quote failed: ${errorMessage}`, error.stack);
       throw new BadRequestException(
-        `Failed to get Solana quote: ${error.response?.data?.message || error.message}`,
+        `Failed to get Solana quote: ${error.response?.data?.message || errorMessage}`,
       );
     }
   }
@@ -341,7 +366,7 @@ export class QuoteService {
   ): Promise<QuoteResponse> {
     // Try Jupiter first (supports Base chain)
     const apiKey = this.configService.get('JUPITER_API_KEY');
-    const baseUrl = 'https://quote-api.jup.ag/v6';
+    const baseUrl = this.configService.get('JUPITER_API_URL') || 'https://quote-api.jup.ag/v6';
 
     try {
       const params = new URLSearchParams({
@@ -379,7 +404,21 @@ export class QuoteService {
         rawQuote: data,
       };
     } catch (error: any) {
-      this.logger.warn(`Jupiter Base quote failed, trying Birdeye: ${error.message}`);
+      const errorMessage = error.message || 'Unknown error';
+      const isNetworkError = errorMessage.includes('ENOTFOUND') || 
+                             errorMessage.includes('ECONNREFUSED') ||
+                             errorMessage.includes('ETIMEDOUT') ||
+                             errorMessage.includes('getaddrinfo');
+      
+      if (isNetworkError) {
+        this.logger.error(
+          `Jupiter Base API network error: ${errorMessage}. URL: ${baseUrl}. This may be a DNS or connectivity issue on the server.`,
+        );
+        // Still try Birdeye fallback even on network errors
+        this.logger.warn(`Attempting Birdeye fallback for Base quote...`);
+      } else {
+        this.logger.warn(`Jupiter Base quote failed, trying Birdeye: ${errorMessage}`);
+      }
 
       // Fallback to Birdeye for Base
       return await this.getBaseQuoteFromBirdeye(inputToken, outputToken, amount, slippageBps);

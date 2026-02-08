@@ -205,11 +205,6 @@ export class TradeHistoryService {
     // - tx.timestamp: Unix timestamp
     // - tx.feePayer: address that paid fees (often the trader)
 
-    // PRIMARY CHECK: Look for type === "SWAP" (Helius already identifies swaps)
-    if (tx.type !== 'SWAP') {
-      return trades; // Not a swap transaction
-    }
-
     // Extract swap data
     const tokenTransfers = tx.tokenTransfers || [];
     const nativeTransfers = tx.nativeTransfers || [];
@@ -220,14 +215,24 @@ export class TradeHistoryService {
     );
 
     if (relevantTransfers.length === 0) {
-      return trades; // No transfers for this token in this swap
+      return trades; // No transfers for this token
     }
 
-    // Check if this swap has multiple tokens (indicates a real swap, not just a transfer)
+    // Check if this is a swap transaction:
+    // 1. Type is "SWAP" (Helius classification)
+    // 2. OR has multiple different tokens (indicates a swap, not just a transfer)
+    // 3. OR has both token transfers and native SOL transfers (swap pattern)
     const hasMultipleTokens =
       tokenTransfers.length > 1 &&
       new Set(tokenTransfers.map((t: any) => t.mint)).size > 1;
     const hasNativeTransfer = nativeTransfers.length > 0;
+    const isSwapType = tx.type === 'SWAP';
+    const looksLikeSwap = hasMultipleTokens || (hasNativeTransfer && tokenTransfers.length > 0);
+
+    // Only process if it's a swap (either classified as SWAP or looks like a swap)
+    if (!isSwapType && !looksLikeSwap) {
+      return trades; // Not a swap transaction
+    }
 
     // Process each relevant transfer
     for (const transfer of relevantTransfers) {
