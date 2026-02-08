@@ -226,9 +226,29 @@ export class ExecutionService {
       // Check if this is a token → ETH sell (requires approval)
       const isTokenSell = srcToken !== NATIVE_ETH_ADDRESS;
       
-      // For token sells, check allowance first
+      // For token sells, check allowance first (EVM requirement)
       if (isTokenSell) {
         try {
+          // Step 1: Get the 1inch router/spender address for Base
+          const spenderUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/approve/spender`;
+          const spenderResponse = await firstValueFrom(
+            this.httpService.get(spenderUrl, {
+              headers: {
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${oneInchApiKey}`,
+              },
+              timeout: 10_000,
+            }),
+          );
+          
+          const spenderAddress = spenderResponse.data?.address;
+          if (!spenderAddress) {
+            this.logger.warn('Could not get 1inch spender address, proceeding with swap');
+          } else {
+            this.logger.debug(`1inch spender address for Base: ${spenderAddress}`);
+          }
+          
+          // Step 2: Check current allowance
           const allowanceUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/approve/allowance`;
           const allowanceParams = {
             tokenAddress: srcToken,
@@ -247,13 +267,17 @@ export class ExecutionService {
           );
           
           const allowance = allowanceResponse.data?.allowance || '0';
-          const needsApproval = BigInt(allowance) < BigInt(quote.inAmount);
+          const swapAmount = BigInt(quote.inAmount);
+          const needsApproval = BigInt(allowance) < swapAmount;
+          
+          this.logger.debug(`Token allowance check: ${allowance} < ${quote.inAmount} = ${needsApproval}`);
           
           if (needsApproval) {
-            // Get approval transaction
+            // Step 3: Get approval transaction data
             const approveUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/approve/transaction`;
             const approveParams = {
               tokenAddress: srcToken,
+              amount: quote.inAmount, // Amount to approve (can be max or specific amount)
             };
             
             const approveResponse = await firstValueFrom(
