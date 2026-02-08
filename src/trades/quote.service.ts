@@ -148,15 +148,20 @@ export class QuoteService {
         this.logger.error(
           `Jupiter API network error: ${errorMessage}. URL: ${baseUrl}. This may be a DNS or connectivity issue on the server.`,
         );
-        throw new BadRequestException(
-          `Network error: Cannot connect to Jupiter API. This may be a server connectivity issue. Please contact support if this persists.`,
-        );
+        throw new BadRequestException({
+          code: 'UPSTREAM_TIMEOUT',
+          message:
+            'Network error: Cannot connect to Jupiter API. This may be a server connectivity issue. Please contact support if this persists.',
+          retryable: true,
+        });
       }
       
       this.logger.error(`Jupiter quote failed: ${errorMessage}`, error.stack);
-      throw new BadRequestException(
-        `Failed to get Solana quote: ${error.response?.data?.message || errorMessage}`,
-      );
+      throw new BadRequestException({
+        code: 'QUOTE_FAILED',
+        message: `Failed to get Solana quote: ${error.response?.data?.message || errorMessage}`,
+        retryable: true,
+      });
     }
   }
 
@@ -339,7 +344,11 @@ export class QuoteService {
       }
     } catch (error: any) {
       this.logger.error(`Movement quote calculation failed: ${error.message}`, error.stack);
-      throw new BadRequestException(`Failed to get Movement quote: ${error.message}`);
+      throw new BadRequestException({
+        code: 'QUOTE_FAILED',
+        message: `Failed to get Movement quote: ${error.message}`,
+        retryable: true,
+      });
     }
   }
 
@@ -387,9 +396,11 @@ export class QuoteService {
       return await this.getBaseQuoteFrom0x(inputToken, outputToken, amount, slippageBps);
     } catch (error: any) {
       this.logger.error(`All Base quote sources failed: ${error.message}`);
-      throw new BadRequestException(
-        `Failed to get Base quote: ${error.message}. Please ensure ONEINCH_API_KEY or 0X_API_KEY is configured.`,
-      );
+      throw new BadRequestException({
+        code: 'QUOTE_FAILED',
+        message: `Failed to get Base quote: ${error.message}. Please ensure ONEINCH_API_KEY or 0X_API_KEY is configured.`,
+        retryable: true,
+      });
     }
   }
 
@@ -478,11 +489,14 @@ export class QuoteService {
       
       // If 404, provide more helpful error message
       if (error.response?.status === 404) {
-        throw new Error(
+        throw new BadRequestException({
+          code: 'UPSTREAM_NOT_FOUND',
+          message:
           `1inch API returned 404. This may indicate: invalid token addresses, unsupported token pair, or API endpoint issue. ` +
           `Token addresses: ${srcToken} -> ${dstToken}. ` +
-          `Check 1inch API documentation or try 0x API fallback.`
-        );
+          `Check 1inch API documentation or try 0x API fallback.`,
+          retryable: false,
+        });
       }
       
       throw error;
@@ -561,7 +575,11 @@ export class QuoteService {
         data: error.response?.data,
         url: quoteUrl,
       });
-      throw error;
+      throw new BadRequestException({
+        code: 'UPSTREAM_ERROR',
+        message: `0x API quote failed: ${error.response?.data?.reason || error.message}`,
+        retryable: true,
+      });
     }
   }
 

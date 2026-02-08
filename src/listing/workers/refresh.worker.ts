@@ -94,54 +94,6 @@ export class RefreshWorker {
     this.run();
   }
 
-  // REMOVED: Automatic cleanup - Tokens are manually managed, no automatic deletion
-  // @Cron('0 */6 * * *') // DISABLED
-  async cleanupOldRecords() {
-    try {
-      this.logger.log('🧹 Starting cleanup of old records...');
-      
-      // Use the repository's public methods instead of accessing private prisma
-      const client = (this.repo as any)['prisma'] as any;
-      
-      const pinnedAddresses = this.INITIAL_TOKENS.map(t => t.address.toLowerCase());
-
-      // Strict limit: Keep only the latest 25 listings for the "Presentable Model"
-      // PLUS any initial tokens that might be outside the top 25
-      const listingsToKeep = await client.listing.findMany({
-        where: {
-          OR: [
-            { contractAddress: { in: pinnedAddresses } },
-            // also keep the top 25 newest/highest score ones
-          ]
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: 50, // Increased buffer to account for initial tokens
-        select: { id: true, contractAddress: true }
-      });
-      
-      const listingIds = listingsToKeep.map((l: any) => l.id);
-      const deletedListings = await client.listing.deleteMany({
-        where: { 
-          id: { notIn: listingIds },
-          contractAddress: { notIn: pinnedAddresses } // Double safety
-        }
-      });
-      
-      // Also cleanup old scans to match
-      const keptAddresses = listingsToKeep.map((l: any) => l.contractAddress);
-      const deletedScans = await client.scanResult.deleteMany({
-        where: { 
-          contractAddress: { 
-            notIn: [...keptAddresses, ...pinnedAddresses] 
-          } 
-        }
-      });
-      
-      this.logger.log(`✅ Cleanup complete: Deleted ${deletedListings.count} old listings, ${deletedScans.count} old scans`);
-    } catch (error) {
-      this.logger.error('❌ Cleanup failed:', error);
-    }
-  }
 
   /**
    * Process existing unvetted tokens in batches
@@ -194,15 +146,6 @@ export class RefreshWorker {
     }
   }
 
-  // DISABLED: Token discovery from feeds - Tokens are now manually added via API
-  // Cron job disabled - tokens should be added using POST /api/listing/add endpoint
-  // @Cron('0 */10 * * * *') // DISABLED - Manual token addition only
-  async scheduledFetchFeed() {
-    // DISABLED - This method is no longer used
-    // Tokens should be added manually via POST /api/listing/add
-    this.logger.warn('⚠️ scheduledFetchFeed() called but is disabled - tokens should be added manually via POST /api/listing/add');
-    return;
-  }
 
   private async getDexScreenerFeed() {
     const key = this.cache.cacheKey('feed:dex', { chains: 'all' });

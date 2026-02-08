@@ -644,6 +644,13 @@ export class TradeHistoryService {
     tokenAddress: string,
     limit: number,
   ): Promise<UnifiedTrade[]> {
+    // First, try local DB (webhook-pushed trades)
+    const dbTrades = await this.getMovementTradesFromDb(tokenAddress, limit);
+    if (dbTrades.length > 0) {
+      this.logger.debug(`✅ Found ${dbTrades.length} Movement trades from DB for ${tokenAddress}`);
+      return dbTrades;
+    }
+
     const apiKey = this.configService.get('SENTIO_API_KEY');
     if (!apiKey) {
       this.logger.warn('SENTIO_API_KEY missing; returning empty trades.');
@@ -764,14 +771,179 @@ export class TradeHistoryService {
           `Token ${tokenAddress} not found in Sentio indexer (404). This may mean the token has no trades yet or isn't indexed.`,
         );
       } else {
-        this.logger.warn(
-          `Sentio SQL fetch failed for ${tokenAddress} (${status || 'n/a'}): ${
+      this.logger.warn(
+        `Sentio SQL fetch failed for ${tokenAddress} (${status || 'n/a'}): ${
             body?.message || error?.message || 'Unknown error'
-          }`,
-        );
+        }`,
+      );
       }
       return [];
     }
+  }
+
+  /**
+   * Movement trades from local DB (webhook push)
+   */
+  private async getMovementTradesFromDb(
+    tokenAddress: string,
+    limit: number,
+  ): Promise<UnifiedTrade[]> {
+    try {
+      const trades = await this.prisma.userTrade.findMany({
+          where: {
+            chain: 'movement',
+            OR: [
+              { tokenInAddress: { equals: tokenAddress, mode: 'insensitive' } },
+              { tokenOutAddress: { equals: tokenAddress, mode: 'insensitive' } },
+            ],
+          },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+
+      return trades.map((t) => ({
+        txHash: t.txHash,
+        timestamp: t.createdAt,
+        type: t.type as UnifiedTradeType,
+        price: Number(t.price ?? 0),
+        amount: Number(t.amountOut ?? 0),
+        totalValue: Number(t.amountIn ?? 0),
+        makerAddress: t.walletId || '',
+      }));
+    } catch (error: any) {
+      this.logger.warn(`Failed to fetch Movement trades from DB: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Ingest Sentio webhook payload (Movement trades) into UserTrade table
+   */
+  async ingestSentioWebhook(payload: any): Promise<{ inserted: number; skipped: number }> {
+    const events = this.normalizeSentioEvents(payload);
+    if (events.length === 0) {
+      return { inserted: 0, skipped: 0 };
+    }
+
+    const systemUserId = await this.getOrCreateSystemUserId();
+
+    let inserted = 0;
+    let skipped = 0;
+
+    for (const ev of events) {
+      const txHash = ev.txHash;
+      if (!txHash) {
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        const traderAddress = (ev.traderAddress || '').toLowerCase();
+        const wallet = traderAddress
+          ? await this.prisma.wallet.findFirst({
+              where: { address: traderAddress },
+              select: { id: true, userId: true },
+            })
+          : null;
+
+        const userId = wallet?.userId || systemUserId;
+
+        const tokenInRaw = ev.tokenIn || '';
+        const tokenOutRaw = ev.tokenOut || '';
+        const tokenIn = tokenInRaw.toLowerCase();
+        const tokenOut = tokenOutRaw.toLowerCase();
+        const isBuy =
+          tokenIn.toLowerCase().includes('aptos_coin') ||
+          tokenIn.toLowerCase().includes('usdc');
+
+        await this.prisma.userTrade.create({
+          data: {
+            userId,
+            chain: 'movement',
+            type: isBuy ? 'BUY' : 'SELL',
+            tokenInAddress: tokenIn,
+            tokenOutAddress: tokenOut,
+            tokenInSymbol: this.extractSymbol(tokenInRaw),
+            tokenOutSymbol: this.extractSymbol(tokenOutRaw),
+            amountIn: String(ev.amountIn || '0'),
+            amountOut: String(ev.amountOut || '0'),
+            price: ev.price ? Number(ev.price) : null,
+            slippageBps: ev.slippageBps || 50,
+            priceImpact: ev.priceImpact ? Number(ev.priceImpact) : null,
+            txHash,
+            status: 'completed',
+            walletId: wallet?.id,
+            completedAt: ev.timestamp ? new Date(ev.timestamp) : new Date(),
+          },
+        });
+
+        inserted += 1;
+      } catch (error: any) {
+        if (error.code === 'P2002') {
+          skipped += 1;
+          continue;
+        }
+        this.logger.warn(`Failed to ingest Sentio trade ${ev.txHash}: ${error.message}`);
+        skipped += 1;
+      }
+    }
+
+    return { inserted, skipped };
+  }
+
+  private normalizeSentioEvents(payload: any): Array<{
+    txHash: string;
+    timestamp?: string | number | Date;
+    tokenIn?: string;
+    tokenOut?: string;
+    amountIn?: string | number;
+    amountOut?: string | number;
+    price?: string | number;
+    priceImpact?: string | number;
+    slippageBps?: number;
+    traderAddress?: string;
+  }> {
+    if (!payload) return [];
+
+    const events =
+      payload.events ||
+      payload.data?.events ||
+      payload.data ||
+      payload.rows ||
+      payload;
+
+    const list = Array.isArray(events) ? events : [events];
+
+    return list.map((e: any) => ({
+      txHash: e.txHash || e.tx_hash || e.transaction_hash || e.transactionHash,
+      timestamp: e.block_time || e.timestamp,
+      tokenIn: e.token_in || e.tokenIn || e.input_token,
+      tokenOut: e.token_out || e.tokenOut || e.output_token,
+      amountIn: e.amount_in || e.amountIn || e.input_amount,
+      amountOut: e.amount_out || e.amountOut || e.output_amount,
+      price: e.price,
+      priceImpact: e.priceImpact,
+      slippageBps: e.slippageBps,
+      traderAddress: e.trader_address || e.maker_address || e.sender,
+    }));
+  }
+
+  private async getOrCreateSystemUserId(): Promise<number> {
+    const email =
+      this.configService.get('SENTIO_SYSTEM_USER_EMAIL') || 'sentio@system.local';
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) return existing.id;
+
+    const created = await this.prisma.user.create({
+      data: {
+        email,
+        name: 'Sentio System',
+        role: 'USER',
+        provider: 'sentio',
+      } as any,
+    });
+    return created.id;
   }
 
   /**

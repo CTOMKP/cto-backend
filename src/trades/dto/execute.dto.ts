@@ -47,7 +47,8 @@ export class ExecuteTradeRequestDto {
     type: 'object',
   })
   @IsObject()
-  signedTransaction: any;
+  @IsOptional()
+  signedTransaction?: any;
 
   @ApiProperty({
     description: 'Original quote response from /quote endpoint',

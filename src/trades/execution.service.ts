@@ -36,6 +36,7 @@ export interface BroadcastRequest {
 @Injectable()
 export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
+  private readonly NATIVE_ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
   constructor(
     private readonly httpService: HttpService,
@@ -50,10 +51,19 @@ export class ExecutionService {
   async buildUnsignedTransaction(request: BuildTransactionRequest): Promise<UnsignedTransaction> {
     const { chain, quote, walletAddress, slippageBps = 50 } = request;
 
-    if (chain === 'solana') {
-      return await this.buildSolanaTransaction(quote, walletAddress, slippageBps);
-    } else if (chain === 'movement') {
-      return await this.buildMovementTransaction(quote, walletAddress, slippageBps);
+      if (chain === 'solana') {
+        throw new BadRequestException({
+          code: 'TRADING_DISABLED',
+          message: 'Solana trading is disabled. This chain is read-only for now.',
+          retryable: false,
+        });
+      } else if (chain === 'movement') {
+      // Movement signing is server-side; return a structured error to guide the frontend.
+      throw new BadRequestException({
+        code: 'SERVER_SIDE_SIGNING',
+        message: 'Movement trades are signed server-side. Call /api/v1/trades/execute directly.',
+        retryable: false,
+      });
     } else if (chain === 'base') {
       return await this.buildBaseTransaction(quote, walletAddress, slippageBps);
     } else {
@@ -194,9 +204,11 @@ export class ExecutionService {
       
       if (!oneInchApiKey) {
         this.logger.warn('ONEINCH_API_KEY not found in environment variables');
-        throw new BadRequestException(
-          'Base chain swaps require ONEINCH_API_KEY to be configured in environment variables.'
-        );
+        throw new BadRequestException({
+          code: 'MISSING_API_KEY',
+          message: 'Base chain swaps require ONEINCH_API_KEY to be configured in environment variables.',
+          retryable: false,
+        });
       }
 
       // Use 1inch API for Base swaps
@@ -206,13 +218,19 @@ export class ExecutionService {
       // Validate quote structure
       if (!quote || !quote.inputMint || !quote.outputMint || !quote.inAmount) {
         this.logger.error('Invalid quote structure for Base transaction', { quote });
-        throw new BadRequestException(
-          'Invalid quote structure. Missing required fields: inputMint, outputMint, or inAmount.'
-        );
+        throw new BadRequestException({
+          code: 'INVALID_QUOTE',
+          message: 'Invalid quote structure. Missing required fields: inputMint, outputMint, or inAmount.',
+          retryable: false,
+        });
       }
       
       if (!walletAddress) {
-        throw new BadRequestException('Wallet address is required for Base transaction');
+        throw new BadRequestException({
+          code: 'WALLET_NOT_FOUND',
+          message: 'Wallet address is required for Base transaction',
+          retryable: false,
+        });
       }
       
       // Ensure token addresses are lowercase (EVM standard) - CRITICAL for 1inch API
@@ -221,7 +239,7 @@ export class ExecutionService {
       const fromAddress = (walletAddress || '').toLowerCase();
       
       // Native ETH sentinel address (0xeeee...)
-      const NATIVE_ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+      const NATIVE_ETH_ADDRESS = this.NATIVE_ETH_ADDRESS;
       
       // Check if this is a token → ETH sell (requires approval)
       const isTokenSell = srcToken !== NATIVE_ETH_ADDRESS;
@@ -294,7 +312,11 @@ export class ExecutionService {
             const approveData = approveResponse.data;
             
             if (!approveData || !approveData.to || !approveData.data) {
-              throw new Error('Invalid approval transaction response from 1inch API');
+              throw new BadRequestException({
+                code: 'APPROVAL_BUILD_FAILED',
+                message: 'Invalid approval transaction response from 1inch API',
+                retryable: true,
+              });
             }
             
             // Return approval transaction - frontend must sign and broadcast this first
@@ -381,9 +403,11 @@ export class ExecutionService {
         
         // If 401, provide specific guidance
         if (oneInchError.response?.status === 401) {
-          throw new BadRequestException(
-            '1inch API authentication failed. Please verify that ONEINCH_API_KEY is correct and activated in your 1inch dashboard.'
-          );
+          throw new BadRequestException({
+            code: 'UPSTREAM_AUTH_FAILED',
+            message: '1inch API authentication failed. Please verify ONEINCH_API_KEY in your 1inch dashboard.',
+            retryable: false,
+          });
         }
         
         // Fall through to generic error below
@@ -391,19 +415,22 @@ export class ExecutionService {
       }
 
       // If no 1inch API or it failed, throw informative error
-      throw new BadRequestException(
-        'Base chain swaps require a Base-compatible aggregator. ' +
-        'Please configure ONEINCH_API_KEY in your environment variables, ' +
-        'or use a different swap method. Jupiter API only supports Solana swaps.'
-      );
+      throw new BadRequestException({
+        code: 'UPSTREAM_ERROR',
+        message:
+          'Base chain swaps require a Base-compatible aggregator. Please configure ONEINCH_API_KEY. Jupiter API only supports Solana swaps.',
+        retryable: false,
+      });
     } catch (error: any) {
       if (error instanceof BadRequestException) {
         throw error;
       }
       this.logger.error(`Failed to build Base transaction: ${error.message}`, error.stack);
-      throw new BadRequestException(
-        `Failed to build Base transaction: ${error.response?.data?.message || error.message}`,
-      );
+      throw new BadRequestException({
+        code: 'BUILD_FAILED',
+        message: `Failed to build Base transaction: ${error.response?.data?.message || error.message}`,
+        retryable: true,
+      });
     }
   }
 
@@ -420,7 +447,7 @@ export class ExecutionService {
       if (chain === 'solana') {
         txHash = await this.broadcastSolanaTransaction(signedTransaction);
       } else if (chain === 'movement') {
-        txHash = await this.broadcastMovementTransaction(signedTransaction);
+        txHash = await this.broadcastMovementTransactionServerSide(userId, quote);
       } else if (chain === 'base') {
         txHash = await this.broadcastBaseTransaction(signedTransaction);
       } else {
@@ -455,7 +482,11 @@ export class ExecutionService {
         });
       }
 
-      throw new BadRequestException(`Transaction failed: ${error.message}`);
+      throw new BadRequestException({
+        code: 'EXECUTE_FAILED',
+        message: `Transaction failed: ${error.message}`,
+        retryable: true,
+      });
     }
   }
 
@@ -518,12 +549,64 @@ export class ExecutionService {
   }
 
   /**
+   * Server-side Movement signing and broadcast (managed wallets)
+   */
+  private async broadcastMovementTransactionServerSide(userId: number, quote: any): Promise<string> {
+    const config = new AptosConfig({
+      network: Network.CUSTOM,
+      fullnode: this.configService.get('MOVEMENT_RPC_URL') || 'https://testnet.movementnetwork.xyz/v1',
+    });
+    const aptos = new Aptos(config);
+
+    const account = await this.aptosWalletService.getAptosAccount(userId);
+    if (!account) {
+      throw new BadRequestException({
+        code: 'WALLET_NOT_FOUND',
+        message: 'Movement wallet not found for server-side signing.',
+        retryable: false,
+      });
+    }
+
+    // Build unsigned Movement transaction using the server-managed account as sender
+    const unsigned = await this.buildMovementTransaction(
+      quote,
+      account.accountAddress.toString(),
+      quote?.slippageBps || 50,
+    );
+
+    try {
+      const committedTxn = await aptos.signAndSubmitTransaction({
+        signer: account,
+        transaction: unsigned.transaction,
+      });
+
+      const executedTx = await aptos.waitForTransaction({
+        transactionHash: committedTxn.hash,
+      });
+
+      return executedTx.hash;
+    } catch (error: any) {
+      this.logger.error(`Movement server-side broadcast failed: ${error.message}`);
+      throw new BadRequestException({
+        code: 'EXECUTE_FAILED',
+        message: `Movement transaction failed: ${error.message}`,
+        retryable: true,
+      });
+    }
+  }
+
+  /**
    * Broadcast Base transaction (EVM-compatible)
    */
   private async broadcastBaseTransaction(signedTransaction: any): Promise<string> {
     const rpcUrl = this.configService.get('BASE_RPC_URL') || 'https://mainnet.base.org';
 
     try {
+      if (typeof signedTransaction === 'string' && /^0x[0-9a-fA-F]{64}$/.test(signedTransaction)) {
+        // Already broadcasted by frontend wallet. Treat as tx hash.
+        return signedTransaction;
+      }
+
       // For Base (EVM), we need to use ethers.js or web3.js
       // This is a simplified version - you may need to adjust based on your setup
       const response = await firstValueFrom(
@@ -634,7 +717,7 @@ export class ExecutionService {
       return inputLower.includes('aptos_coin') || inputLower.includes('usdc');
     } else if (chain === 'base') {
       // ETH or USDC
-      return inputLower === '0x0000000000000000000000000000000000000000' || inputLower.includes('usdc');
+      return inputLower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' || inputLower.includes('usdc');
     }
 
     return false;

@@ -6,6 +6,7 @@ import {
   Query,
   UseGuards,
   Request,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -165,6 +166,14 @@ export class TradesController {
       throw new Error('User not authenticated');
     }
 
+    if (executeRequest.chain === 'solana') {
+      throw new BadRequestException({
+        code: 'TRADING_DISABLED',
+        message: 'Solana trading is disabled. This chain is read-only for now.',
+        retryable: false,
+      });
+    }
+
     // Find user's wallet for the chain
     const wallet = await this.prisma.wallet.findFirst({
       where: {
@@ -172,6 +181,14 @@ export class TradesController {
         blockchain: executeRequest.chain.toUpperCase() as any,
       },
     });
+
+    if (!wallet && executeRequest.chain === 'solana') {
+      throw new BadRequestException({
+        code: 'WALLET_NOT_FOUND',
+        message: 'Solana trading is disabled. Enable Solana wallets in Privy before trading.',
+        retryable: false,
+      });
+    }
 
     const result = await this.executionService.broadcastTransaction({
       chain: executeRequest.chain,
@@ -187,6 +204,28 @@ export class TradesController {
         txHash: result.txHash,
         status: result.status,
       },
+    };
+  }
+
+  /**
+   * Sentio webhook for Movement trades
+   * POST /api/v1/trades/sentio-webhook
+   */
+  @Post('sentio-webhook')
+  @ApiOperation({
+    summary: 'Ingest Sentio trade webhook',
+    description: 'Receives Movement swap events from Sentio and persists to UserTrade',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Webhook ingested successfully',
+  })
+  async ingestSentioWebhook(@Body() payload: any) {
+    const result = await this.tradeHistoryService.ingestSentioWebhook(payload);
+
+    return {
+      success: true,
+      data: result,
     };
   }
 }
