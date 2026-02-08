@@ -19,6 +19,8 @@ export interface UnsignedTransaction {
   transaction: any; // Chain-specific transaction format
   message?: string; // For Movement signing
   payload?: any; // For Movement
+  isApproval?: boolean; // For Base token approvals (true if this is an approval tx, not a swap)
+  tokenAddress?: string; // For Base approvals (token that needs approval)
   lastValidBlockHeight?: number; // For Solana
   prioritizationFeeLamports?: number; // For Solana
 }
@@ -218,18 +220,93 @@ export class ExecutionService {
       const dstToken = (quote.outputMint || '').toLowerCase();
       const fromAddress = (walletAddress || '').toLowerCase();
       
+      // Native ETH sentinel address (0xeeee...)
+      const NATIVE_ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+      
+      // Check if this is a token → ETH sell (requires approval)
+      const isTokenSell = srcToken !== NATIVE_ETH_ADDRESS;
+      
+      // For token sells, check allowance first
+      if (isTokenSell) {
+        try {
+          const allowanceUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/approve/allowance`;
+          const allowanceParams = {
+            tokenAddress: srcToken,
+            walletAddress: fromAddress,
+          };
+          
+          const allowanceResponse = await firstValueFrom(
+            this.httpService.get(allowanceUrl, {
+              params: allowanceParams,
+              headers: {
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${oneInchApiKey}`,
+              },
+              timeout: 10_000,
+            }),
+          );
+          
+          const allowance = allowanceResponse.data?.allowance || '0';
+          const needsApproval = BigInt(allowance) < BigInt(quote.inAmount);
+          
+          if (needsApproval) {
+            // Get approval transaction
+            const approveUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/approve/transaction`;
+            const approveParams = {
+              tokenAddress: srcToken,
+            };
+            
+            const approveResponse = await firstValueFrom(
+              this.httpService.get(approveUrl, {
+                params: approveParams,
+                headers: {
+                  'Accept': 'application/json',
+                  'Authorization': `Bearer ${oneInchApiKey}`,
+                },
+                timeout: 10_000,
+              }),
+            );
+            
+            const approveData = approveResponse.data;
+            
+            if (!approveData || !approveData.to || !approveData.data) {
+              throw new Error('Invalid approval transaction response from 1inch API');
+            }
+            
+            // Return approval transaction - frontend must sign and broadcast this first
+            return {
+              chain: 'base',
+              transaction: {
+                to: approveData.to,
+                data: approveData.data,
+                value: '0', // Approval transactions don't send ETH
+                gas: approveData.gas || '0',
+                gasPrice: approveData.gasPrice || '0',
+              },
+              isApproval: true, // Flag to indicate this is an approval, not a swap
+              tokenAddress: srcToken, // Store token address for frontend
+            };
+          }
+        } catch (allowanceError: any) {
+          this.logger.warn(
+            `Failed to check allowance for Base token: ${allowanceError.message}. Proceeding with swap...`
+          );
+          // Continue with swap - some tokens might not need approval or API might fail
+        }
+      }
+      
       // 1inch swap endpoint uses GET with query parameters
       const swapParams = {
         src: srcToken,
         dst: dstToken,
         amount: quote.inAmount,
-        from: fromAddress,
+        from: fromAddress, // Required parameter - must be included
         slippage: slippageBps / 100, // Convert BPS to percentage (e.g., 0.5 for 0.5%)
       };
 
       const headers: Record<string, string> = {
         'Accept': 'application/json',
-        'Authorization': `Bearer ${oneInchApiKey}`,
+        'Authorization': `Bearer ${oneInchApiKey}`, // Can also use x-api-key header
       };
 
       try {
@@ -244,8 +321,13 @@ export class ExecutionService {
 
         const data = response.data;
 
-        if (!data.tx) {
-          throw new Error('Invalid response from 1inch API: missing tx field');
+        // Validate response has tx field (critical check)
+        if (!data || !data.tx) {
+          this.logger.error('1inch API response missing tx field', { 
+            responseData: data,
+            params: swapParams 
+          });
+          throw new Error('Invalid response from 1inch API: missing tx field. The API likely returned an error or partial quote.');
         }
 
         return {
