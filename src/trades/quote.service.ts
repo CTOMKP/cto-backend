@@ -381,13 +381,8 @@ export class QuoteService {
       const headers: Record<string, string> = {
         'x-chain': 'base', // Specify Base chain
       };
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      }
-
-      const response = await firstValueFrom(
-        this.httpService.get(`${baseUrl}/quote?${params.toString()}`, { headers, timeout: 10_000 }),
-      );
+      // Removed Jupiter API code - using 1inch/0x instead
+      throw new Error('Jupiter API removed - use getBaseQuoteFrom1inch or getBaseQuoteFrom0x');
 
       const data = response.data;
 
