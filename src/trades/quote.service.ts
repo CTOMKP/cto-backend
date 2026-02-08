@@ -365,10 +365,9 @@ export class QuoteService {
     swapMode: 'ExactIn' | 'ExactOut',
     slippageBps: number,
   ): Promise<QuoteResponse> {
-    // Try Jupiter first (supports Base chain)
-    const apiKey = this.configService.get('JUPITER_API_KEY');
-    // Jupiter Base API - use the correct endpoint (api.jup.ag, not quote-api.jup.ag)
-    const baseUrl = this.configService.get('JUPITER_API_URL') || 'https://api.jup.ag/v6';
+    // Try 1inch API first (primary for Base chain)
+    // Note: Jupiter does NOT support Base chain - it's Solana-only
+    const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
 
     try {
       const params = new URLSearchParams({
