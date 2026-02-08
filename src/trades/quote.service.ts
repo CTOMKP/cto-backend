@@ -422,8 +422,8 @@ export class QuoteService {
         this.logger.warn(`Jupiter Base quote failed, trying Birdeye: ${errorMessage}`);
       }
 
-      // Fallback to Birdeye for Base
-      return await this.getBaseQuoteFromBirdeye(inputToken, outputToken, amount, slippageBps);
+      // Fallback to 0x API for Base
+      return await this.getBaseQuoteFrom0x(inputToken, outputToken, amount, slippageBps);
     }
   }
 
