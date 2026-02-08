@@ -400,6 +400,15 @@ export class ExecutionService {
             apiKeyLength: oneInchApiKey?.length,
           }
         );
+
+        const oneInchDescription = oneInchError.response?.data?.description;
+        if (oneInchDescription) {
+          throw new BadRequestException({
+            code: 'ONEINCH_ERROR',
+            message: oneInchDescription,
+            retryable: false,
+          });
+        }
         
         // If 401, provide specific guidance
         if (oneInchError.response?.status === 401) {
