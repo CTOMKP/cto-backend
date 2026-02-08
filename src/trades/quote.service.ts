@@ -92,8 +92,8 @@ export class QuoteService {
     slippageBps: number,
   ): Promise<QuoteResponse> {
     const apiKey = this.configService.get('JUPITER_API_KEY');
-    // Jupiter V6 API - use the correct endpoint
-    const baseUrl = this.configService.get('JUPITER_API_URL') || 'https://quote-api.jup.ag/v6';
+    // Jupiter V6 API - use the correct endpoint (api.jup.ag, not quote-api.jup.ag)
+    const baseUrl = this.configService.get('JUPITER_API_URL') || 'https://api.jup.ag/quote/v6';
 
     try {
       const params = new URLSearchParams({
@@ -366,7 +366,8 @@ export class QuoteService {
   ): Promise<QuoteResponse> {
     // Try Jupiter first (supports Base chain)
     const apiKey = this.configService.get('JUPITER_API_KEY');
-    const baseUrl = this.configService.get('JUPITER_API_URL') || 'https://quote-api.jup.ag/v6';
+    // Jupiter Base API - use the correct endpoint (api.jup.ag, not quote-api.jup.ag)
+    const baseUrl = this.configService.get('JUPITER_API_URL') || 'https://api.jup.ag/quote/v6';
 
     try {
       const params = new URLSearchParams({
