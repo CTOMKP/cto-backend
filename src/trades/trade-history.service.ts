@@ -61,8 +61,13 @@ export class TradeHistoryService {
   private async detectChain(address: string): Promise<'movement' | 'solana' | 'base'> {
     try {
       // Check database for the token's chain
-      const listing = await this.prisma.listing.findUnique({
-        where: { contractAddress: address },
+      const listing = await this.prisma.listing.findFirst({
+        where: {
+          contractAddress: {
+            equals: address,
+            mode: 'insensitive',
+          },
+        },
         select: { chain: true },
       });
 
