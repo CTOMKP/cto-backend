@@ -182,10 +182,10 @@ export class TradesController {
       },
     });
 
-    if (!wallet && executeRequest.chain === 'solana') {
+    if (!wallet && executeRequest.chain === 'movement') {
       throw new BadRequestException({
         code: 'WALLET_NOT_FOUND',
-        message: 'Solana trading is disabled. Enable Solana wallets in Privy before trading.',
+        message: 'Movement wallet not found. Please sync or create a Movement wallet.',
         retryable: false,
       });
     }
