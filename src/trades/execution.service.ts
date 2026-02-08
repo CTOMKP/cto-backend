@@ -199,7 +199,7 @@ export class ExecutionService {
           dst: quote.outputMint,
           amount: quote.inAmount,
           from: walletAddress,
-          slippage: slippageBps / 100, // Convert BPS to percentage
+          slippage: slippageBps / 100, // Convert BPS to percentage (e.g., 0.5 for 0.5%)
           disableEstimate: false,
         };
 
@@ -209,8 +209,9 @@ export class ExecutionService {
         };
 
         try {
+          // 1inch API v6.0 swap endpoint uses POST with query parameters
           const response = await firstValueFrom(
-            this.httpService.get(oneInchUrl, { 
+            this.httpService.post(oneInchUrl, null, { 
               params: swapParams,
               headers, 
               timeout: 15_000 
@@ -219,18 +220,25 @@ export class ExecutionService {
 
           const data = response.data;
 
+          if (!data.tx) {
+            throw new Error('Invalid response from 1inch API: missing tx field');
+          }
+
           return {
             chain: 'base',
             transaction: {
               to: data.tx.to,
               data: data.tx.data,
               value: data.tx.value || '0',
-              gas: data.tx.gas || '0',
+              gas: data.tx.gas || data.tx.gasLimit || '0',
               gasPrice: data.tx.gasPrice || '0',
             },
           };
         } catch (oneInchError: any) {
-          this.logger.warn(`1inch API failed for Base: ${oneInchError.message}`);
+          this.logger.error(
+            `1inch API failed for Base: ${oneInchError.message}`,
+            oneInchError.response?.data || oneInchError.stack
+          );
           // Fall through to error below
         }
       }
