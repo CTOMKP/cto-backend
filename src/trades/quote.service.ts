@@ -381,43 +381,27 @@ export class QuoteService {
       const headers: Record<string, string> = {
         'x-chain': 'base', // Specify Base chain
       };
-      // Removed Jupiter API code - using 1inch/0x instead
-      throw new Error('Jupiter API removed - use getBaseQuoteFrom1inch or getBaseQuoteFrom0x');
-
-      const data = response.data;
-
-      return {
-        chain: 'base',
-        inputMint: data.inputMint,
-        outputMint: data.outputMint,
-        inAmount: data.inAmount,
-        outAmount: data.outAmount,
-        priceImpactPct: parseFloat(data.priceImpactPct || '0'),
-        slippageBps,
-        routePlan: data.routePlan || [],
-        validFor: 30,
-        estimatedGas: '0.0001', // Approximate ETH gas fee on Base
-        rawQuote: data,
-      };
-    } catch (error: any) {
-      const errorMessage = error.message || 'Unknown error';
-      const isNetworkError = errorMessage.includes('ENOTFOUND') || 
-                             errorMessage.includes('ECONNREFUSED') ||
-                             errorMessage.includes('ETIMEDOUT') ||
-                             errorMessage.includes('getaddrinfo');
-      
-      if (isNetworkError) {
-        this.logger.error(
-          `Jupiter Base API network error: ${errorMessage}. URL: ${baseUrl}. This may be a DNS or connectivity issue on the server.`,
+    if (oneInchApiKey) {
+      try {
+        return await this.getBaseQuoteFrom1inch(inputToken, outputToken, amount, slippageBps);
+      } catch (oneInchError: any) {
+        this.logger.warn(
+          `1inch quote failed for Base: ${oneInchError.message}. Trying 0x fallback...`,
         );
-        // Still try Birdeye fallback even on network errors
-        this.logger.warn(`Attempting Birdeye fallback for Base quote...`);
-      } else {
-        this.logger.warn(`Jupiter Base quote failed, trying Birdeye: ${errorMessage}`);
+        // Fall through to 0x fallback
       }
+    } else {
+      this.logger.warn('ONEINCH_API_KEY not configured, trying 0x API for Base quote...');
+    }
 
-      // Fallback to 0x API for Base
+    // Fallback to 0x API
+    try {
       return await this.getBaseQuoteFrom0x(inputToken, outputToken, amount, slippageBps);
+    } catch (error: any) {
+      this.logger.error(`All Base quote sources failed: ${error.message}`);
+      throw new BadRequestException(
+        `Failed to get Base quote: ${error.message}. Please ensure ONEINCH_API_KEY or 0X_API_KEY is configured.`,
+      );
     }
   }
 
