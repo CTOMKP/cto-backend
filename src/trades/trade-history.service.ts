@@ -90,9 +90,11 @@ export class TradeHistoryService {
     }
 
     // Fallback: Use address format detection
-    // Base tokens also use 0x addresses, so we default to movement for 0x addresses
-    // unless we found it in the database as BASE
-    return address?.startsWith('0x') ? 'movement' : 'solana';
+    // Movement type tags include "::" (e.g., 0x1::aptos_coin::AptosCoin)
+    if (address?.includes('::')) return 'movement';
+    // EVM tokens use 0x addresses (Base/BSC/ETH). Default to base for now.
+    if (address?.startsWith('0x')) return 'base';
+    return 'solana';
   }
 
   private async getSolanaTrades(
