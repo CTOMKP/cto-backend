@@ -198,39 +198,34 @@ export class ExecutionService {
       }
 
       // Use 1inch API for Base swaps
-      // Note: 1inch API v6.0 uses GET with query parameters, not POST
+      // 1inch API v6.0 swap endpoint uses POST method
       const oneInchUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/swap`;
       
+      // Ensure token addresses are lowercase (EVM standard)
+      const srcToken = quote.inputMint.toLowerCase();
+      const dstToken = quote.outputMint.toLowerCase();
+      const fromAddress = walletAddress.toLowerCase();
+      
       const swapParams = {
-        src: quote.inputMint,
-        dst: quote.outputMint,
+        src: srcToken,
+        dst: dstToken,
         amount: quote.inAmount,
-        from: walletAddress,
+        from: fromAddress,
         slippage: slippageBps / 100, // Convert BPS to percentage (e.g., 0.5 for 0.5%)
         disableEstimate: false,
       };
 
-      // 1inch API v6.0 uses API key in header, not Bearer token
       const headers: Record<string, string> = {
         'Accept': 'application/json',
-      };
-      
-      // Add API key as query parameter or header based on 1inch v6.0 docs
-      // Try both methods: header first, then query param if needed
-      const paramsWithKey = {
-        ...swapParams,
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${oneInchApiKey}`,
       };
 
       try {
-        // 1inch API v6.0 swap endpoint uses GET with query parameters
-        // API key can be in header or query param - try header first
+        // 1inch API v6.0 swap endpoint uses POST method
         const response = await firstValueFrom(
-          this.httpService.get(oneInchUrl, { 
-            params: paramsWithKey,
-            headers: {
-              ...headers,
-              'Authorization': `Bearer ${oneInchApiKey}`,
-            },
+          this.httpService.post(oneInchUrl, swapParams, { 
+            headers,
             timeout: 15_000 
           }),
         );
