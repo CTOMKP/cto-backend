@@ -168,44 +168,83 @@ export class ExecutionService {
 
   /**
    * Build Base swap transaction (EVM-compatible)
+   * Note: Jupiter's swap API only supports Solana, not Base.
+   * For Base, we return the quote data and let the frontend build the transaction
+   * using a Base-compatible aggregator (1inch, 0x, etc.) or direct DEX interaction.
    */
   private async buildBaseTransaction(
     quote: any,
     walletAddress: string,
     slippageBps: number,
   ): Promise<UnsignedTransaction> {
-    // For Base, we'll use Jupiter's swap API which supports Base chain
-    const apiKey = this.configService.get('JUPITER_API_KEY');
-    const swapUrl = 'https://api.jup.ag/swap/v1/swap';
-
+    // Jupiter's swap API doesn't support Base chain (only Solana)
+    // For Base, we need to use a different approach:
+    // Option 1: Use 1inch API for Base
+    // Option 2: Use 0x API for Base
+    // Option 3: Build transaction using Uniswap V3 router directly
+    // For now, we'll return the quote data and indicate that Base swaps
+    // need to be handled differently
+    
     try {
-      const swapRequest = {
-        userPublicKey: walletAddress,
-        quoteResponse: quote.rawQuote,
-        wrapAndUnwrapSol: false, // Base uses ETH, not SOL
-        dynamicComputeUnitLimit: false, // Not applicable for EVM
-      };
+      // Check if we have a 1inch API key for Base swaps
+      const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
+      const baseChainId = 8453; // Base mainnet chain ID
+      
+      if (oneInchApiKey) {
+        // Use 1inch API for Base swaps
+        const oneInchUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/swap`;
+        
+        const swapParams = {
+          src: quote.inputMint,
+          dst: quote.outputMint,
+          amount: quote.inAmount,
+          from: walletAddress,
+          slippage: slippageBps / 100, // Convert BPS to percentage
+          disableEstimate: false,
+        };
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-chain': 'base',
-      };
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${oneInchApiKey}`,
+        };
+
+        try {
+          const response = await firstValueFrom(
+            this.httpService.get(oneInchUrl, { 
+              params: swapParams,
+              headers, 
+              timeout: 15_000 
+            }),
+          );
+
+          const data = response.data;
+
+          return {
+            chain: 'base',
+            transaction: {
+              to: data.tx.to,
+              data: data.tx.data,
+              value: data.tx.value || '0',
+              gas: data.tx.gas || '0',
+              gasPrice: data.tx.gasPrice || '0',
+            },
+          };
+        } catch (oneInchError: any) {
+          this.logger.warn(`1inch API failed for Base: ${oneInchError.message}`);
+          // Fall through to error below
+        }
       }
 
-      const response = await firstValueFrom(
-        this.httpService.post(swapUrl, swapRequest, { headers, timeout: 15_000 }),
+      // If no 1inch API or it failed, throw informative error
+      throw new BadRequestException(
+        'Base chain swaps require a Base-compatible aggregator. ' +
+        'Please configure ONEINCH_API_KEY in your environment variables, ' +
+        'or use a different swap method. Jupiter API only supports Solana swaps.'
       );
-
-      const data = response.data;
-
-      // For Base (EVM), Jupiter returns a transaction object
-      return {
-        chain: 'base',
-        transaction: data.transaction || data.swapTransaction, // EVM transaction object
-      };
     } catch (error: any) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       this.logger.error(`Failed to build Base transaction: ${error.message}`, error.stack);
       throw new BadRequestException(
         `Failed to build Base transaction: ${error.response?.data?.message || error.message}`,
