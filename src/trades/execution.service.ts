@@ -201,10 +201,22 @@ export class ExecutionService {
       // 1inch API v6.0 swap endpoint uses POST method
       const oneInchUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/swap`;
       
+      // Validate quote structure
+      if (!quote || !quote.inputMint || !quote.outputMint || !quote.inAmount) {
+        this.logger.error('Invalid quote structure for Base transaction', { quote });
+        throw new BadRequestException(
+          'Invalid quote structure. Missing required fields: inputMint, outputMint, or inAmount.'
+        );
+      }
+      
+      if (!walletAddress) {
+        throw new BadRequestException('Wallet address is required for Base transaction');
+      }
+      
       // Ensure token addresses are lowercase (EVM standard)
-      const srcToken = quote.inputMint.toLowerCase();
-      const dstToken = quote.outputMint.toLowerCase();
-      const fromAddress = walletAddress.toLowerCase();
+      const srcToken = (quote.inputMint || '').toLowerCase();
+      const dstToken = (quote.outputMint || '').toLowerCase();
+      const fromAddress = (walletAddress || '').toLowerCase();
       
       const swapParams = {
         src: srcToken,
