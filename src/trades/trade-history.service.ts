@@ -156,7 +156,10 @@ export class TradeHistoryService {
         price = priceHintUsd;
       }
 
-      const totalValue = totalSum > 0 ? totalSum : price > 0 && amountSum > 0 ? price * amountSum : 0;
+      let totalValue = totalSum > 0 ? totalSum : price > 0 && amountSum > 0 ? price * amountSum : 0;
+      if ((!totalValue || totalValue <= 0) && priceHintUsd > 0 && amountSum > 0) {
+        totalValue = priceHintUsd * amountSum;
+      }
 
       const buyTotal = bucket
         .filter((t) => t.type === 'BUY')
