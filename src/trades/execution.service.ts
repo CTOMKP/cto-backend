@@ -8,14 +8,14 @@ import { Aptos, AptosConfig, Network } from '@aptos-labs/ts-sdk';
 import { firstValueFrom } from 'rxjs';
 
 export interface BuildTransactionRequest {
-  chain: 'solana' | 'movement' | 'base';
+  chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
   quote: any; // QuoteResponse from QuoteService
   walletAddress: string;
   slippageBps?: number;
 }
 
 export interface UnsignedTransaction {
-  chain: 'solana' | 'movement' | 'base';
+  chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
   transaction: any; // Chain-specific transaction format
   message?: string; // For Movement signing
   payload?: any; // For Movement
@@ -26,7 +26,7 @@ export interface UnsignedTransaction {
 }
 
 export interface BroadcastRequest {
-  chain: 'solana' | 'movement' | 'base';
+  chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
   signedTransaction: any; // Chain-specific signed transaction
   userId: number;
   quote: any;
@@ -654,7 +654,7 @@ export class ExecutionService {
    */
   private async recordUserTrade(data: {
     userId: number;
-    chain: 'solana' | 'movement' | 'base';
+    chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
     quote: any;
     txHash: string;
     walletId?: string;

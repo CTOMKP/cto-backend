@@ -592,7 +592,10 @@ export class QuoteService {
   /**
    * Detect chain from token addresses (database-first approach)
    */
-  async detectChainFromTokens(inputToken: string, outputToken: string): Promise<'solana' | 'movement' | 'base'> {
+  async detectChainFromTokens(
+    inputToken: string,
+    outputToken: string,
+  ): Promise<'solana' | 'movement' | 'base' | 'ethereum' | 'bsc'> {
     // Check database Listing table first
     const listing = await this.prisma.listing.findFirst({
       where: {
