@@ -4,11 +4,11 @@ import { IsString, IsEnum, IsObject, IsOptional } from 'class-validator';
 export class BuildTransactionRequestDto {
   @ApiProperty({
     description: 'Chain to execute trade on',
-    enum: ['solana', 'movement', 'base'],
+    enum: ['solana', 'movement', 'base', 'ethereum', 'bsc'],
     example: 'solana',
   })
-  @IsEnum(['solana', 'movement', 'base'])
-  chain: 'solana' | 'movement' | 'base';
+  @IsEnum(['solana', 'movement', 'base', 'ethereum', 'bsc'])
+  chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
 
   @ApiProperty({
     description: 'Quote response from /quote endpoint',
@@ -36,11 +36,11 @@ export class BuildTransactionRequestDto {
 export class ExecuteTradeRequestDto {
   @ApiProperty({
     description: 'Chain to execute trade on',
-    enum: ['solana', 'movement', 'base'],
+    enum: ['solana', 'movement', 'base', 'ethereum', 'bsc'],
     example: 'solana',
   })
-  @IsEnum(['solana', 'movement', 'base'])
-  chain: 'solana' | 'movement' | 'base';
+  @IsEnum(['solana', 'movement', 'base', 'ethereum', 'bsc'])
+  chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
 
   @ApiProperty({
     description: 'Signed transaction from frontend',

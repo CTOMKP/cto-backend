@@ -6,7 +6,7 @@ import { firstValueFrom } from 'rxjs';
 import { Aptos, AptosConfig, Network } from '@aptos-labs/ts-sdk';
 
 export interface QuoteRequest {
-  chain: 'solana' | 'movement' | 'base';
+  chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
   inputToken: string;
   outputToken: string;
   amount: string;
@@ -15,7 +15,7 @@ export interface QuoteRequest {
 }
 
 export interface QuoteResponse {
-  chain: 'solana' | 'movement' | 'base';
+  chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
   inputMint: string;
   outputMint: string;
   inAmount: string;
@@ -66,8 +66,8 @@ export class QuoteService {
       quote = await this.getSolanaQuote(inputToken, outputToken, amount, swapMode, slippageBps);
     } else if (chain === 'movement') {
       quote = await this.getMovementQuote(inputToken, outputToken, amount, swapMode, slippageBps);
-    } else if (chain === 'base') {
-      quote = await this.getBaseQuote(inputToken, outputToken, amount, swapMode, slippageBps);
+    } else if (chain === 'base' || chain === 'ethereum' || chain === 'bsc') {
+      quote = await this.getEvmQuote(chain, inputToken, outputToken, amount, swapMode, slippageBps);
     } else {
       throw new BadRequestException(`Unsupported chain: ${chain}`);
     }
@@ -367,38 +367,42 @@ export class QuoteService {
    * Get Base quote from 1inch API (primary) or 0x API (fallback)
    * Note: Jupiter does NOT support Base chain - it's Solana-only
    */
-  private async getBaseQuote(
+  private async getEvmQuote(
+    chain: 'base' | 'ethereum' | 'bsc',
     inputToken: string,
     outputToken: string,
     amount: string,
     swapMode: 'ExactIn' | 'ExactOut',
     slippageBps: number,
   ): Promise<QuoteResponse> {
-    // Try 1inch API first (primary for Base chain)
-    // Note: Jupiter does NOT support Base chain - it's Solana-only
+    // Try 1inch API first (primary for EVM chains)
+    // Note: Jupiter does NOT support EVM chains
     const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
     
     if (oneInchApiKey) {
       try {
-        return await this.getBaseQuoteFrom1inch(inputToken, outputToken, amount, slippageBps);
+        return await this.getEvmQuoteFrom1inch(chain, inputToken, outputToken, amount, slippageBps);
       } catch (oneInchError: any) {
         this.logger.warn(
-          `1inch quote failed for Base: ${oneInchError.message}. Trying 0x fallback...`,
+          `1inch quote failed for ${chain}: ${oneInchError.message}. Trying 0x fallback...`,
         );
         // Fall through to 0x fallback
       }
     } else {
-      this.logger.warn('ONEINCH_API_KEY not configured, trying 0x API for Base quote...');
+      this.logger.warn('ONEINCH_API_KEY not configured, trying 0x API for EVM quote...');
     }
 
     // Fallback to 0x API
     try {
-      return await this.getBaseQuoteFrom0x(inputToken, outputToken, amount, slippageBps);
+      if (chain === 'bsc') {
+        throw new Error('0x API not enabled for BSC');
+      }
+      return await this.getEvmQuoteFrom0x(chain, inputToken, outputToken, amount, slippageBps);
     } catch (error: any) {
-      this.logger.error(`All Base quote sources failed: ${error.message}`);
+      this.logger.error(`All ${chain} quote sources failed: ${error.message}`);
       throw new BadRequestException({
         code: 'QUOTE_FAILED',
-        message: `Failed to get Base quote: ${error.message}. Please ensure ONEINCH_API_KEY or 0X_API_KEY is configured.`,
+        message: `Failed to get ${chain} quote: ${error.message}. Please ensure ONEINCH_API_KEY (and optionally 0X_API_KEY) is configured.`,
         retryable: true,
       });
     }
@@ -408,7 +412,8 @@ export class QuoteService {
    * Get Base quote from 1inch API v6.0 quote endpoint
    * Endpoint: GET https://api.1inch.dev/swap/v6.0/8453/quote
    */
-  private async getBaseQuoteFrom1inch(
+  private async getEvmQuoteFrom1inch(
+    chain: 'base' | 'ethereum' | 'bsc',
     inputToken: string,
     outputToken: string,
     amount: string,
@@ -419,8 +424,8 @@ export class QuoteService {
       throw new Error('ONEINCH_API_KEY not configured');
     }
 
-    const baseChainId = 8453; // Base mainnet
-    const quoteUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/quote`;
+    const chainId = chain === 'ethereum' ? 1 : chain === 'bsc' ? 56 : 8453;
+    const quoteUrl = `https://api.1inch.dev/swap/v6.0/${chainId}/quote`;
 
     // Ensure token addresses are lowercase (EVM addresses should be lowercase for 1inch)
     const srcToken = inputToken.toLowerCase();
@@ -463,7 +468,7 @@ export class QuoteService {
         : this.calculatePriceImpact(parseFloat(amount), parseFloat(data.dstAmount || '0'));
 
       return {
-        chain: 'base',
+        chain,
         inputMint: inputToken,
         outputMint: outputToken,
         inAmount: amount,
@@ -507,7 +512,8 @@ export class QuoteService {
    * Get Base quote from 0x API (fallback)
    * Endpoint: GET https://api.0x.org/swap/v1/quote
    */
-  private async getBaseQuoteFrom0x(
+  private async getEvmQuoteFrom0x(
+    chain: 'base' | 'ethereum',
     inputToken: string,
     outputToken: string,
     amount: string,
@@ -515,7 +521,7 @@ export class QuoteService {
   ): Promise<QuoteResponse> {
     // 0x API works without API key for basic quotes (free tier)
     const zeroXApiKey = this.configService.get('0X_API_KEY');
-    const baseChainId = 8453; // Base mainnet
+    const chainId = chain === 'ethereum' ? 1 : 8453;
     const quoteUrl = 'https://api.0x.org/swap/v1/quote';
 
     // Ensure token addresses are lowercase (EVM addresses should be lowercase)
@@ -526,7 +532,7 @@ export class QuoteService {
       sellToken: sellToken,
       buyToken: buyToken,
       sellAmount: amount,
-      chainId: baseChainId,
+      chainId,
       slippagePercentage: slippageBps / 100, // Convert BPS to percentage
     };
 
@@ -556,7 +562,7 @@ export class QuoteService {
       const data = response.data;
 
       return {
-        chain: 'base',
+        chain,
         inputMint: inputToken,
         outputMint: outputToken,
         inAmount: amount,
@@ -598,6 +604,8 @@ export class QuoteService {
     if (listing) {
       const chainUpper = listing.chain.toUpperCase();
       if (chainUpper === 'BASE') return 'base';
+      if (chainUpper === 'ETH' || chainUpper === 'ETHEREUM') return 'ethereum';
+      if (chainUpper === 'BSC' || chainUpper === 'BNB') return 'bsc';
       if (chainUpper === 'MOVEMENT' || chainUpper === 'APTOS') return 'movement';
       if (chainUpper === 'SOLANA') return 'solana';
     }

@@ -43,8 +43,8 @@ export class TradeHistoryService {
     const chain = await this.detectChain(address);
     let trades: UnifiedTrade[] = [];
     
-    if (chain === 'base') {
-      trades = await this.getBaseTrades(address, safeLimit);
+    if (chain === 'base' || chain === 'ethereum' || chain === 'bsc') {
+      trades = await this.getEvmTrades(address, safeLimit, chain);
     } else if (chain === 'movement') {
       trades = await this.getMovementTrades(address, safeLimit);
     } else {
@@ -58,7 +58,7 @@ export class TradeHistoryService {
   /**
    * Detect chain by checking database Listing first, then fallback to address format
    */
-  private async detectChain(address: string): Promise<'movement' | 'solana' | 'base'> {
+  private async detectChain(address: string): Promise<'movement' | 'solana' | 'base' | 'ethereum' | 'bsc'> {
     try {
       // Check database for the token's chain
       const listing = await this.prisma.listing.findFirst({
@@ -73,9 +73,9 @@ export class TradeHistoryService {
 
       if (listing) {
         const chainUpper = listing.chain.toUpperCase();
-        if (chainUpper === 'BASE') {
-          return 'base';
-        }
+        if (chainUpper === 'BASE') return 'base';
+        if (chainUpper === 'ETH' || chainUpper === 'ETHEREUM') return 'ethereum';
+        if (chainUpper === 'BSC' || chainUpper === 'BNB') return 'bsc';
         if (chainUpper === 'MOVEMENT' || chainUpper === 'APTOS') {
           return 'movement';
         }
@@ -450,12 +450,13 @@ export class TradeHistoryService {
    * Endpoint: https://public-api.birdeye.so/defi/history_price?address=${address}&address_type=token&type=1m
    * Alternative: Use DexScreener for actual trades
    */
-  private async getBaseTrades(
+  private async getEvmTrades(
     tokenAddress: string,
     limit: number,
+    chain: 'base' | 'ethereum' | 'bsc',
   ): Promise<UnifiedTrade[]> {
     // Try Birdeye Base endpoint first
-    const birdeyeTrades = await this.getBirdeyeBaseTrades(tokenAddress, limit);
+    const birdeyeTrades = await this.getBirdeyeEvmTrades(tokenAddress, limit, chain);
     if (birdeyeTrades.length > 0) {
       this.logger.log(
         `✅ Found ${birdeyeTrades.length} Base trades from Birdeye for ${tokenAddress}`,
@@ -465,9 +466,9 @@ export class TradeHistoryService {
 
     // Fallback to DexScreener
     this.logger.log(
-      `Birdeye returned no Base trades, trying DexScreener fallback for ${tokenAddress}`,
+      `Birdeye returned no ${chain} trades, trying DexScreener fallback for ${tokenAddress}`,
     );
-    return await this.getDexScreenerBaseTrades(tokenAddress, limit);
+    return await this.getDexScreenerEvmTrades(tokenAddress, limit, chain);
   }
 
   /**
@@ -476,16 +477,17 @@ export class TradeHistoryService {
    * Alternative endpoint mentioned: https://public-api.birdeye.so/defi/history_price?address=${address}&address_type=token&type=1m
    * (Note: history_price returns price history/candles, not individual trades)
    */
-  private async getBirdeyeBaseTrades(
+  private async getBirdeyeEvmTrades(
     tokenAddress: string,
     limit: number,
+    chain: 'base' | 'ethereum' | 'bsc',
   ): Promise<UnifiedTrade[]> {
     const apiKey =
       this.configService.get('BIRDEYE_API_KEY') ||
       '725a2e88183e417f99ab52b92e2bf6f5';
 
     if (!apiKey) {
-      this.logger.debug('BIRDEYE_API_KEY missing; skipping Birdeye Base trades.');
+      this.logger.debug('BIRDEYE_API_KEY missing; skipping Birdeye EVM trades.');
       return [];
     }
 
@@ -501,7 +503,7 @@ export class TradeHistoryService {
           },
           headers: {
             'X-API-KEY': apiKey,
-            'x-chain': 'base',
+            'x-chain': chain,
           },
           timeout: 10_000,
         },
@@ -554,12 +556,12 @@ export class TradeHistoryService {
       const errorDetails = error.response?.data || {};
       
       this.logger.debug(
-        `Birdeye Base trades fetch failed for ${tokenAddress}: ${errorMessage}`,
+        `Birdeye ${chain} trades fetch failed for ${tokenAddress}: ${errorMessage}`,
       );
 
       if (error.response?.status) {
         this.logger.debug(
-          `Birdeye Base API Error: Status ${error.response.status}, Data: ${JSON.stringify(errorDetails)}`,
+          `Birdeye ${chain} API Error: Status ${error.response.status}, Data: ${JSON.stringify(errorDetails)}`,
         );
       }
 
@@ -571,9 +573,10 @@ export class TradeHistoryService {
    * DexScreener API - FALLBACK source for Base trades
    * Fetches pair data and extracts recent trades
    */
-  private async getDexScreenerBaseTrades(
+  private async getDexScreenerEvmTrades(
     tokenAddress: string,
     limit: number,
+    chain: 'base' | 'ethereum' | 'bsc',
   ): Promise<UnifiedTrade[]> {
     try {
       // DexScreener API endpoint for token pairs
@@ -593,8 +596,15 @@ export class TradeHistoryService {
       }
 
       // Find the most liquid pair (usually the first one or highest liquidity)
+      const chainIdMatch =
+        chain === 'base'
+          ? (p: any) => p.chainId === 'base' || p.chainId === '8453'
+          : chain === 'bsc'
+            ? (p: any) => p.chainId === 'bsc' || p.chainId === '56'
+            : (p: any) => p.chainId === 'ethereum' || p.chainId === '1';
+
       const basePair = pairs
-        .filter((p: any) => p.chainId === 'base' || p.chainId === '8453')
+        .filter(chainIdMatch)
         .sort((a: any, b: any) => {
           const liqA = Number(a.liquidity?.usd || 0);
           const liqB = Number(b.liquidity?.usd || 0);
@@ -603,7 +613,7 @@ export class TradeHistoryService {
 
       if (!basePair) {
         this.logger.debug(
-          `DexScreener: No Base chain pair found for ${tokenAddress}`,
+        `DexScreener: No ${chain} chain pair found for ${tokenAddress}`,
         );
         return [];
       }
@@ -613,7 +623,7 @@ export class TradeHistoryService {
       // For actual trades, we'd need to use a different endpoint or service
       // For now, return empty array and log that we need a different approach
       this.logger.debug(
-        `DexScreener: Found Base pair ${basePair.pairAddress} for ${tokenAddress}, but individual trades not available in free API`,
+        `DexScreener: Found ${chain} pair ${basePair.pairAddress} for ${tokenAddress}, but individual trades not available in free API`,
       );
 
       // Note: DexScreener free API doesn't provide individual trade history
@@ -621,7 +631,7 @@ export class TradeHistoryService {
       return [];
     } catch (error: any) {
       this.logger.warn(
-        `DexScreener Base fallback failed for ${tokenAddress}: ${error.message}`,
+        `DexScreener ${chain} fallback failed for ${tokenAddress}: ${error.message}`,
       );
       return [];
     }

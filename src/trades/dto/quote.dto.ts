@@ -4,11 +4,11 @@ import { IsString, IsNumber, IsEnum, IsOptional, Min, Max } from 'class-validato
 export class QuoteRequestDto {
   @ApiProperty({
     description: 'Chain to execute trade on',
-    enum: ['solana', 'movement', 'base'],
+    enum: ['solana', 'movement', 'base', 'ethereum', 'bsc'],
     example: 'solana',
   })
-  @IsEnum(['solana', 'movement', 'base'])
-  chain: 'solana' | 'movement' | 'base';
+  @IsEnum(['solana', 'movement', 'base', 'ethereum', 'bsc'])
+  chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
 
   @ApiProperty({
     description: 'Input token address (mint/contract address)',

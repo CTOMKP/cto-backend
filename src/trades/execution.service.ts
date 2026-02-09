@@ -64,12 +64,12 @@ export class ExecutionService {
         message: 'Movement trades are signed server-side. Call /api/v1/trades/execute directly.',
         retryable: false,
       });
-    } else if (chain === 'base') {
-      return await this.buildBaseTransaction(quote, walletAddress, slippageBps);
-    } else {
-      throw new BadRequestException(`Unsupported chain: ${chain}`);
+      } else if (chain === 'base' || chain === 'ethereum' || chain === 'bsc') {
+        return await this.buildEvmTransaction(chain, quote, walletAddress, slippageBps);
+      } else {
+        throw new BadRequestException(`Unsupported chain: ${chain}`);
+      }
     }
-  }
 
   /**
    * Build Solana swap transaction using Jupiter
@@ -184,7 +184,8 @@ export class ExecutionService {
    * For Base, we return the quote data and let the frontend build the transaction
    * using a Base-compatible aggregator (1inch, 0x, etc.) or direct DEX interaction.
    */
-  private async buildBaseTransaction(
+  private async buildEvmTransaction(
+    chain: 'base' | 'ethereum' | 'bsc',
     quote: any,
     walletAddress: string,
     slippageBps: number,
@@ -200,20 +201,20 @@ export class ExecutionService {
     try {
       // Check if we have a 1inch API key for Base swaps
       const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
-      const baseChainId = 8453; // Base mainnet chain ID
+        const chainId = chain === 'ethereum' ? 1 : chain === 'bsc' ? 56 : 8453;
       
       if (!oneInchApiKey) {
         this.logger.warn('ONEINCH_API_KEY not found in environment variables');
         throw new BadRequestException({
           code: 'MISSING_API_KEY',
-          message: 'Base chain swaps require ONEINCH_API_KEY to be configured in environment variables.',
+          message: 'EVM chain swaps require ONEINCH_API_KEY to be configured in environment variables.',
           retryable: false,
         });
       }
 
       // Use 1inch API for Base swaps
       // 1inch API v6.0 swap endpoint uses GET method with query parameters
-      const oneInchUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/swap`;
+        const oneInchUrl = `https://api.1inch.dev/swap/v6.0/${chainId}/swap`;
       
       // Validate quote structure
       if (!quote || !quote.inputMint || !quote.outputMint || !quote.inAmount) {
@@ -248,7 +249,7 @@ export class ExecutionService {
       if (isTokenSell) {
         try {
           // Step 1: Get the 1inch router/spender address for Base
-          const spenderUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/approve/spender`;
+            const spenderUrl = `https://api.1inch.dev/swap/v6.0/${chainId}/approve/spender`;
           const spenderResponse = await firstValueFrom(
             this.httpService.get(spenderUrl, {
               headers: {
@@ -267,7 +268,7 @@ export class ExecutionService {
           }
           
           // Step 2: Check current allowance
-          const allowanceUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/approve/allowance`;
+            const allowanceUrl = `https://api.1inch.dev/swap/v6.0/${chainId}/approve/allowance`;
           const allowanceParams = {
             tokenAddress: srcToken,
             walletAddress: fromAddress,
@@ -292,7 +293,7 @@ export class ExecutionService {
           
           if (needsApproval) {
             // Step 3: Get approval transaction data
-            const approveUrl = `https://api.1inch.dev/swap/v6.0/${baseChainId}/approve/transaction`;
+              const approveUrl = `https://api.1inch.dev/swap/v6.0/${chainId}/approve/transaction`;
             const approveParams = {
               tokenAddress: srcToken,
               amount: quote.inAmount, // Amount to approve (can be max or specific amount)
@@ -320,8 +321,8 @@ export class ExecutionService {
             }
             
             // Return approval transaction - frontend must sign and broadcast this first
-            return {
-              chain: 'base',
+              return {
+                chain,
               transaction: {
                 to: approveData.to,
                 data: approveData.data,
@@ -377,7 +378,7 @@ export class ExecutionService {
         }
 
         return {
-          chain: 'base',
+          chain,
           transaction: {
             to: data.tx.to,
             data: data.tx.data,
@@ -427,7 +428,7 @@ export class ExecutionService {
       throw new BadRequestException({
         code: 'UPSTREAM_ERROR',
         message:
-          'Base chain swaps require a Base-compatible aggregator. Please configure ONEINCH_API_KEY. Jupiter API only supports Solana swaps.',
+          'EVM chain swaps require a compatible aggregator. Please configure ONEINCH_API_KEY. Jupiter API only supports Solana swaps.',
         retryable: false,
       });
     } catch (error: any) {
@@ -457,11 +458,11 @@ export class ExecutionService {
         txHash = await this.broadcastSolanaTransaction(signedTransaction);
       } else if (chain === 'movement') {
         txHash = await this.broadcastMovementTransactionServerSide(userId, quote);
-      } else if (chain === 'base') {
-        txHash = await this.broadcastBaseTransaction(signedTransaction);
-      } else {
-        throw new BadRequestException(`Unsupported chain: ${chain}`);
-      }
+        } else if (chain === 'base' || chain === 'ethereum' || chain === 'bsc') {
+          txHash = await this.broadcastEvmTransaction(chain, signedTransaction);
+        } else {
+          throw new BadRequestException(`Unsupported chain: ${chain}`);
+        }
 
       // Record in UserTrade table
       await this.recordUserTrade({
@@ -607,8 +608,13 @@ export class ExecutionService {
   /**
    * Broadcast Base transaction (EVM-compatible)
    */
-  private async broadcastBaseTransaction(signedTransaction: any): Promise<string> {
-    const rpcUrl = this.configService.get('BASE_RPC_URL') || 'https://mainnet.base.org';
+  private async broadcastEvmTransaction(chain: 'base' | 'ethereum' | 'bsc', signedTransaction: any): Promise<string> {
+    const rpcUrl =
+      chain === 'ethereum'
+        ? this.configService.get('ETHEREUM_RPC_URL') || 'https://rpc.ankr.com/eth'
+        : chain === 'bsc'
+          ? this.configService.get('BSC_RPC_URL') || 'https://bsc-dataseed.binance.org'
+          : this.configService.get('BASE_RPC_URL') || 'https://mainnet.base.org';
 
     try {
       if (typeof signedTransaction === 'string' && /^0x[0-9a-fA-F]{64}$/.test(signedTransaction)) {
