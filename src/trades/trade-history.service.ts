@@ -42,6 +42,7 @@ export class TradeHistoryService {
     }
 
     const chain = normalizedChain || await this.detectChain(address);
+    const priceHint = await this.getListingPriceUsd(address);
     let trades: UnifiedTrade[] = [];
     
     if (chain === 'base' || chain === 'ethereum' || chain === 'bsc') {
@@ -54,8 +55,9 @@ export class TradeHistoryService {
       trades = await this.getSolanaTrades(address, safeLimit);
     }
 
-    this.cache.set(cacheKey, { data: trades, expiresAt: now + this.ttlMs });
-    return trades;
+    const normalizedTrades = this.normalizeTrades(trades, priceHint);
+    this.cache.set(cacheKey, { data: normalizedTrades, expiresAt: now + this.ttlMs });
+    return normalizedTrades;
   }
 
   /**
@@ -108,6 +110,91 @@ export class TradeHistoryService {
     if (raw === 'bnb') return 'bsc';
     if (raw === 'aptos') return 'movement';
     return raw as any;
+  }
+
+  private async getListingPriceUsd(tokenAddress: string): Promise<number> {
+    try {
+      const listing = await this.prisma.listing.findFirst({
+        where: {
+          contractAddress: {
+            equals: tokenAddress,
+            mode: 'insensitive',
+          },
+        },
+        select: { priceUsd: true },
+      });
+      return Number(listing?.priceUsd) || 0;
+    } catch (error: any) {
+      this.logger.debug(`Failed to load listing price: ${error.message}`);
+      return 0;
+    }
+  }
+
+  private normalizeTrades(trades: UnifiedTrade[], priceHintUsd: number): UnifiedTrade[] {
+    const groups = new Map<string, UnifiedTrade[]>();
+    for (const trade of trades || []) {
+      const txHash = trade?.txHash || '';
+      if (!txHash) continue;
+      const bucket = groups.get(txHash) || [];
+      bucket.push(trade);
+      groups.set(txHash, bucket);
+    }
+
+    const aggregated: UnifiedTrade[] = [];
+    for (const [txHash, bucket] of groups) {
+      const amountSum = bucket.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      const totalSum = bucket.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
+      let price = bucket.find((t) => Number(t.price) > 0)?.price || 0;
+      const timestamp = bucket.find((t) => t.timestamp)?.timestamp || '';
+      const makerAddress = bucket.find((t) => t.makerAddress)?.makerAddress || '';
+
+      if (!price && totalSum > 0 && amountSum > 0) {
+        price = totalSum / amountSum;
+      }
+
+      if ((!price || price <= 0) && priceHintUsd > 0 && amountSum > 0) {
+        price = priceHintUsd;
+      }
+
+      const totalValue = totalSum > 0 ? totalSum : price > 0 && amountSum > 0 ? price * amountSum : 0;
+
+      const buyTotal = bucket
+        .filter((t) => t.type === 'BUY')
+        .reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
+      const sellTotal = bucket
+        .filter((t) => t.type === 'SELL')
+        .reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
+      const type: UnifiedTradeType =
+        buyTotal === sellTotal
+          ? bucket[0].type
+          : buyTotal > sellTotal
+            ? 'BUY'
+            : 'SELL';
+
+      // Hide dust or empty trades
+      if (totalValue > 0 && totalValue < 0.1) {
+        continue;
+      }
+      if (amountSum <= 0 && totalValue <= 0) {
+        continue;
+      }
+
+      aggregated.push({
+        txHash,
+        timestamp,
+        type,
+        price: price || 0,
+        amount: amountSum || 0,
+        totalValue: totalValue || 0,
+        makerAddress,
+      });
+    }
+
+    return aggregated.sort((a, b) => {
+      const tA = new Date(a.timestamp as any).getTime() || 0;
+      const tB = new Date(b.timestamp as any).getTime() || 0;
+      return tB - tA;
+    });
   }
 
   private async getSolanaTrades(
@@ -350,7 +437,7 @@ export class TradeHistoryService {
       this.logger.debug(`Fetching Birdeye trades for ${mintAddress} (limit: ${limit})`);
       
       const response = await axios.get(
-        'https://public-api.birdeye.so/defi/txs/token',
+        'https://public-api.birdeye.so/defi/v3/token/txs',
         {
           params: {
             address: mintAddress,
@@ -398,8 +485,8 @@ export class TradeHistoryService {
             item?.size ??
             0,
         );
-        const price = Number(item?.price ?? item?.priceUsd ?? 0);
-        const totalValue = Number(item?.value ?? item?.total ?? 0) ||
+        const price = Number(item?.price ?? item?.priceUsd ?? item?.price_usd ?? 0);
+        const totalValue = Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? 0) ||
           amount * price;
 
         return {
@@ -507,7 +594,7 @@ export class TradeHistoryService {
     try {
       // Use the txs/token endpoint for Base (same as Solana but with x-chain: base)
       const tradesResponse = await axios.get(
-        'https://public-api.birdeye.so/defi/txs/token',
+        'https://public-api.birdeye.so/defi/v3/token/txs',
         {
           params: {
             address: tokenAddress,
@@ -542,8 +629,8 @@ export class TradeHistoryService {
             item?.size ??
             0,
         );
-        const price = Number(item?.price ?? item?.priceUsd ?? 0);
-        const totalValue = Number(item?.value ?? item?.total ?? 0) ||
+        const price = Number(item?.price ?? item?.priceUsd ?? item?.price_usd ?? 0);
+        const totalValue = Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? 0) ||
           amount * price;
 
         return {
@@ -815,8 +902,87 @@ export class TradeHistoryService {
     tokenAddress: string,
     limit: number,
   ): Promise<UnifiedTrade[]> {
-    this.logger.debug(`Sui trades not yet supported for ${tokenAddress}. Returning empty list.`);
-    return [];
+    const apiKey =
+      this.configService.get('BIRDEYE_API_KEY') ||
+      '725a2e88183e417f99ab52b92e2bf6f5';
+
+    if (!apiKey) {
+      this.logger.debug('BIRDEYE_API_KEY missing; skipping Birdeye Sui trades.');
+      return [];
+    }
+
+    try {
+      const response = await axios.get('https://public-api.birdeye.so/defi/v3/token/txs', {
+        params: {
+          address: tokenAddress,
+          offset: 0,
+          limit,
+        },
+        headers: {
+          'X-API-KEY': apiKey,
+          'x-chain': 'sui',
+        },
+        timeout: 10_000,
+      });
+
+      if (response.data?.success === false) {
+        this.logger.warn(
+          `Birdeye Sui API error for ${tokenAddress}: ${response.data?.message || 'Unknown error'}`,
+        );
+        return [];
+      }
+
+      const items =
+        response.data?.data?.items ||
+        response.data?.data ||
+        response.data?.items ||
+        [];
+
+      if (!Array.isArray(items)) {
+        return [];
+      }
+
+      return items.map((item: any) => {
+        const rawType =
+          (item?.side || item?.type || '').toString().toLowerCase();
+        const type: UnifiedTradeType = rawType === 'sell' ? 'SELL' : 'BUY';
+
+        const amount = Number(
+          item?.baseAmount ??
+            item?.amount ??
+            item?.amountToken ??
+            item?.size ??
+            0,
+        );
+        const price = Number(item?.price ?? item?.priceUsd ?? item?.price_usd ?? 0);
+        const totalValue =
+          Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? 0) || amount * price;
+
+        return {
+          txHash:
+            item?.txHash ||
+            item?.tx_hash ||
+            item?.signature ||
+            '',
+          timestamp: item?.blockTime || item?.time || item?.timestamp || '',
+          type,
+          price,
+          amount,
+          totalValue,
+          makerAddress:
+            item?.maker ||
+            item?.owner ||
+            item?.sourceOwner ||
+            '',
+        };
+      });
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message;
+      this.logger.debug(
+        `Birdeye Sui trades fetch failed for ${tokenAddress}: ${errorMessage}`,
+      );
+      return [];
+    }
   }
 
   /**
