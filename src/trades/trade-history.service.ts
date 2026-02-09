@@ -31,22 +31,25 @@ export class TradeHistoryService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async getTrades(address: string, limit = 50): Promise<UnifiedTrade[]> {
+  async getTrades(address: string, limit = 50, chainHint?: string): Promise<UnifiedTrade[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 200);
-    const cacheKey = `${address}:${safeLimit}`;
+    const normalizedChain = this.normalizeChain(chainHint);
+    const cacheKey = `${address}:${safeLimit}:${normalizedChain || 'auto'}`;
     const now = Date.now();
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
       return cached.data;
     }
 
-    const chain = await this.detectChain(address);
+    const chain = normalizedChain || await this.detectChain(address);
     let trades: UnifiedTrade[] = [];
     
     if (chain === 'base' || chain === 'ethereum' || chain === 'bsc') {
       trades = await this.getEvmTrades(address, safeLimit, chain);
     } else if (chain === 'movement') {
       trades = await this.getMovementTrades(address, safeLimit);
+    } else if (chain === 'sui') {
+      trades = await this.getSuiTrades(address, safeLimit);
     } else {
       trades = await this.getSolanaTrades(address, safeLimit);
     }
@@ -58,7 +61,7 @@ export class TradeHistoryService {
   /**
    * Detect chain by checking database Listing first, then fallback to address format
    */
-  private async detectChain(address: string): Promise<'movement' | 'solana' | 'base' | 'ethereum' | 'bsc'> {
+  private async detectChain(address: string): Promise<'movement' | 'solana' | 'base' | 'ethereum' | 'bsc' | 'sui'> {
     try {
       // Check database for the token's chain
       const listing = await this.prisma.listing.findFirst({
@@ -76,6 +79,7 @@ export class TradeHistoryService {
         if (chainUpper === 'BASE') return 'base';
         if (chainUpper === 'ETH' || chainUpper === 'ETHEREUM') return 'ethereum';
         if (chainUpper === 'BSC' || chainUpper === 'BNB') return 'bsc';
+        if (chainUpper === 'SUI') return 'sui';
         if (chainUpper === 'MOVEMENT' || chainUpper === 'APTOS') {
           return 'movement';
         }
@@ -95,6 +99,15 @@ export class TradeHistoryService {
     // EVM tokens use 0x addresses (Base/BSC/ETH). Default to base for now.
     if (address?.startsWith('0x')) return 'base';
     return 'solana';
+  }
+
+  private normalizeChain(chain?: string): 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc' | 'sui' | undefined {
+    if (!chain) return undefined;
+    const raw = chain.toLowerCase();
+    if (raw === 'eth') return 'ethereum';
+    if (raw === 'bnb') return 'bsc';
+    if (raw === 'aptos') return 'movement';
+    return raw as any;
   }
 
   private async getSolanaTrades(
@@ -796,6 +809,14 @@ export class TradeHistoryService {
       }
       return [];
     }
+  }
+
+  private async getSuiTrades(
+    tokenAddress: string,
+    limit: number,
+  ): Promise<UnifiedTrade[]> {
+    this.logger.debug(`Sui trades not yet supported for ${tokenAddress}. Returning empty list.`);
+    return [];
   }
 
   /**

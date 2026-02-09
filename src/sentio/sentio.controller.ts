@@ -23,6 +23,12 @@ export class SentioController {
     description: 'Max number of trades to return (1-200, default 50)',
     example: 50,
   })
+  @ApiQuery({
+    name: 'chain',
+    required: false,
+    description: 'Optional chain hint (solana | base | ethereum | bsc | movement | sui)',
+    example: 'solana',
+  })
   @ApiResponse({
     status: 200,
     description: 'Trades retrieved successfully',
@@ -50,13 +56,14 @@ export class SentioController {
   async getTrades(
     @Param('address') address: string,
     @Query('limit') limit?: string,
+    @Query('chain') chain?: string,
   ) {
     const parsedLimit = Number(limit);
     const safeLimit = Number.isFinite(parsedLimit)
       ? Math.min(Math.max(parsedLimit, 1), 200)
       : 50;
 
-    const trades = await this.tradeHistoryService.getTrades(address, safeLimit);
+    const trades = await this.tradeHistoryService.getTrades(address, safeLimit, chain);
 
     // Return in format expected by frontend: { data: [...] }
     return {

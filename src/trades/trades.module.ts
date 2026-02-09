@@ -7,11 +7,12 @@ import { TradeHistoryService } from './trade-history.service';
 import { TradeSyncCronService } from './trade-sync-cron.service';
 import { QuoteService } from './quote.service';
 import { ExecutionService } from './execution.service';
+import { TradesGateway } from './trades.gateway';
 
 @Module({
   imports: [HttpModule, PrismaModule, AuthModule],
   controllers: [TradesController],
-  providers: [TradeHistoryService, TradeSyncCronService, QuoteService, ExecutionService],
-  exports: [TradeHistoryService, QuoteService, ExecutionService],
+  providers: [TradeHistoryService, TradeSyncCronService, QuoteService, ExecutionService, TradesGateway],
+  exports: [TradeHistoryService, QuoteService, ExecutionService, TradesGateway],
 })
 export class TradesModule {}
