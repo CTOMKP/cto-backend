@@ -213,29 +213,48 @@ export class TradeHistoryService {
     let type: UnifiedTradeType | null =
       rawSide === 'sell' ? 'SELL' : rawSide === 'buy' ? 'BUY' : null;
 
+    const signedBaseChange = Number(
+      item?.base?.uiChangeAmount ??
+        item?.base?.changeAmount ??
+        item?.base?.amountChange ??
+        item?.base?.amount ??
+        0,
+    );
+    const signedQuoteChange = Number(
+      item?.quote?.uiChangeAmount ??
+        item?.quote?.changeAmount ??
+        item?.quote?.amountChange ??
+        item?.quote?.amount ??
+        0,
+    );
     const amountRaw = Number(
       item?.baseAmount ??
         item?.amount ??
         item?.amountToken ??
         item?.size ??
-        0,
+        (signedBaseChange !== 0 ? signedBaseChange : 0),
     );
     const quoteRaw = Number(
       item?.quoteAmount ??
         item?.value ??
         item?.total ??
         item?.totalValue ??
+        (signedQuoteChange !== 0 ? signedQuoteChange : 0),
         0,
     );
 
     const amount = Math.abs(amountRaw);
     const price = Number(item?.price ?? item?.priceUsd ?? item?.price_usd ?? 0);
     const totalValue =
-      Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? 0) ||
+      Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? quoteRaw ?? 0) ||
       (amount > 0 && price > 0 ? amount * price : 0);
 
     if (!type) {
-      if (amountRaw < 0 || quoteRaw < 0) {
+      if (signedBaseChange !== 0) {
+        type = signedBaseChange > 0 ? 'BUY' : 'SELL';
+      } else if (signedQuoteChange !== 0) {
+        type = signedQuoteChange > 0 ? 'SELL' : 'BUY';
+      } else if (amountRaw < 0 || quoteRaw < 0) {
         type = 'SELL';
       } else if (amountRaw > 0 || quoteRaw > 0) {
         type = 'BUY';
