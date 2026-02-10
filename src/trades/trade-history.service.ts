@@ -133,6 +133,34 @@ export class TradeHistoryService {
     }
   }
 
+  private async getListingPairAddress(tokenAddress: string): Promise<string | null> {
+    try {
+      const listing = await this.prisma.listing.findFirst({
+        where: {
+          contractAddress: {
+            equals: tokenAddress,
+            mode: 'insensitive',
+          },
+        },
+        select: { metadata: true },
+      });
+
+      const metadata: any = listing?.metadata || {};
+      const pairAddress =
+        metadata?.pair_address ||
+        metadata?.pairAddress ||
+        metadata?.market?.pairAddress ||
+        metadata?.market?.pair_address ||
+        metadata?.market?.pair ||
+        null;
+
+      return typeof pairAddress === 'string' && pairAddress.length > 0 ? pairAddress : null;
+    } catch (error: any) {
+      this.logger.debug(`Failed to load listing pair address: ${error.message}`);
+      return null;
+    }
+  }
+
   private normalizeTrades(trades: UnifiedTrade[], priceHintUsd: number): UnifiedTrade[] {
     const groups = new Map<string, UnifiedTrade[]>();
     for (const trade of trades || []) {
@@ -279,12 +307,24 @@ export class TradeHistoryService {
     // Helius parses raw Solana transactions into "Swap" readable format
     this.logger.debug(`Fetching Solana trades for ${mintAddress}`);
     
-    const heliusTrades = await this.getHeliusEnhancedTrades(mintAddress, limit);
+    const heliusTrades = await this.getHeliusEnhancedTrades(mintAddress, mintAddress, limit);
     if (heliusTrades.length > 0) {
       this.logger.log(
         `✅ Found ${heliusTrades.length} trades from Helius for ${mintAddress}`,
       );
       return heliusTrades;
+    }
+
+    const pairAddress = await this.getListingPairAddress(mintAddress);
+    if (pairAddress) {
+      this.logger.debug(`Helius fallback: querying pair address ${pairAddress} for ${mintAddress}`);
+      const heliusPairTrades = await this.getHeliusEnhancedTrades(pairAddress, mintAddress, limit);
+      if (heliusPairTrades.length > 0) {
+        this.logger.log(
+          `✅ Found ${heliusPairTrades.length} trades from Helius pair ${pairAddress} for ${mintAddress}`,
+        );
+        return heliusPairTrades;
+      }
     }
 
     // Fallback: Use Birdeye if Helius returns no data
@@ -309,6 +349,7 @@ export class TradeHistoryService {
    * Parses raw Solana transactions and extracts swap events
    */
   private async getHeliusEnhancedTrades(
+    addressToQuery: string,
     mintAddress: string,
     limit: number,
   ): Promise<UnifiedTrade[]> {
@@ -324,10 +365,10 @@ export class TradeHistoryService {
     try {
       // Helius Enhanced Transactions API - GET request
       // Endpoint: GET https://api.helius.xyz/v0/addresses/{address}/transactions?api-key={API_KEY}&limit={limit}
-      this.logger.debug(`Fetching Helius trades for ${mintAddress} (limit: ${limit})`);
+      this.logger.debug(`Fetching Helius trades for ${addressToQuery} (limit: ${limit})`);
       
       const response = await axios.get(
-        `https://api.helius.xyz/v0/addresses/${mintAddress}/transactions`,
+        `https://api.helius.xyz/v0/addresses/${addressToQuery}/transactions`,
         {
           params: {
             'api-key': apiKey,
@@ -343,7 +384,7 @@ export class TradeHistoryService {
         return [];
       }
 
-      this.logger.debug(`Helius returned ${transactions.length} transactions for ${mintAddress}`);
+      this.logger.debug(`Helius returned ${transactions.length} transactions for ${addressToQuery}`);
 
       const trades: UnifiedTrade[] = [];
 
@@ -355,13 +396,13 @@ export class TradeHistoryService {
         if (trades.length >= limit) break;
       }
 
-      this.logger.debug(`Extracted ${trades.length} swap trades from ${transactions.length} transactions for ${mintAddress}`);
+      this.logger.debug(`Extracted ${trades.length} swap trades from ${transactions.length} transactions for ${addressToQuery}`);
       return trades.slice(0, limit);
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message;
       const statusCode = error.response?.status;
       this.logger.warn(
-        `Helius Enhanced Transactions failed for ${mintAddress} (${statusCode || 'n/a'}): ${errorMessage}`,
+        `Helius Enhanced Transactions failed for ${addressToQuery} (${statusCode || 'n/a'}): ${errorMessage}`,
       );
       return [];
     }
