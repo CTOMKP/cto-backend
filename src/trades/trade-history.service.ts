@@ -240,7 +240,6 @@ export class TradeHistoryService {
         item?.total ??
         item?.totalValue ??
         (signedQuoteChange !== 0 ? signedQuoteChange : 0),
-        0,
     );
 
     const amount = Math.abs(amountRaw);
