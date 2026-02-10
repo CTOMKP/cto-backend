@@ -25,20 +25,23 @@ export class TradeHistoryService {
   private readonly logger = new Logger(TradeHistoryService.name);
   private readonly cache = new Map<string, CacheEntry>();
   private readonly ttlMs = 8_000;
+  private readonly minTradeUsd = 0.5;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
   ) {}
 
-  async getTrades(address: string, limit = 50, chainHint?: string): Promise<UnifiedTrade[]> {
+  async getTrades(address: string, limit = 50, chainHint?: string, noCache = false): Promise<UnifiedTrade[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 200);
     const normalizedChain = this.normalizeChain(chainHint);
     const cacheKey = `${address}:${safeLimit}:${normalizedChain || 'auto'}`;
     const now = Date.now();
-    const cached = this.cache.get(cacheKey);
-    if (cached && cached.expiresAt > now) {
-      return cached.data;
+    if (!noCache) {
+      const cached = this.cache.get(cacheKey);
+      if (cached && cached.expiresAt > now) {
+        return cached.data;
+      }
     }
 
     const chain = normalizedChain || await this.detectChain(address);
@@ -46,13 +49,13 @@ export class TradeHistoryService {
     let trades: UnifiedTrade[] = [];
     
     if (chain === 'base' || chain === 'ethereum' || chain === 'bsc') {
-      trades = await this.getEvmTrades(address, safeLimit, chain);
+      trades = await this.getEvmTrades(address, safeLimit, chain, noCache);
     } else if (chain === 'movement') {
       trades = await this.getMovementTrades(address, safeLimit);
     } else if (chain === 'sui') {
-      trades = await this.getSuiTrades(address, safeLimit);
+      trades = await this.getSuiTrades(address, safeLimit, noCache);
     } else {
-      trades = await this.getSolanaTrades(address, safeLimit);
+      trades = await this.getSolanaTrades(address, safeLimit, noCache);
     }
 
     const normalizedTrades = this.normalizeTrades(trades, priceHint);
@@ -175,10 +178,10 @@ export class TradeHistoryService {
             : 'SELL';
 
       // Hide dust or empty trades
-      if (totalValue > 0 && totalValue < 0.1) {
+      if (totalValue > 0 && totalValue < this.minTradeUsd) {
         continue;
       }
-      if (amountSum <= 0 && totalValue <= 0) {
+      if (amountSum <= 0 || totalValue <= 0 || price <= 0) {
         continue;
       }
 
@@ -200,9 +203,59 @@ export class TradeHistoryService {
     });
   }
 
+  private resolveBirdeyeTrade(item: any): {
+    type: UnifiedTradeType;
+    amount: number;
+    price: number;
+    totalValue: number;
+  } {
+    const rawSide = (item?.side || item?.type || '').toString().toLowerCase();
+    let type: UnifiedTradeType | null =
+      rawSide === 'sell' ? 'SELL' : rawSide === 'buy' ? 'BUY' : null;
+
+    const amountRaw = Number(
+      item?.baseAmount ??
+        item?.amount ??
+        item?.amountToken ??
+        item?.size ??
+        0,
+    );
+    const quoteRaw = Number(
+      item?.quoteAmount ??
+        item?.value ??
+        item?.total ??
+        item?.totalValue ??
+        0,
+    );
+
+    const amount = Math.abs(amountRaw);
+    const price = Number(item?.price ?? item?.priceUsd ?? item?.price_usd ?? 0);
+    const totalValue =
+      Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? 0) ||
+      (amount > 0 && price > 0 ? amount * price : 0);
+
+    if (!type) {
+      if (amountRaw < 0 || quoteRaw < 0) {
+        type = 'SELL';
+      } else if (amountRaw > 0 || quoteRaw > 0) {
+        type = 'BUY';
+      } else {
+        type = 'BUY';
+      }
+    }
+
+    return {
+      type,
+      amount,
+      price,
+      totalValue,
+    };
+  }
+
   private async getSolanaTrades(
     mintAddress: string,
     limit: number,
+    noCache: boolean,
   ): Promise<UnifiedTrade[]> {
     // Directive 1: Use Helius Enhanced Transactions as PRIMARY source
     // Helius parses raw Solana transactions into "Swap" readable format
@@ -220,7 +273,7 @@ export class TradeHistoryService {
     this.logger.log(
       `Helius returned no trades for ${mintAddress}, trying Birdeye fallback`,
     );
-    const birdeyeTrades = await this.getBirdeyeTrades(mintAddress, limit);
+    const birdeyeTrades = await this.getBirdeyeTrades(mintAddress, limit, noCache);
     if (birdeyeTrades.length > 0) {
       this.logger.log(
         `✅ Found ${birdeyeTrades.length} trades from Birdeye for ${mintAddress}`,
@@ -426,6 +479,7 @@ export class TradeHistoryService {
   private async getBirdeyeTrades(
     mintAddress: string,
     limit: number,
+    noCache: boolean,
   ): Promise<UnifiedTrade[]> {
     const apiKey =
       this.configService.get('BIRDEYE_API_KEY') ||
@@ -446,10 +500,14 @@ export class TradeHistoryService {
             address: mintAddress,
             offset: 0,
             limit,
+            ...(noCache ? { _ts: Date.now() } : {}),
           },
           headers: {
             'X-API-KEY': apiKey,
             'x-chain': 'solana',
+            ...(noCache
+              ? { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+              : {}),
           },
           timeout: 10_000,
         },
@@ -477,20 +535,7 @@ export class TradeHistoryService {
       this.logger.debug(`Birdeye returned ${items.length} trades for ${mintAddress}`);
 
       return items.map((item: any) => {
-        const rawType =
-          (item?.side || item?.type || '').toString().toLowerCase();
-        const type: UnifiedTradeType = rawType === 'sell' ? 'SELL' : 'BUY';
-
-        const amount = Number(
-          item?.baseAmount ??
-            item?.amount ??
-            item?.amountToken ??
-            item?.size ??
-            0,
-        );
-        const price = Number(item?.price ?? item?.priceUsd ?? item?.price_usd ?? 0);
-        const totalValue = Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? 0) ||
-          amount * price;
+        const resolved = this.resolveBirdeyeTrade(item);
 
         return {
           txHash:
@@ -499,10 +544,10 @@ export class TradeHistoryService {
             item?.signature ||
             '',
           timestamp: item?.blockTime || item?.time || item?.timestamp || '',
-          type,
-          price,
-          amount,
-          totalValue,
+          type: resolved.type,
+          price: resolved.price,
+          amount: resolved.amount,
+          totalValue: resolved.totalValue,
           makerAddress:
             item?.maker ||
             item?.owner ||
@@ -557,9 +602,10 @@ export class TradeHistoryService {
     tokenAddress: string,
     limit: number,
     chain: 'base' | 'ethereum' | 'bsc',
+    noCache: boolean,
   ): Promise<UnifiedTrade[]> {
     // Try Birdeye Base endpoint first
-    const birdeyeTrades = await this.getBirdeyeEvmTrades(tokenAddress, limit, chain);
+    const birdeyeTrades = await this.getBirdeyeEvmTrades(tokenAddress, limit, chain, noCache);
     if (birdeyeTrades.length > 0) {
       this.logger.log(
         `✅ Found ${birdeyeTrades.length} Base trades from Birdeye for ${tokenAddress}`,
@@ -584,6 +630,7 @@ export class TradeHistoryService {
     tokenAddress: string,
     limit: number,
     chain: 'base' | 'ethereum' | 'bsc',
+    noCache: boolean,
   ): Promise<UnifiedTrade[]> {
     const apiKey =
       this.configService.get('BIRDEYE_API_KEY') ||
@@ -603,10 +650,14 @@ export class TradeHistoryService {
             address: tokenAddress,
             offset: 0,
             limit,
+            ...(noCache ? { _ts: Date.now() } : {}),
           },
           headers: {
             'X-API-KEY': apiKey,
             'x-chain': chain,
+            ...(noCache
+              ? { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+              : {}),
           },
           timeout: 10_000,
         },
@@ -621,20 +672,7 @@ export class TradeHistoryService {
       if (!Array.isArray(items)) return [];
 
       return items.map((item: any) => {
-        const rawType =
-          (item?.side || item?.type || '').toString().toLowerCase();
-        const type: UnifiedTradeType = rawType === 'sell' ? 'SELL' : 'BUY';
-
-        const amount = Number(
-          item?.baseAmount ??
-            item?.amount ??
-            item?.amountToken ??
-            item?.size ??
-            0,
-        );
-        const price = Number(item?.price ?? item?.priceUsd ?? item?.price_usd ?? 0);
-        const totalValue = Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? 0) ||
-          amount * price;
+        const resolved = this.resolveBirdeyeTrade(item);
 
         return {
           txHash:
@@ -643,10 +681,10 @@ export class TradeHistoryService {
             item?.signature ||
             '',
           timestamp: item?.blockTime || item?.time || item?.timestamp || '',
-          type,
-          price,
-          amount,
-          totalValue,
+          type: resolved.type,
+          price: resolved.price,
+          amount: resolved.amount,
+          totalValue: resolved.totalValue,
           makerAddress:
             item?.maker ||
             item?.owner ||
@@ -904,6 +942,7 @@ export class TradeHistoryService {
   private async getSuiTrades(
     tokenAddress: string,
     limit: number,
+    noCache: boolean,
   ): Promise<UnifiedTrade[]> {
     const apiKey =
       this.configService.get('BIRDEYE_API_KEY') ||
@@ -920,10 +959,14 @@ export class TradeHistoryService {
           address: tokenAddress,
           offset: 0,
           limit,
+          ...(noCache ? { _ts: Date.now() } : {}),
         },
         headers: {
           'X-API-KEY': apiKey,
           'x-chain': 'sui',
+          ...(noCache
+            ? { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+            : {}),
         },
         timeout: 10_000,
       });
@@ -946,20 +989,7 @@ export class TradeHistoryService {
       }
 
       return items.map((item: any) => {
-        const rawType =
-          (item?.side || item?.type || '').toString().toLowerCase();
-        const type: UnifiedTradeType = rawType === 'sell' ? 'SELL' : 'BUY';
-
-        const amount = Number(
-          item?.baseAmount ??
-            item?.amount ??
-            item?.amountToken ??
-            item?.size ??
-            0,
-        );
-        const price = Number(item?.price ?? item?.priceUsd ?? item?.price_usd ?? 0);
-        const totalValue =
-          Number(item?.value ?? item?.total ?? item?.totalValue ?? item?.quoteAmount ?? 0) || amount * price;
+        const resolved = this.resolveBirdeyeTrade(item);
 
         return {
           txHash:
@@ -968,10 +998,10 @@ export class TradeHistoryService {
             item?.signature ||
             '',
           timestamp: item?.blockTime || item?.time || item?.timestamp || '',
-          type,
-          price,
-          amount,
-          totalValue,
+          type: resolved.type,
+          price: resolved.price,
+          amount: resolved.amount,
+          totalValue: resolved.totalValue,
           makerAddress:
             item?.maker ||
             item?.owner ||

@@ -25,7 +25,7 @@ export class TradesGateway implements OnGatewayConnection, OnGatewayDisconnect {
     { interval: NodeJS.Timeout; subscribers: number; tokenAddress: string; chain: string; limit: number }
   >();
   private readonly socketRooms = new Map<string, Set<string>>();
-  private readonly pollIntervalMs = 5_000;
+  private readonly pollIntervalMs = 2_000;
 
   @WebSocketServer()
   server!: Server;
@@ -108,7 +108,7 @@ export class TradesGateway implements OnGatewayConnection, OnGatewayDisconnect {
     limit: number,
   ) {
     try {
-      const trades = await this.tradeHistoryService.getTrades(tokenAddress, limit, chain);
+      const trades = await this.tradeHistoryService.getTrades(tokenAddress, limit, chain, true);
       this.server.to(roomKey).emit('trades.update', {
         tokenAddress,
         chain,

@@ -29,6 +29,12 @@ export class SentioController {
     description: 'Optional chain hint (solana | base | ethereum | bsc | movement | sui)',
     example: 'solana',
   })
+  @ApiQuery({
+    name: 'nocache',
+    required: false,
+    description: 'Bypass in-memory cache (1 to bypass)',
+    example: '1',
+  })
   @ApiResponse({
     status: 200,
     description: 'Trades retrieved successfully',
@@ -57,13 +63,15 @@ export class SentioController {
     @Param('address') address: string,
     @Query('limit') limit?: string,
     @Query('chain') chain?: string,
+    @Query('nocache') nocache?: string,
   ) {
     const parsedLimit = Number(limit);
     const safeLimit = Number.isFinite(parsedLimit)
       ? Math.min(Math.max(parsedLimit, 1), 200)
       : 50;
 
-    const trades = await this.tradeHistoryService.getTrades(address, safeLimit, chain);
+    const noCache = nocache === '1' || nocache === 'true';
+    const trades = await this.tradeHistoryService.getTrades(address, safeLimit, chain, noCache);
 
     // Return in format expected by frontend: { data: [...] }
     return {
