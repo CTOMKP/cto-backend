@@ -161,6 +161,47 @@ export class TradeHistoryService {
     }
   }
 
+  private async getDexScreenerPairAddress(
+    tokenAddress: string,
+    chainId: 'solana' | 'base' | 'ethereum' | 'bsc' | 'sui',
+  ): Promise<string | null> {
+    try {
+      const response = await axios.get(
+        `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
+        { timeout: 10_000 },
+      );
+
+      const pairs = response.data?.pairs || [];
+      if (!Array.isArray(pairs) || pairs.length === 0) return null;
+
+      const chainPairs = pairs.filter((pair: any) => {
+        const chain = (pair?.chainId || '').toString().toLowerCase();
+        if (chainId === 'solana') return chain === 'solana';
+        if (chainId === 'base') return chain === 'base' || chain === '8453';
+        if (chainId === 'bsc') return chain === 'bsc' || chain === '56';
+        if (chainId === 'ethereum') return chain === 'ethereum' || chain === '1';
+        if (chainId === 'sui') return chain === 'sui';
+        return false;
+      });
+
+      if (chainPairs.length === 0) return null;
+
+      const best = chainPairs.sort((a: any, b: any) => {
+        const liqA = Number(a.liquidity?.usd || 0);
+        const liqB = Number(b.liquidity?.usd || 0);
+        return liqB - liqA;
+      })[0];
+
+      const pairAddress = best?.pairAddress || '';
+      return typeof pairAddress === 'string' && pairAddress.length > 0 ? pairAddress : null;
+    } catch (error: any) {
+      this.logger.debug(
+        `DexScreener pair lookup failed for ${tokenAddress}: ${error.message}`,
+      );
+      return null;
+    }
+  }
+
   private normalizeTrades(trades: UnifiedTrade[], priceHintUsd: number): UnifiedTrade[] {
     const groups = new Map<string, UnifiedTrade[]>();
     for (const trade of trades || []) {
@@ -327,6 +368,24 @@ export class TradeHistoryService {
       }
     }
 
+    const dexPairAddress = await this.getDexScreenerPairAddress(mintAddress, 'solana');
+    if (dexPairAddress) {
+      this.logger.debug(
+        `DexScreener fallback: querying pair address ${dexPairAddress} for ${mintAddress}`,
+      );
+      const heliusDexPairTrades = await this.getHeliusEnhancedTrades(
+        dexPairAddress,
+        mintAddress,
+        limit,
+      );
+      if (heliusDexPairTrades.length > 0) {
+        this.logger.log(
+          `âœ… Found ${heliusDexPairTrades.length} trades from Helius DexScreener pair ${dexPairAddress} for ${mintAddress}`,
+        );
+        return heliusDexPairTrades;
+      }
+    }
+
     // Fallback: Use Birdeye if Helius returns no data
     this.logger.log(
       `Helius returned no trades for ${mintAddress}, trying Birdeye fallback`,
@@ -480,7 +539,19 @@ export class TradeHistoryService {
       // Positive rawAmount = receiving token = BUY
       // Negative rawAmount = sending token = SELL
       const rawAmount = transfer.rawTokenAmount?.tokenAmount || transfer.tokenAmount || 0;
-      const isReceiving = Number(rawAmount) > 0;
+      const trader = (tx.feePayer || '').toString().toLowerCase();
+      const fromUser = (transfer.fromUserAccount || '').toString().toLowerCase();
+      const toUser = (transfer.toUserAccount || '').toString().toLowerCase();
+
+      let isReceiving = Number(rawAmount) > 0;
+      if (trader) {
+        if (toUser && toUser === trader) {
+          isReceiving = true;
+        } else if (fromUser && fromUser === trader) {
+          isReceiving = false;
+        }
+      }
+
       const type: UnifiedTradeType = isReceiving ? 'BUY' : 'SELL';
 
       // Find corresponding SOL transfer for price calculation
