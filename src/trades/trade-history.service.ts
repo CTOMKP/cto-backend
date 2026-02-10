@@ -202,6 +202,44 @@ export class TradeHistoryService {
     }
   }
 
+  private async getShyftPoolAddress(tokenAddress: string): Promise<string | null> {
+    const apiKey = this.configService.get('SHYFT_API_KEY');
+    if (!apiKey) return null;
+
+    try {
+      const response = await axios.get('https://defi.shyft.to/v0/pools/get_by_token', {
+        params: { token: tokenAddress, limit: 5, page: 1 },
+        headers: { 'x-api-key': apiKey },
+        timeout: 10_000,
+      });
+
+      const dexes = response.data?.result?.dexes || {};
+      for (const dex of Object.values<any>(dexes)) {
+        const pools = dex?.pools || [];
+        if (!Array.isArray(pools)) continue;
+        for (const pool of pools) {
+          const candidate =
+            pool?.address ||
+            pool?.poolAddress ||
+            pool?.pool_id ||
+            pool?.poolId ||
+            pool?.ammId ||
+            pool?.id ||
+            pool?.pubkey ||
+            '';
+          if (typeof candidate === 'string' && candidate.length > 0) {
+            return candidate;
+          }
+        }
+      }
+
+      return null;
+    } catch (error: any) {
+      this.logger.debug(`Shyft pool lookup failed for ${tokenAddress}: ${error.message}`);
+      return null;
+    }
+  }
+
   private normalizeTrades(trades: UnifiedTrade[], priceHintUsd: number): UnifiedTrade[] {
     const groups = new Map<string, UnifiedTrade[]>();
     for (const trade of trades || []) {
@@ -365,6 +403,24 @@ export class TradeHistoryService {
           `✅ Found ${heliusPairTrades.length} trades from Helius pair ${pairAddress} for ${mintAddress}`,
         );
         return heliusPairTrades;
+      }
+    }
+
+    const shyftPoolAddress = await this.getShyftPoolAddress(mintAddress);
+    if (shyftPoolAddress) {
+      this.logger.debug(
+        `Shyft fallback: querying pool address ${shyftPoolAddress} for ${mintAddress}`,
+      );
+      const heliusShyftTrades = await this.getHeliusEnhancedTrades(
+        shyftPoolAddress,
+        mintAddress,
+        limit,
+      );
+      if (heliusShyftTrades.length > 0) {
+        this.logger.log(
+          `âœ… Found ${heliusShyftTrades.length} trades from Helius Shyft pool ${shyftPoolAddress} for ${mintAddress}`,
+        );
+        return heliusShyftTrades;
       }
     }
 
@@ -734,20 +790,176 @@ export class TradeHistoryService {
     chain: 'base' | 'ethereum' | 'bsc',
     noCache: boolean,
   ): Promise<UnifiedTrade[]> {
-    // Try Birdeye Base endpoint first
+    const bitqueryTrades = await this.getBitqueryEvmTrades(tokenAddress, limit, chain, noCache);
+    if (bitqueryTrades.length > 0) {
+      this.logger.log(
+        `✅ Found ${bitqueryTrades.length} ${chain} trades from Bitquery for ${tokenAddress}`,
+      );
+      return bitqueryTrades;
+    }
+
     const birdeyeTrades = await this.getBirdeyeEvmTrades(tokenAddress, limit, chain, noCache);
     if (birdeyeTrades.length > 0) {
       this.logger.log(
-        `✅ Found ${birdeyeTrades.length} Base trades from Birdeye for ${tokenAddress}`,
+        `✅ Found ${birdeyeTrades.length} ${chain} trades from Birdeye for ${tokenAddress}`,
       );
       return birdeyeTrades;
     }
 
-    // Fallback to DexScreener
+    const dexPairAddress = await this.getDexScreenerPairAddress(tokenAddress, chain);
+    if (dexPairAddress) {
+      const bitqueryPairTrades = await this.getBitqueryEvmTrades(
+        tokenAddress,
+        limit,
+        chain,
+        noCache,
+        dexPairAddress,
+      );
+      if (bitqueryPairTrades.length > 0) {
+        this.logger.log(
+          `✅ Found ${bitqueryPairTrades.length} ${chain} trades from Bitquery pair ${dexPairAddress} for ${tokenAddress}`,
+        );
+        return bitqueryPairTrades;
+      }
+    }
+
     this.logger.log(
-      `Birdeye returned no ${chain} trades, trying DexScreener fallback for ${tokenAddress}`,
+      `No ${chain} trades found via Bitquery/Birdeye, DexScreener fallback for ${tokenAddress}`,
     );
     return await this.getDexScreenerEvmTrades(tokenAddress, limit, chain);
+  }
+
+  private async getBitqueryEvmTrades(
+    tokenAddress: string,
+    limit: number,
+    chain: 'base' | 'ethereum' | 'bsc',
+    noCache: boolean,
+    pairAddress?: string,
+  ): Promise<UnifiedTrade[]> {
+    const accessToken = this.configService.get('BITQUERY_ACCESS_TOKEN');
+    if (!accessToken) {
+      this.logger.debug('BITQUERY_ACCESS_TOKEN missing; skipping Bitquery trades.');
+      return [];
+    }
+
+    const network = chain === 'base' ? 'base' : chain === 'bsc' ? 'bsc' : 'ethereum';
+    const token = tokenAddress.toLowerCase();
+    const pair = pairAddress?.toLowerCase();
+
+    const queryWithPair = `
+      query ($network: evm_network!, $token: String!, $pair: String!, $limit: Int!) {
+        EVM(dataset: realtime, network: $network) {
+          DEXTradeByTokens(
+            limit: {count: $limit}
+            orderBy: {descending: Block_Time}
+            where: {
+              TransactionStatus: {Success: true}
+              Trade: {
+                Currency: {SmartContract: {is: $token}}
+                Dex: {PairAddress: {is: $pair}}
+              }
+            }
+          ) {
+            Block { Time }
+            Transaction { Hash }
+            Trade {
+              Buyer
+              Seller
+              PriceInUSD
+              Amount
+              AmountInUSD
+              Side {
+                Type
+                Amount
+                AmountInUSD
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const queryWithoutPair = `
+      query ($network: evm_network!, $token: String!, $limit: Int!) {
+        EVM(dataset: realtime, network: $network) {
+          DEXTradeByTokens(
+            limit: {count: $limit}
+            orderBy: {descending: Block_Time}
+            where: {
+              TransactionStatus: {Success: true}
+              Trade: {
+                Currency: {SmartContract: {is: $token}}
+              }
+            }
+          ) {
+            Block { Time }
+            Transaction { Hash }
+            Trade {
+              Buyer
+              Seller
+              PriceInUSD
+              Amount
+              AmountInUSD
+              Side {
+                Type
+                Amount
+                AmountInUSD
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    try {
+      const response = await axios.post(
+        'https://streaming.bitquery.io/graphql',
+        {
+          query: pair ? queryWithPair : queryWithoutPair,
+          variables: pair
+            ? { network, token, pair, limit: Math.min(limit, 50) }
+            : { network, token, limit: Math.min(limit, 50) },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            ...(noCache ? { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } : {}),
+          },
+          timeout: 15_000,
+        },
+      );
+
+      const rows = response.data?.data?.EVM?.DEXTradeByTokens || [];
+      if (!Array.isArray(rows)) return [];
+
+      return rows.map((row: any) => {
+        const trade = row?.Trade || {};
+        const side = trade?.Side || {};
+        const sideRaw = (side?.Type || '').toString().toLowerCase();
+        const type: UnifiedTradeType = sideRaw === 'sell' ? 'SELL' : 'BUY';
+        const amount = Number(side?.Amount ?? trade?.Amount ?? 0);
+        const price = Number(trade?.PriceInUSD ?? 0);
+        const totalValue =
+          Number(side?.AmountInUSD ?? trade?.AmountInUSD ?? 0) ||
+          (amount > 0 && price > 0 ? amount * price : 0);
+
+        return {
+          txHash: row?.Transaction?.Hash || '',
+          timestamp: row?.Block?.Time || '',
+          type,
+          price,
+          amount: Math.abs(amount),
+          totalValue,
+          makerAddress: trade?.Buyer || trade?.Seller || '',
+        };
+      });
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.errors?.[0]?.message || error.message;
+      this.logger.debug(
+        `Bitquery ${chain} trades fetch failed for ${tokenAddress}: ${errorMessage}`,
+      );
+      return [];
+    }
   }
 
   /**
@@ -1074,6 +1286,45 @@ export class TradeHistoryService {
     limit: number,
     noCache: boolean,
   ): Promise<UnifiedTrade[]> {
+    const blockVisionTrades = await this.getBlockVisionSuiTrades(tokenAddress, limit, noCache);
+    if (blockVisionTrades.length > 0) {
+      this.logger.log(`âœ… Found ${blockVisionTrades.length} Sui trades from BlockVision for ${tokenAddress}`);
+      return blockVisionTrades;
+    }
+
+    const birdeyeTrades = await this.getBirdeyeSuiTrades(tokenAddress, limit, noCache);
+    if (birdeyeTrades.length > 0) {
+      this.logger.log(`âœ… Found ${birdeyeTrades.length} Sui trades from Birdeye for ${tokenAddress}`);
+      return birdeyeTrades;
+    }
+
+    const dexPairAddress = await this.getDexScreenerPairAddress(tokenAddress, 'sui');
+    if (dexPairAddress) {
+      const blockVisionPairTrades = await this.getBlockVisionSuiTrades(dexPairAddress, limit, noCache);
+      if (blockVisionPairTrades.length > 0) {
+        this.logger.log(
+          `âœ… Found ${blockVisionPairTrades.length} Sui trades from BlockVision pair ${dexPairAddress} for ${tokenAddress}`,
+        );
+        return blockVisionPairTrades;
+      }
+
+      const birdeyePairTrades = await this.getBirdeyeSuiTrades(dexPairAddress, limit, noCache);
+      if (birdeyePairTrades.length > 0) {
+        this.logger.log(
+          `âœ… Found ${birdeyePairTrades.length} Sui trades from Birdeye pair ${dexPairAddress} for ${tokenAddress}`,
+        );
+        return birdeyePairTrades;
+      }
+    }
+
+    return [];
+  }
+
+  private async getBirdeyeSuiTrades(
+    tokenAddress: string,
+    limit: number,
+    noCache: boolean,
+  ): Promise<UnifiedTrade[]> {
     const apiKey =
       this.configService.get('BIRDEYE_API_KEY') ||
       '725a2e88183e417f99ab52b92e2bf6f5';
@@ -1143,6 +1394,72 @@ export class TradeHistoryService {
       const errorMessage = error.response?.data?.message || error.message;
       this.logger.debug(
         `Birdeye Sui trades fetch failed for ${tokenAddress}: ${errorMessage}`,
+      );
+      return [];
+    }
+  }
+
+  private async getBlockVisionSuiTrades(
+    tokenAddress: string,
+    limit: number,
+    noCache: boolean,
+  ): Promise<UnifiedTrade[]> {
+    const apiKey = this.configService.get('BLOCKVISION_API_KEY');
+    if (!apiKey) {
+      this.logger.debug('BLOCKVISION_API_KEY missing; skipping BlockVision Sui trades.');
+      return [];
+    }
+
+    try {
+      const response = await axios.get('https://api.blockvision.org/v2/sui/coin/trades', {
+        params: {
+          coinType: tokenAddress,
+          coin_type: tokenAddress,
+          token: tokenAddress,
+          page: 1,
+          size: Math.min(limit, 50),
+          ...(noCache ? { _ts: Date.now() } : {}),
+        },
+        headers: {
+          'x-api-key': apiKey,
+          ...(noCache ? { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } : {}),
+        },
+        timeout: 10_000,
+      });
+
+      const items =
+        response.data?.data?.list ||
+        response.data?.data?.items ||
+        response.data?.data?.data ||
+        response.data?.data ||
+        response.data?.result?.data ||
+        response.data?.result ||
+        [];
+
+      if (!Array.isArray(items)) return [];
+
+      return items.map((item: any) => {
+        const sideRaw = (item?.side || item?.type || '').toString().toLowerCase();
+        const type: UnifiedTradeType = sideRaw === 'sell' ? 'SELL' : 'BUY';
+        const amount = Number(item?.amount ?? item?.amountToken ?? item?.quantity ?? item?.size ?? 0);
+        const price = Number(item?.price ?? item?.priceUsd ?? 0);
+        const totalValue = Number(item?.amountUsd ?? item?.totalValue ?? item?.volumeUsd ?? 0) ||
+          (amount > 0 && price > 0 ? amount * price : 0);
+
+        return {
+          txHash: item?.txHash || item?.digest || item?.hash || '',
+          timestamp: item?.timestamp || item?.time || item?.blockTime || '',
+          type,
+          price,
+          amount: Math.abs(amount),
+          totalValue,
+          makerAddress: item?.maker || item?.owner || item?.sender || '',
+        };
+      });
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message;
+      this.logger.debug(
+        `BlockVision Sui trades fetch failed for ${tokenAddress}: ${errorMessage}`,
       );
       return [];
     }
@@ -1523,3 +1840,4 @@ export class TradeHistoryService {
     return enrichedTrades;
   }
 }
+
