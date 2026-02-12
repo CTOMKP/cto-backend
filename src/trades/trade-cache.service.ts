@@ -42,6 +42,7 @@ export class TradeCacheService {
       this.logger.warn('REDIS_URL not set; Trade cache will use in-memory only.');
       return;
     }
+    this.logger.log('REDIS_URL detected for Trade cache (value redacted).');
 
     this.client = createClient({ url });
     this.client.on('error', (err) => {

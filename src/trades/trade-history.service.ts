@@ -34,7 +34,11 @@ export class TradeHistoryService {
     const cacheKey = this.tradeCache.buildKey(chain, address, safeLimit);
     const cached = !noCache ? await this.tradeCache.get(cacheKey) : null;
     if (cached?.state === 'fresh') {
+      this.logger.debug(`Trade cache HIT (${chain}) for ${address}`);
       return cached.data;
+    }
+    if (!noCache) {
+      this.logger.debug(`Trade cache MISS (${chain}) for ${address}`);
     }
     const priceHint = await this.getListingPriceUsd(address);
     let trades: UnifiedTrade[] = [];
