@@ -22,7 +22,7 @@ export class TradesGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(TradesGateway.name);
   private readonly roomState = new Map<
     string,
-    { interval: NodeJS.Timeout; subscribers: number; tokenAddress: string; chain: string; limit: number }
+    { interval: NodeJS.Timeout; subscribers: number; tokenAddress: string; chain: string; limit: number; lastSignature?: string }
   >();
   private readonly socketRooms = new Map<string, Set<string>>();
   private readonly pollIntervalMs = 2_000;
@@ -108,7 +108,18 @@ export class TradesGateway implements OnGatewayConnection, OnGatewayDisconnect {
     limit: number,
   ) {
     try {
-      const trades = await this.tradeHistoryService.getTrades(tokenAddress, limit, chain, true);
+      const trades = await this.tradeHistoryService.getTrades(tokenAddress, limit, chain, false);
+      const signature = trades
+        .slice(0, 10)
+        .map((t) => t.txHash || t.timestamp || '')
+        .join('|');
+      const state = this.roomState.get(roomKey);
+      if (state?.lastSignature === signature) {
+        return;
+      }
+      if (state) {
+        state.lastSignature = signature;
+      }
       this.server.to(roomKey).emit('trades.update', {
         tokenAddress,
         chain,

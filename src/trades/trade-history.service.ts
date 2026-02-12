@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { TradeCacheService } from './trade-cache.service';
 import axios from 'axios';
 
 export type UnifiedTradeType = 'BUY' | 'SELL';
@@ -15,36 +16,26 @@ export interface UnifiedTrade {
   makerAddress: string;
 }
 
-interface CacheEntry {
-  data: UnifiedTrade[];
-  expiresAt: number;
-}
-
 @Injectable()
 export class TradeHistoryService {
   private readonly logger = new Logger(TradeHistoryService.name);
-  private readonly cache = new Map<string, CacheEntry>();
-  private readonly ttlMs = 8_000;
   private readonly minTradeUsd = 0.5;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly tradeCache: TradeCacheService,
   ) {}
 
   async getTrades(address: string, limit = 50, chainHint?: string, noCache = false): Promise<UnifiedTrade[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 200);
     const normalizedChain = this.normalizeChain(chainHint);
-    const cacheKey = `${address}:${safeLimit}:${normalizedChain || 'auto'}`;
-    const now = Date.now();
-    if (!noCache) {
-      const cached = this.cache.get(cacheKey);
-      if (cached && cached.expiresAt > now) {
-        return cached.data;
-      }
-    }
-
     const chain = normalizedChain || await this.detectChain(address);
+    const cacheKey = this.tradeCache.buildKey(chain, address, safeLimit);
+    const cached = !noCache ? await this.tradeCache.get(cacheKey) : null;
+    if (cached?.state === 'fresh') {
+      return cached.data;
+    }
     const priceHint = await this.getListingPriceUsd(address);
     let trades: UnifiedTrade[] = [];
     
@@ -59,7 +50,19 @@ export class TradeHistoryService {
     }
 
     const normalizedTrades = this.normalizeTrades(trades, priceHint);
-    this.cache.set(cacheKey, { data: normalizedTrades, expiresAt: now + this.ttlMs });
+    if (normalizedTrades.length === 0 && cached?.data?.length) {
+      this.logger.debug(`No fresh trades found for ${address}; serving cached results.`);
+      return cached.data;
+    }
+
+    const ttlSeconds = normalizedTrades.length > 0 ? 15 : 8;
+    await this.tradeCache.set(cacheKey, normalizedTrades, ttlSeconds);
+    const stats = this.tradeCache.getStats();
+    if ((stats.hits + stats.misses) % 50 === 0) {
+      this.logger.debug(
+        `Trade cache stats: hits=${stats.hits} misses=${stats.misses} stale=${stats.staleHits} mem=${stats.memorySize}`,
+      );
+    }
     return normalizedTrades;
   }
 
