@@ -14,6 +14,6 @@ import { TradeCacheService } from './trade-cache.service';
   imports: [HttpModule, PrismaModule, AuthModule],
   controllers: [TradesController],
   providers: [TradeCacheService, TradeHistoryService, TradeSyncCronService, QuoteService, ExecutionService, TradesGateway],
-  exports: [TradeHistoryService, QuoteService, ExecutionService, TradesGateway],
+  exports: [TradeCacheService, TradeHistoryService, QuoteService, ExecutionService, TradesGateway],
 })
 export class TradesModule {}
