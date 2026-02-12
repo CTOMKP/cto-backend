@@ -19,7 +19,9 @@ export interface UnifiedTrade {
 @Injectable()
 export class TradeHistoryService {
   private readonly logger = new Logger(TradeHistoryService.name);
-  private readonly minTradeUsd = 0.5;
+  private readonly minTradeUsd = Number(process.env.MIN_TRADE_USD || 0.1);
+  private readonly tradeCacheTtlSeconds = Number(process.env.TRADES_CACHE_TTL_SECONDS || 604800);
+  private readonly emptyCacheTtlSeconds = Number(process.env.TRADES_CACHE_EMPTY_TTL_SECONDS || 900);
 
   constructor(
     private readonly configService: ConfigService,
@@ -59,7 +61,7 @@ export class TradeHistoryService {
       return cached.data;
     }
 
-    const ttlSeconds = normalizedTrades.length > 0 ? 15 : 8;
+    const ttlSeconds = normalizedTrades.length > 0 ? this.tradeCacheTtlSeconds : this.emptyCacheTtlSeconds;
     await this.tradeCache.set(cacheKey, normalizedTrades, ttlSeconds);
     const stats = this.tradeCache.getStats();
     if ((stats.hits + stats.misses) % 50 === 0) {

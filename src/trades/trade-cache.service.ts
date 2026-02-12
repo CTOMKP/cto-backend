@@ -30,8 +30,8 @@ export class TradeCacheService {
   // Fast local L1 cache to reduce Redis hops
   private readonly memory = new Map<string, { data: UnifiedTrade[]; expiresAt: number }>();
 
-  private readonly defaultTtlSeconds = Number(process.env.TRADES_CACHE_TTL_SECONDS || 15);
-  private readonly staleTtlSeconds = Number(process.env.TRADES_CACHE_STALE_TTL_SECONDS || 300);
+  private readonly defaultTtlSeconds = Number(process.env.TRADES_CACHE_TTL_SECONDS || 604800);
+  private readonly staleTtlSeconds = Number(process.env.TRADES_CACHE_STALE_TTL_SECONDS || 1209600);
   private hits = 0;
   private misses = 0;
   private staleHits = 0;
