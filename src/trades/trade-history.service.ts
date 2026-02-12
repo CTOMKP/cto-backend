@@ -20,7 +20,7 @@ export interface UnifiedTrade {
 export class TradeHistoryService {
   private readonly logger = new Logger(TradeHistoryService.name);
   private readonly minTradeUsd = Number(process.env.MIN_TRADE_USD || 0.1);
-  private readonly tradeCacheTtlSeconds = Number(process.env.TRADES_CACHE_TTL_SECONDS || 604800);
+  private readonly tradeCacheTtlSeconds = Number(process.env.TRADES_CACHE_TTL_SECONDS || 2592000);
   private readonly emptyCacheTtlSeconds = Number(process.env.TRADES_CACHE_EMPTY_TTL_SECONDS || 900);
 
   constructor(
