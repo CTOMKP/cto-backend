@@ -27,6 +27,33 @@ export class RejectListingDto {
   notes?: string;
 }
 
+export class ApproveMarketplaceAdDto {
+  @IsString()
+  adId: string;
+
+  @IsString()
+  adminUserId: string;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+}
+
+export class RejectMarketplaceAdDto {
+  @IsString()
+  adId: string;
+
+  @IsString()
+  adminUserId: string;
+
+  @IsString()
+  reason: string;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+}
+
 export class GetPendingListingsDto {
   @IsString()
   @IsOptional()
@@ -34,7 +61,7 @@ export class GetPendingListingsDto {
 }
 
 export class GetPaymentsDto {
-  @IsEnum(['LISTING', 'AD_BOOST', 'ESCROW', 'WITHDRAWAL', 'OTHER'])
+  @IsEnum(['LISTING', 'AD_BOOST', 'MARKETPLACE_AD', 'ESCROW', 'WITHDRAWAL', 'OTHER'])
   @IsOptional()
   paymentType?: string;
 

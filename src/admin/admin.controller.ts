@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
-import { ApproveListingDto, RejectListingDto, UpdateUserRoleDto } from './dto/admin.dto';
+import { ApproveListingDto, RejectListingDto, UpdateUserRoleDto, ApproveMarketplaceAdDto, RejectMarketplaceAdDto } from './dto/admin.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 
@@ -156,6 +156,46 @@ export class AdminController {
   @ApiResponse({ status: 404, description: 'Listing not found' })
   async rejectListing(@Body() dto: RejectListingDto) {
     return this.adminService.rejectListing(dto);
+  }
+
+  @Get('marketplace-ads/pending')
+  @ApiOperation({ summary: 'Get pending marketplace ads for approval (admin only)' })
+  @ApiResponse({ status: 200, description: 'Pending marketplace ads retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  async getPendingMarketplaceAds() {
+    return this.adminService.getPendingMarketplaceAds();
+  }
+
+  @Get('marketplace-ads/published')
+  @ApiOperation({ summary: 'Get published marketplace ads (admin only)' })
+  @ApiResponse({ status: 200, description: 'Published marketplace ads retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  async getPublishedMarketplaceAds() {
+    return this.adminService.getPublishedMarketplaceAds();
+  }
+
+  @Get('marketplace-ads/rejected')
+  @ApiOperation({ summary: 'Get rejected marketplace ads (admin only)' })
+  @ApiResponse({ status: 200, description: 'Rejected marketplace ads retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  async getRejectedMarketplaceAds() {
+    return this.adminService.getRejectedMarketplaceAds();
+  }
+
+  @Post('marketplace-ads/approve')
+  @ApiOperation({ summary: 'Approve a marketplace ad (admin only)' })
+  @ApiResponse({ status: 200, description: 'Marketplace ad approved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  async approveMarketplaceAd(@Body() dto: ApproveMarketplaceAdDto) {
+    return this.adminService.approveMarketplaceAd(dto);
+  }
+
+  @Post('marketplace-ads/reject')
+  @ApiOperation({ summary: 'Reject a marketplace ad (admin only)' })
+  @ApiResponse({ status: 200, description: 'Marketplace ad rejected successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  async rejectMarketplaceAd(@Body() dto: RejectMarketplaceAdDto) {
+    return this.adminService.rejectMarketplaceAd(dto);
   }
 
   @Get('payments')

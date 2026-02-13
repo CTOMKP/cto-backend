@@ -170,6 +170,130 @@ export class MovementPaymentService {
   }
 
   /**
+   * Create a marketplace ad payment using Movement wallet
+   * Returns payment record and transaction data for frontend to sign
+   */
+  async createMarketplaceAdPayment(userId: number, marketplaceAdId: string, amountUsd: number) {
+    this.logger.log(`🚀 [CRITICAL] createMarketplaceAdPayment starting for User: ${userId}, Ad: ${marketplaceAdId}`);
+
+    try {
+      let user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { wallets: true },
+      });
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      let movementWallet = user.wallets.find(w =>
+        w.blockchain?.toString().toUpperCase() === 'MOVEMENT' ||
+        w.blockchain?.toString().toUpperCase() === 'APTOS'
+      );
+
+      if (!movementWallet) {
+        this.logger.log(`🔍 Wallet not in 'include' array, trying direct query for User ${userId}...`);
+        const freshWallet = await this.prisma.wallet.findFirst({
+          where: {
+            userId: userId,
+            blockchain: {
+              in: ['MOVEMENT', 'APTOS'] as any
+            }
+          }
+        });
+        if (freshWallet) {
+          movementWallet = freshWallet;
+          this.logger.log(`✅ Found wallet via direct query: ${movementWallet.address}`);
+        }
+      }
+
+      if (!movementWallet || !movementWallet.address) {
+        const walletCount = user.wallets?.length || 0;
+        const blockchains = user.wallets?.map(w => `${w.blockchain}:${w.address.substring(0, 6)}`).join(', ') || 'none';
+        this.logger.error(`❌ Wallet mismatch for user ${userId}: found ${walletCount} wallets (${blockchains}), but no MOVEMENT wallet.`);
+        throw new BadRequestException(`No Movement wallet found for your account (User ID: ${userId}). Backend found ${walletCount} wallets: [${blockchains}]. Please try logging out and back in.`);
+      }
+
+      this.logger.log(`✅ Using Movement wallet: ${movementWallet.address}`);
+
+      if (!amountUsd || amountUsd <= 0) {
+        throw new BadRequestException('Payment amount must be greater than 0');
+      }
+
+      const paymentAmount = Math.round(amountUsd * 1e6).toString();
+      const humanRequired = parseFloat(paymentAmount) / 1e6;
+      this.logger.log(`💰 Marketplace ad payment amount: ${paymentAmount} (${humanRequired} USDC)`);
+
+      const hasBalance = await this.movementWalletService.hasSufficientBalance(
+        movementWallet.id,
+        paymentAmount,
+      );
+
+      if (!hasBalance) {
+        this.logger.log(`[BALANCE_RESCUE] DB says insufficient balance for ${movementWallet.address}. Performing direct blockchain check...`);
+        const freshBalanceData = await this.movementWalletService.getWalletBalance(movementWallet.address, undefined, true);
+        await this.movementWalletService.syncWalletBalance(movementWallet.id, undefined, true);
+
+        const nowHasBalance = BigInt(freshBalanceData.balance) >= BigInt(paymentAmount);
+        if (!nowHasBalance) {
+          const humanBalance = parseFloat(freshBalanceData.balance) / 1e6;
+          this.logger.warn(`❌ Insufficient balance confirmed for user ${userId}: ${humanBalance} USDC (Required: ${humanRequired})`);
+          throw new BadRequestException(
+            `Insufficient balance. Your Movement wallet (${movementWallet.address.substring(0, 6)}...) has exactly ${humanBalance} USDC on Bardock. You need ${humanRequired.toFixed(1)} USDC. (System Time: ${new Date().toISOString()})`
+          );
+        }
+      }
+
+      const adminWallet = this.configService.get('MOVEMENT_ADMIN_WALLET', '0x1745a447b0571a69c19d779db9ef05cfeffaa67ca74c8947aca81e0482e10523');
+      const usdcAddress = this.configService.get('MOVEMENT_TEST_TOKEN_ADDRESS', '0xb89077cfd2a82a0c1450534d49cfd5f2707643155273069bc23a912bcfefdee7');
+
+      const payment = await this.prisma.payment.create({
+        data: {
+          userId: user.id,
+          amount: parseFloat(paymentAmount) / 1e6,
+          currency: 'USDC',
+          paymentType: 'MARKETPLACE_AD',
+          marketplaceAdId,
+          status: 'PENDING',
+          toAddress: adminWallet,
+          fromWalletId: movementWallet.id,
+          metadata: {
+            chain: 'MOVEMENT',
+            fromWallet: movementWallet.address,
+            toWallet: adminWallet,
+            tokenAddress: usdcAddress,
+            paymentMethod: 'MOVEMENT_WALLET',
+            amountInNativeUnits: paymentAmount,
+          },
+        },
+      });
+
+      this.logger.log(`✅ Marketplace payment record created: ${payment.id}`);
+
+      return {
+        success: true,
+        paymentId: payment.id,
+        chain: 'movement',
+        fromAddress: movementWallet.address,
+        toAddress: adminWallet,
+        amount: paymentAmount,
+        amountDisplay: parseFloat(paymentAmount) / 1e6,
+        tokenSymbol: 'USDC.e',
+        transactionData: {
+          type: 'entry_function_payload',
+          function: '0x1::primary_fungible_store::transfer',
+          type_arguments: ['0x1::fungible_asset::Metadata'],
+          arguments: [usdcAddress, adminWallet, paymentAmount],
+        },
+        message: 'Transaction ready. Please sign with your Privy Movement wallet.',
+      };
+    } catch (error: any) {
+      this.logger.error('Failed to create Movement marketplace payment', error);
+      throw error;
+    }
+  }
+
+  /**
    * Verify payment was completed on-chain
    * Called after frontend confirms transaction
    */
@@ -227,6 +351,14 @@ export class MovementPaymentService {
         this.logger.log(`✅ Listing ${payment.listingId} status updated to PENDING_APPROVAL`);
       }
 
+      if (payment.paymentType === 'MARKETPLACE_AD' && payment.marketplaceAdId) {
+        await this.prisma.marketplaceAd.update({
+          where: { id: payment.marketplaceAdId },
+          data: { status: 'PENDING_APPROVAL' },
+        });
+        this.logger.log(`✅ Marketplace ad ${payment.marketplaceAdId} status updated to PENDING_APPROVAL`);
+      }
+
       this.logger.log(`✅ Payment verified: ${paymentId}`);
 
       return {
@@ -238,9 +370,23 @@ export class MovementPaymentService {
       throw error;
     }
   }
+
+  async verifyMarketplaceAdPayment(paymentId: string, txHash: string) {
+    const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+    if (payment.paymentType !== 'MARKETPLACE_AD') throw new BadRequestException('Invalid payment type');
+
+    if (payment.marketplaceAdId) {
+      const ad = await this.prisma.marketplaceAd.findUnique({ where: { id: payment.marketplaceAdId } });
+      if (!ad) throw new NotFoundException('Marketplace ad not found');
+      if (ad.totalPrice && payment.amount < ad.totalPrice) {
+        throw new BadRequestException('Payment amount does not match required total');
+      }
+    }
+
+    return this.verifyPayment(paymentId, txHash);
+  }
 }
-
-
 
 
 

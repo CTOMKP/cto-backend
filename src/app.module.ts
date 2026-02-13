@@ -20,6 +20,7 @@ import { TokenVettingModule } from './services/token-vetting.module';
 import { MovementWalletModule } from './wallet/movement-wallet.module';
 import { SentioModule } from './sentio/sentio.module';
 import { TradesModule } from './trades/trades.module';
+import { MarketplaceModule } from './marketplace/marketplace.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { TradesModule } from './trades/trades.module';
     MovementWalletModule,
     SentioModule,
     TradesModule,
+    MarketplaceModule,
   ],
   controllers: [HealthController],
   providers: [],

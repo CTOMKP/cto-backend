@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ApproveListingDto, RejectListingDto } from './dto/admin.dto';
+import { ApproveListingDto, RejectListingDto, ApproveMarketplaceAdDto, RejectMarketplaceAdDto } from './dto/admin.dto';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -349,12 +349,191 @@ export class AdminService {
     }
   }
 
+  async getPendingMarketplaceAds() {
+    try {
+      const pendingAds = await this.prisma.marketplaceAd.findMany({
+        where: { status: 'PENDING_APPROVAL' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              createdAt: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return {
+        success: true,
+        ads: pendingAds,
+        total: pendingAds.length,
+        message: 'Pending marketplace ads retrieved successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to get pending marketplace ads:', error instanceof Error ? error.message : 'Unknown error');
+      throw new BadRequestException(`Failed to get pending marketplace ads: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getPublishedMarketplaceAds() {
+    try {
+      const publishedAds = await this.prisma.marketplaceAd.findMany({
+        where: { status: 'PUBLISHED' },
+        include: {
+          user: {
+            select: { id: true, email: true, name: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return {
+        success: true,
+        ads: publishedAds,
+        total: publishedAds.length,
+        message: 'Published marketplace ads retrieved successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to get published marketplace ads:', error instanceof Error ? error.message : 'Unknown error');
+      throw new BadRequestException(`Failed to get published marketplace ads: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getRejectedMarketplaceAds() {
+    try {
+      const rejectedAds = await this.prisma.marketplaceAd.findMany({
+        where: { status: 'REJECTED' },
+        include: {
+          user: {
+            select: { id: true, email: true, name: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return {
+        success: true,
+        ads: rejectedAds,
+        total: rejectedAds.length,
+        message: 'Rejected marketplace ads retrieved successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to get rejected marketplace ads:', error instanceof Error ? error.message : 'Unknown error');
+      throw new BadRequestException(`Failed to get rejected marketplace ads: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async approveMarketplaceAd(dto: ApproveMarketplaceAdDto) {
+    try {
+      await this.verifyAdmin(dto.adminUserId);
+
+      const ad = await this.prisma.marketplaceAd.findUnique({
+        where: { id: dto.adId },
+      });
+
+      if (!ad) throw new BadRequestException('Marketplace ad not found');
+      if (ad.status === 'PUBLISHED') throw new BadRequestException('Marketplace ad is already published');
+
+      const publishedAt = new Date();
+      const expiresAt = new Date(publishedAt);
+      expiresAt.setDate(expiresAt.getDate() + 28);
+
+      let featuredUntil: Date | null = null;
+      if (ad.tier === 'PLUS') {
+        featuredUntil = new Date(publishedAt);
+        featuredUntil.setDate(featuredUntil.getDate() + 1);
+      }
+      if (ad.tier === 'PREMIUM') {
+        featuredUntil = new Date(publishedAt);
+        featuredUntil.setDate(featuredUntil.getDate() + 7);
+      }
+      if (ad.topOfDayDays && ad.topOfDayDays > 0) {
+        const topUntil = new Date(publishedAt);
+        topUntil.setDate(topUntil.getDate() + ad.topOfDayDays);
+        if (!featuredUntil || topUntil > featuredUntil) {
+          featuredUntil = topUntil;
+        }
+      }
+
+      const updated = await this.prisma.marketplaceAd.update({
+        where: { id: dto.adId },
+        data: {
+          status: 'PUBLISHED',
+          publishedAt,
+          expiresAt,
+          featuredUntil,
+          approvedBy: (await this.prisma.user.findUnique({ where: { email: dto.adminUserId } }))?.id ?? null,
+          updatedAt: new Date(),
+        },
+        include: {
+          user: { select: { email: true, name: true } },
+        },
+      });
+
+      this.logger.log(`Marketplace ad ${dto.adId} approved by admin ${dto.adminUserId}`);
+
+      return {
+        success: true,
+        ad: updated,
+        message: 'Marketplace ad approved and published successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to approve marketplace ad:', error instanceof Error ? error.message : 'Unknown error');
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to approve marketplace ad: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async rejectMarketplaceAd(dto: RejectMarketplaceAdDto) {
+    try {
+      await this.verifyAdmin(dto.adminUserId);
+
+      const ad = await this.prisma.marketplaceAd.findUnique({
+        where: { id: dto.adId },
+      });
+
+      if (!ad) throw new BadRequestException('Marketplace ad not found');
+      if (ad.status === 'REJECTED') throw new BadRequestException('Marketplace ad is already rejected');
+
+      const updated = await this.prisma.marketplaceAd.update({
+        where: { id: dto.adId },
+        data: {
+          status: 'REJECTED',
+          rejectionReason: `${dto.reason}${dto.notes ? `\nNotes: ${dto.notes}` : ''}`,
+          updatedAt: new Date(),
+        },
+        include: {
+          user: { select: { email: true, name: true } },
+        },
+      });
+
+      this.logger.log(`Marketplace ad ${dto.adId} rejected by admin ${dto.adminUserId}. Reason: ${dto.reason}`);
+
+      return {
+        success: true,
+        ad: updated,
+        message: 'Marketplace ad rejected successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to reject marketplace ad:', error instanceof Error ? error.message : 'Unknown error');
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to reject marketplace ad: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   // Get all payments (admin view)
   async getAllPayments(paymentType?: string, status?: string) {
     try {
       const payments = await this.prisma.payment.findMany({
         where: {
-          ...(paymentType && { paymentType: paymentType as 'LISTING' | 'AD_BOOST' | 'ESCROW' | 'WITHDRAWAL' | 'OTHER' }),
+          ...(paymentType && { paymentType: paymentType as 'LISTING' | 'AD_BOOST' | 'MARKETPLACE_AD' | 'ESCROW' | 'WITHDRAWAL' | 'OTHER' }),
           ...(status && { status: status as 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'CANCELLED' })
         },
         include: {
@@ -375,16 +554,32 @@ export class AdminService {
       const listingIds = Array.from(
         new Set(payments.map((payment) => payment.listingId).filter((id): id is string => Boolean(id)))
       );
-      const listings = listingIds.length
-        ? await this.prisma.userListing.findMany({
-            where: { id: { in: listingIds } },
-            select: { id: true, title: true }
-          })
-        : [];
+      const marketplaceAdIds = Array.from(
+        new Set(payments.map((payment) => payment.marketplaceAdId).filter((id): id is string => Boolean(id)))
+      );
+
+      const [listings, marketplaceAds] = await Promise.all([
+        listingIds.length
+          ? this.prisma.userListing.findMany({
+              where: { id: { in: listingIds } },
+              select: { id: true, title: true }
+            })
+          : Promise.resolve([]),
+        marketplaceAdIds.length
+          ? this.prisma.marketplaceAd.findMany({
+              where: { id: { in: marketplaceAdIds } },
+              select: { id: true, title: true }
+            })
+          : Promise.resolve([])
+      ]);
+
       const listingsById = new Map(listings.map((listing) => [listing.id, listing]));
+      const marketplaceAdsById = new Map(marketplaceAds.map((ad) => [ad.id, ad]));
+
       const paymentsWithListings = payments.map((payment) => ({
         ...payment,
-        listing: payment.listingId ? listingsById.get(payment.listingId) || null : null
+        listing: payment.listingId ? listingsById.get(payment.listingId) || null : null,
+        marketplaceAd: payment.marketplaceAdId ? marketplaceAdsById.get(payment.marketplaceAdId) || null : null
       }));
 
       const totalAmount = payments
@@ -454,6 +649,10 @@ export class AdminService {
         pendingListings,
         publishedListings,
         rejectedListings,
+        totalMarketplaceAds,
+        pendingMarketplaceAds,
+        publishedMarketplaceAds,
+        rejectedMarketplaceAds,
         totalPayments,
         completedPayments,
         pendingPayments,
@@ -465,6 +664,10 @@ export class AdminService {
         this.prisma.userListing.count({ where: { status: 'DRAFT' } }),
         this.prisma.userListing.count({ where: { status: 'PUBLISHED' } }),
         this.prisma.userListing.count({ where: { status: 'REJECTED' } }),
+        this.prisma.marketplaceAd.count(),
+        this.prisma.marketplaceAd.count({ where: { status: 'PENDING_APPROVAL' } }),
+        this.prisma.marketplaceAd.count({ where: { status: 'PUBLISHED' } }),
+        this.prisma.marketplaceAd.count({ where: { status: 'REJECTED' } }),
         this.prisma.payment.count(),
         this.prisma.payment.count({ where: { status: 'COMPLETED' } }),
         this.prisma.payment.count({ where: { status: 'PENDING' } }),
@@ -488,6 +691,12 @@ export class AdminService {
             pending: pendingListings,
             published: publishedListings,
             rejected: rejectedListings
+          },
+          marketplaceAds: {
+            total: totalMarketplaceAds,
+            pending: pendingMarketplaceAds,
+            published: publishedMarketplaceAds,
+            rejected: rejectedMarketplaceAds
           },
           payments: {
             total: totalPayments,

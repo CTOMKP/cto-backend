@@ -37,6 +37,7 @@ model User {
   wallets         Wallet[]
   scanResults     ScanResult[]
   userListings    UserListing[]
+  marketplaceAds  MarketplaceAd[]
   uploadedMemes   Meme[]
   payments        Payment[]
   userTrades      UserTrade[]
@@ -250,9 +251,11 @@ model Payment {
   user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Payment type and related entity
-  paymentType       PaymentType   // LISTING | AD_BOOST
+  paymentType       PaymentType   // LISTING | AD_BOOST | MARKETPLACE_AD
   listingId         String?       // Reference to UserListing
   adBoostId         String?       // Reference to AdBoost
+  marketplaceAdId   String?       // Reference to MarketplaceAd
+  marketplaceAd     MarketplaceAd? @relation(fields: [marketplaceAdId], references: [id])
   
   // Payment details
   amount            Float
@@ -283,11 +286,13 @@ model Payment {
   @@index([transferId])
   @@index([listingId])
   @@index([adBoostId])
+  @@index([marketplaceAdId])
 }
 
 enum PaymentType {
   LISTING
   AD_BOOST
+  MARKETPLACE_AD
   ESCROW
   WITHDRAWAL
   OTHER
@@ -300,6 +305,103 @@ enum PaymentStatus {
   FAILED
   REFUNDED
   CANCELLED
+}
+
+enum MarketplaceAdStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  REJECTED
+  EXPIRED
+  SOLD
+}
+
+enum MarketplacePostType {
+  LOOKING_FOR
+  OFFERING
+}
+
+enum MarketplaceTier {
+  FREE
+  PLUS
+  PREMIUM
+}
+
+enum MarketplacePricingKind {
+  CATEGORY
+  ADDON
+  TIER
+}
+
+model MarketplaceAd {
+  id                 String              @id @default(cuid())
+  userId             Int
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  postType           MarketplacePostType @default(LOOKING_FOR)
+  category           String
+  subCategory        String?
+  title              String
+  description        String
+  tags               Json?
+  contactInfo        String?
+  chain              Chain?
+
+  offerType          String?
+  priceAmount        Float?
+  priceCurrency      String?             @default("USDC")
+
+  images             Json?
+  imageCount         Int                 @default(0)
+
+  tier               MarketplaceTier     @default(FREE)
+  featuredPlacement  Boolean             @default(false)
+  homepageSpotlight  Boolean             @default(false)
+  topOfDayDays       Int?
+  featuredUntil      DateTime?
+  autoBumpDays       Int?
+  urgentTag          Boolean             @default(false)
+  multiChainTag      Boolean             @default(false)
+
+  totalPrice         Float?
+  status             MarketplaceAdStatus @default(DRAFT)
+  rejectionReason    String?
+  approvedBy         Int?
+
+  payments           Payment[]
+
+  publishedAt        DateTime?
+  expiresAt          DateTime?
+  extendedCount      Int                 @default(0)
+  lastExtendedAt     DateTime?
+  expiryNoticeSentAt DateTime?
+
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([category])
+  @@index([subCategory])
+  @@index([expiresAt])
+}
+
+model MarketplacePricing {
+  id        String                 @id @default(cuid())
+  kind      MarketplacePricingKind
+  key       String
+  label     String
+  amount    Float
+  currency  String                 @default("USDC")
+  active    Boolean                @default(true)
+  metadata  Json?
+
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  @@unique([kind, key])
+  @@index([kind])
+  @@index([active])
 }
 
 // Movement wallet balance tracking

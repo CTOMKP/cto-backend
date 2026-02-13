@@ -136,6 +136,7 @@ async function bootstrap() {
       .addTag('monitoring', 'Token monitoring and alerts')
       .addTag('users', 'User management')
       .addTag('analytics', 'Analytics and reporting')
+      .addTag('marketplace', 'Marketplace ads and pricing')
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup(`${apiPrefix}/docs`, app, document, {
