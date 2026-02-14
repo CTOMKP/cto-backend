@@ -37,12 +37,6 @@ export class MarketplaceController {
     });
   }
 
-  @Get('ads/:id')
-  @ApiOperation({ summary: 'Get a published marketplace ad' })
-  async getPublicAd(@Param('id') id: string) {
-    return this.marketplaceService.getPublicAd(id);
-  }
-
   @Post('ads')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -71,6 +65,12 @@ export class MarketplaceController {
     const userId = req?.user?.userId || req?.user?.sub;
     const email = req?.user?.email;
     return this.marketplaceService.listMine(userId, email);
+  }
+
+  @Get('ads/:id')
+  @ApiOperation({ summary: 'Get a published marketplace ad' })
+  async getPublicAd(@Param('id') id: string) {
+    return this.marketplaceService.getPublicAd(id);
   }
 
   @Post('ads/:id/pay')
