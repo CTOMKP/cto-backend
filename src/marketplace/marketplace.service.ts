@@ -42,7 +42,8 @@ export class MarketplaceService {
   }
 
   private buildPricingBreakdown(ad: any, pricing: Awaited<ReturnType<MarketplacePricingService['getPricingMap']>>): PricingBreakdown {
-    const baseCategory = pricing.category.get(ad.category) ?? 0;
+    // Category/role pricing is not charged. Only tier + add-ons apply.
+    const baseCategory = 0;
     const tier = pricing.tier.get(ad.tier) ?? 0;
     let addOns = 0;
 
@@ -62,7 +63,7 @@ export class MarketplaceService {
       tier,
       addOns,
       total: baseCategory + tier + addOns,
-      missingCategoryPrice: !pricing.category.has(ad.category),
+      missingCategoryPrice: false,
     };
   }
 
