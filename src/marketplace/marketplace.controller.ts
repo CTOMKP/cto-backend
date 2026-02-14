@@ -49,7 +49,8 @@ export class MarketplaceController {
   @ApiOperation({ summary: 'Create a marketplace ad draft' })
   async createDraft(@Body() dto: CreateMarketplaceAdDto, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
-    return this.marketplaceService.createDraft(Number(userId), dto);
+    const email = req?.user?.email;
+    return this.marketplaceService.createDraft(userId, dto, email);
   }
 
   @Put('ads/:id')
@@ -58,7 +59,8 @@ export class MarketplaceController {
   @ApiOperation({ summary: 'Update a marketplace ad draft' })
   async updateDraft(@Param('id') id: string, @Body() dto: UpdateMarketplaceAdDto, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
-    return this.marketplaceService.updateDraft(Number(userId), id, dto);
+    const email = req?.user?.email;
+    return this.marketplaceService.updateDraft(userId, id, dto, email);
   }
 
   @Get('ads/mine')
@@ -67,7 +69,8 @@ export class MarketplaceController {
   @ApiOperation({ summary: 'List current user marketplace ads' })
   async listMine(@Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
-    return this.marketplaceService.listMine(Number(userId));
+    const email = req?.user?.email;
+    return this.marketplaceService.listMine(userId, email);
   }
 
   @Post('ads/:id/pay')
@@ -76,7 +79,8 @@ export class MarketplaceController {
   @ApiOperation({ summary: 'Create payment for a marketplace ad' })
   async createPayment(@Param('id') id: string, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
-    return this.marketplaceService.createPayment(Number(userId), id);
+    const email = req?.user?.email;
+    return this.marketplaceService.createPayment(userId, id, email);
   }
 
   @Post('ads/payments/:paymentId/verify')
@@ -96,7 +100,8 @@ export class MarketplaceController {
   @ApiOperation({ summary: 'Extend a marketplace ad (free or paid)' })
   async extendAd(@Param('id') id: string, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
-    return this.marketplaceService.extendAd(Number(userId), id);
+    const email = req?.user?.email;
+    return this.marketplaceService.extendAd(userId, id, email);
   }
 
   @Post('ads/:id/sold')
@@ -105,6 +110,7 @@ export class MarketplaceController {
   @ApiOperation({ summary: 'Mark a marketplace ad as sold' })
   async markSold(@Param('id') id: string, @Req() req: any) {
     const userId = req?.user?.userId || req?.user?.sub;
-    return this.marketplaceService.markSold(Number(userId), id);
+    const email = req?.user?.email;
+    return this.marketplaceService.markSold(userId, id, email);
   }
 }

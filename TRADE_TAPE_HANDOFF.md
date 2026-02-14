@@ -156,3 +156,52 @@ Examples:
 - `Birdeye bsc trades fetch failed ... Compute units usage limit exceeded`
 - `DexScreener: Found <chain> pair ..., but individual trades not available in free API`
 
+---
+
+# Marketplace + Frontend Handoff (Feb 14, 2026)
+
+This section documents the current marketplace implementation and the most recent frontend fixes.
+
+## Backend Marketplace Changes
+
+- **Role/category pricing removed from totals** so ads do **not** charge a fixed price based on role/category.
+  - Commit: `f784d95` on `backend-auth-scan`.
+  - File changed: `src/marketplace/marketplace.service.ts`
+    - `baseCategory` forced to `0`
+    - `missingCategoryPrice` forced to `false`
+- **Action required:** redeploy backend in Coolify so this change is live.
+
+## Frontend (cto-frontend-old-fresh)
+
+### Fixes applied
+- `PrivyProfilePage.tsx` was corrupted and restored from git, then updated with:
+  - `loadMyAds` function that calls `marketplaceService.listMine()`
+  - My Ads tab replaced with an **ads table** showing status (Pending/Published/Rejected/Expired)
+- Admin button removed from user profile (admin tools belong to vineyard UI).
+
+### Current file edits
+- `src/components/Profile/PrivyProfilePage.tsx`
+  - Add `loadMyAds`
+  - Replace “Ad management is coming soon” with table
+- `src/services/marketplaceService.ts`
+  - Includes `listMine()` (GET `/api/v1/marketplace/ads/mine`)
+
+### Known runtime check
+If the frontend errors with `loadMyAds is missing`, the file was likely corrupted or the restore wasn’t applied. Restore and re-apply:
+```
+git checkout -- src/components/Profile/PrivyProfilePage.tsx
+```
+Then re-apply the `loadMyAds` + My Ads table changes.
+
+## Marketplace Flow Notes
+
+- Ads should show **Pending Approval** in user profile after payment.
+- Only **Published** ads appear on public marketplace.
+- After payment success, UI should show: “Admin is reviewing” with buttons back to profile/marketplace.
+- Preview should highlight selected tier and add-ons.
+
+## DB State
+
+- Marketplace tables and enums were created in production via manual SQL in postgres container.
+- Ensure tables exist: `MarketplaceAd`, `MarketplacePricing`, plus `Payment.marketplaceAdId`.
+

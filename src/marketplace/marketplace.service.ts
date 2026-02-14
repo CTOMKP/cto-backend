@@ -25,6 +25,20 @@ export class MarketplaceService {
     private readonly pricingService: MarketplacePricingService,
   ) {}
 
+  private async resolveUserId(userIdOrSub: unknown, email?: string | null) {
+    const numericId = Number(userIdOrSub);
+    if (Number.isFinite(numericId) && numericId > 0) {
+      return numericId;
+    }
+
+    if (email) {
+      const user = await this.prisma.user.findUnique({ where: { email } });
+      if (user?.id) return user.id;
+    }
+
+    throw new ForbiddenException('Authentication required');
+  }
+
   private normalizeImages(images?: string[]) {
     if (!images) return [];
     return images.filter(Boolean);
@@ -72,8 +86,8 @@ export class MarketplaceService {
     return { success: true, items: rows };
   }
 
-  async createDraft(userId: number, dto: CreateMarketplaceAdDto) {
-    if (!userId) throw new ForbiddenException('Authentication required');
+  async createDraft(userIdOrSub: unknown, dto: CreateMarketplaceAdDto, email?: string | null) {
+    const userId = await this.resolveUserId(userIdOrSub, email);
 
     const tier = dto.tier || 'FREE';
     const images = this.normalizeImages(dto.images);
@@ -109,7 +123,8 @@ export class MarketplaceService {
     return { success: true, data: created };
   }
 
-  async updateDraft(userId: number, id: string, dto: UpdateMarketplaceAdDto) {
+  async updateDraft(userIdOrSub: unknown, id: string, dto: UpdateMarketplaceAdDto, email?: string | null) {
+    const userId = await this.resolveUserId(userIdOrSub, email);
     const found = await this.prisma.marketplaceAd.findUnique({ where: { id } });
     if (!found) throw new NotFoundException('Ad not found');
     if (found.userId !== userId) throw new ForbiddenException('Not your ad');
@@ -150,8 +165,8 @@ export class MarketplaceService {
     return { success: true, data: updated };
   }
 
-  async listMine(userId: number) {
-    if (!userId) throw new ForbiddenException('Authentication required');
+  async listMine(userIdOrSub: unknown, email?: string | null) {
+    const userId = await this.resolveUserId(userIdOrSub, email);
     const items = await this.prisma.marketplaceAd.findMany({
       where: { userId },
       orderBy: { updatedAt: 'desc' },
@@ -202,7 +217,8 @@ export class MarketplaceService {
     return { success: true, data: found };
   }
 
-  async createPayment(userId: number, id: string) {
+  async createPayment(userIdOrSub: unknown, id: string, email?: string | null) {
+    const userId = await this.resolveUserId(userIdOrSub, email);
     const ad = await this.prisma.marketplaceAd.findUnique({ where: { id } });
     if (!ad) throw new NotFoundException('Ad not found');
     if (ad.userId !== userId) throw new ForbiddenException('Not your ad');
@@ -275,7 +291,8 @@ export class MarketplaceService {
     };
   }
 
-  async markSold(userId: number, id: string) {
+  async markSold(userIdOrSub: unknown, id: string, email?: string | null) {
+    const userId = await this.resolveUserId(userIdOrSub, email);
     const ad = await this.prisma.marketplaceAd.findUnique({ where: { id } });
     if (!ad) throw new NotFoundException('Ad not found');
     if (ad.userId !== userId) throw new ForbiddenException('Not your ad');
@@ -288,7 +305,8 @@ export class MarketplaceService {
     return { success: true, data: updated };
   }
 
-  async extendAd(userId: number, id: string) {
+  async extendAd(userIdOrSub: unknown, id: string, email?: string | null) {
+    const userId = await this.resolveUserId(userIdOrSub, email);
     const ad = await this.prisma.marketplaceAd.findUnique({ where: { id } });
     if (!ad) throw new NotFoundException('Ad not found');
     if (ad.userId !== userId) throw new ForbiddenException('Not your ad');
