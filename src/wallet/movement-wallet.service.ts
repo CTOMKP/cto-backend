@@ -328,7 +328,11 @@ export class MovementWalletService {
             body: `${data.tokenSymbol} deposit confirmed`,
             data: { txHash: data.txHash, amount: data.amount, token: data.tokenSymbol },
           });
-          await this.xpService.awardFundWallet(wallet.userId, data.amount);
+          const amountNumber = Number(data.amount);
+          await this.xpService.awardFundWallet(
+            wallet.userId,
+            Number.isFinite(amountNumber) ? amountNumber : undefined
+          );
         }
         if (data.txType === 'DEBIT') {
           await this.notifications.createNotification({
