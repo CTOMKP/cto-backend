@@ -40,6 +40,7 @@ model User {
   scanResults     ScanResult[]
   userListings    UserListing[]
   marketplaceAds  MarketplaceAd[]
+  marketplaceAdInteractions MarketplaceAdInteraction[]
   uploadedMemes   Meme[]
   payments        Payment[]
   userTrades      UserTrade[]
@@ -266,7 +267,7 @@ model Payment {
   adBoostId         String?       // Reference to AdBoost
   marketplaceAdId   String?       // Reference to MarketplaceAd
   marketplaceAd     MarketplaceAd? @relation(fields: [marketplaceAdId], references: [id])
-  escrowId          String?       // Reference to Escrow
+  escrowId          String?       @unique // Reference to Escrow
   escrow            Escrow?       @relation(fields: [escrowId], references: [id])
   
   // Payment details
@@ -418,6 +419,9 @@ model MarketplaceAd {
   lastInteractionAt  DateTime?
 
   payments           Payment[]
+  interactions       MarketplaceAdInteraction[]
+  conversations      Conversation[]
+  escrows            Escrow[]
 
   publishedAt        DateTime?
   expiresAt          DateTime?
