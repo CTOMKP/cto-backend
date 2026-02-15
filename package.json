@@ -10,6 +10,8 @@
     "postinstall": "prisma generate",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "prisma migrate deploy && node dist/main",
+    "backfill:signup-xp": "node dist/scripts/backfill-signup-xp.js",
+    "backfill:signup-xp:dev": "ts-node src/scripts/backfill-signup-xp.ts",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
