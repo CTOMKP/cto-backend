@@ -5,6 +5,7 @@ import { CircleCreateUserDto, CircleLoginDto, CreateWalletDto, ForgotPasswordDto
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { v4 as uuidv4 } from 'uuid';
+import { XpService } from '../../xp/xp.service';
 
 @Injectable()
 export class CircleService {
@@ -12,7 +13,11 @@ export class CircleService {
   private apiKey = process.env.CIRCLE_API_KEY || '';
   private appId = process.env.CIRCLE_APP_ID || '';
 
-  constructor(private prisma: PrismaService, private jwt: JwtService) {}
+  constructor(
+    private prisma: PrismaService,
+    private jwt: JwtService,
+    private xpService: XpService,
+  ) {}
 
   private headers(userToken?: string): AxiosRequestHeaders {
     const h: AxiosRequestHeaders = {
@@ -26,11 +31,15 @@ export class CircleService {
   async createOrContinueUser({ userId, email, password }: CircleCreateUserDto) {
     // create or update local user with hashed password
     const passwordHash = await bcrypt.hash(password, 10);
+    const existing = await this.prisma.user.findUnique({ where: { email } });
     const user = await this.prisma.user.upsert({
       where: { email },
       create: { email, name: null, passwordHash },
       update: { passwordHash },
     });
+    if (!existing) {
+      await this.xpService.awardSignup(user.id);
+    }
 
     // Try fetch existing Circle user
     try {
@@ -74,15 +83,41 @@ export class CircleService {
   }
 
   async login({ userId, password }: CircleLoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: userId },
+      include: { wallets: { orderBy: { isPrimary: 'desc' } } },
+    });
     if (!user || !user.passwordHash) throw new UnauthorizedException('Invalid credentials');
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
 
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await this.xpService.awardDailyLogin(user.id);
     const token = this.jwt.sign({ sub: user.id, email: user.email }, { expiresIn: '7d' });
 
-    return { success: true, user: { userId: user.email, email: user.email }, token };
+    const movementWallet = user.wallets?.find((w) =>
+      w.blockchain?.toString().toUpperCase() === 'MOVEMENT' ||
+      w.blockchain?.toString().toUpperCase() === 'APTOS'
+    );
+
+    return {
+      success: true,
+      user: {
+        id: user.id,
+        userId: user.email,
+        email: user.email,
+        name: user.name ?? null,
+        avatarUrl: user.avatarUrl ?? null,
+        bio: user.bio ?? null,
+        role: user.role,
+        xpBalance: user.xpBalance ?? 0,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        walletId: movementWallet?.id || null,
+        wallets: user.wallets || [],
+      },
+      token,
+    };
   }
 
   async forgotPassword({ userId, newPassword }: ForgotPasswordDto) {

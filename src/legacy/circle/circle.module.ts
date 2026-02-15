@@ -9,9 +9,10 @@ import { FundingController } from './funding.controller';
 import { FundingService } from './funding.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
+import { XpModule } from '../../xp/xp.module';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, HttpModule, AuthModule],
+  imports: [ConfigModule, PrismaModule, HttpModule, AuthModule, XpModule],
   controllers: [CircleController, TransferController, FundingController],
   providers: [CircleService, TransferService, FundingService],
   exports: [CircleService, TransferService, FundingService],

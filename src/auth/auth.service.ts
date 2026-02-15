@@ -198,16 +198,13 @@ export class AuthService {
       w.blockchain?.toString().toUpperCase() === 'APTOS'
     );
 
+    const { passwordHash: _, ...safeUser } = user as any;
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
       expires_in: 86400, // 24 hours
       user: { 
-        id: user.id, 
-        email: user.email,
-        avatarUrl: user.avatarUrl || null,
-        name: user.name || null,
-        bio: user.bio || null,
+        ...safeUser,
         xpBalance: user.xpBalance ?? 0,
         walletId: moveWallet?.id || null, // Primary Movement wallet ID
         wallets: user.wallets || [], // Full list of wallets

@@ -81,7 +81,7 @@ export class XpService {
   }
 
   async awardSignup(userId: number) {
-    return this.award(userId, 16, 'signup');
+    return this.award(userId, 8, 'signup');
   }
 
   async awardCreateAd(userId: number, adId: string) {
