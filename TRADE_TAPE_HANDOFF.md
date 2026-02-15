@@ -148,6 +148,28 @@ Response:
 - Redis is configured separately; ensure `REDIS_URL` is set.
 - After any env change, **redeploy**.
 
+## Incident Notes (Feb 14, 2026)
+
+- **Marketplace migration hotfix (Coolify DB terminal)**
+  - Issue: backend crashed because marketplace tables/enums were missing in production.
+  - Fix: ran a manual SQL migration directly in the Coolify Postgres container (bypassing Prisma).
+  - SQL executed (summary):
+    - Created enums: `MarketplaceAdStatus`, `MarketplacePostType`, `MarketplaceTier`, `MarketplacePricingKind`
+    - Added enum value `PaymentType = MARKETPLACE_AD`
+    - Created tables: `MarketplacePricing`, `MarketplaceAd`
+    - Added indexes for pricing and ads (kind/status/category/expiry)
+    - Added `Payment.marketplaceAdId` column + index + FK to `MarketplaceAd`
+  - After SQL: restarted backend container in Coolify.
+
+- **User ads not displaying (profile + marketplace)**
+  - Symptoms: API returned ads (200 with `data.items`), but UI showed none.
+  - Root cause: frontend was reading the wrong response shape (not unwrapping `data.items`).
+  - Fix: updated `marketplaceService` to unwrap the response like other services, and updated the profile ads loader to use the normalized array.
+  - Verification: browser console calls to:
+    - `GET /api/v1/marketplace/ads/mine` returned items under `data.items`
+    - `GET /api/v1/marketplace/ads` returned items under `data.items`
+  - Result: ads render on user profile and on the public marketplace list.
+
 ## Reference Logs (Expected)
 
 Examples:
@@ -204,4 +226,3 @@ Then re-apply the `loadMyAds` + My Ads table changes.
 
 - Marketplace tables and enums were created in production via manual SQL in postgres container.
 - Ensure tables exist: `MarketplaceAd`, `MarketplacePricing`, plus `Payment.marketplaceAdId`.
-
