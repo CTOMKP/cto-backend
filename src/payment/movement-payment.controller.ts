@@ -53,6 +53,21 @@ export class MovementPaymentController {
     return this.movementPaymentService.createListingPayment(userId, listingId);
   }
 
+  @Post('escrow/:escrowId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Create Movement payment for escrow funding',
+    description: 'Create a payment record for escrow funding. Returns transaction data for frontend to sign with Privy.'
+  })
+  async createEscrowPayment(
+    @Request() req: any,
+    @Param('escrowId') escrowId: string,
+  ) {
+    const userId = req.user.userId;
+    return this.movementPaymentService.createEscrowPayment(userId, escrowId);
+  }
+
   @Post('verify/:paymentId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')

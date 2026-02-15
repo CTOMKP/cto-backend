@@ -1,13 +1,19 @@
 import { Injectable, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ApproveListingDto, RejectListingDto, ApproveMarketplaceAdDto, RejectMarketplaceAdDto } from './dto/admin.dto';
+import { ApproveListingDto, RejectListingDto, ApproveMarketplaceAdDto, RejectMarketplaceAdDto, AdminEscrowActionDto, AdminEscrowExtendDto } from './dto/admin.dto';
 import { Prisma } from '@prisma/client';
+import { EscrowService } from '../escrow/escrow.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AdminService {
   private readonly logger = new Logger(AdminService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private escrowService: EscrowService,
+    private notifications: NotificationsService,
+  ) {}
 
   // Verify admin permissions
   private async verifyAdmin(adminUserId: string) {
@@ -281,6 +287,14 @@ export class AdminService {
 
       this.logger.log(`Listing ${dto.listingId} approved by admin ${dto.adminUserId}`);
 
+      await this.notifications.createNotification({
+        userId: updatedListing.userId,
+        type: 'LISTING_APPROVAL',
+        title: 'Listing approved',
+        body: updatedListing.title,
+        data: { listingId: updatedListing.id },
+      });
+
       return {
         success: true,
         listing: updatedListing,
@@ -333,6 +347,14 @@ export class AdminService {
       });
 
       this.logger.log(`Listing ${dto.listingId} rejected by admin ${dto.adminUserId}. Reason: ${dto.reason}`);
+
+      await this.notifications.createNotification({
+        userId: updatedListing.userId,
+        type: 'LISTING_APPROVAL',
+        title: 'Listing rejected',
+        body: updatedListing.title,
+        data: { listingId: updatedListing.id, reason: dto.reason },
+      });
 
       return {
         success: true,
@@ -475,6 +497,14 @@ export class AdminService {
 
       this.logger.log(`Marketplace ad ${dto.adId} approved by admin ${dto.adminUserId}`);
 
+      await this.notifications.createNotification({
+        userId: updated.userId,
+        type: 'AD_APPROVAL',
+        title: 'Marketplace ad approved',
+        body: updated.title,
+        data: { adId: updated.id },
+      });
+
       return {
         success: true,
         ad: updated,
@@ -513,6 +543,14 @@ export class AdminService {
       });
 
       this.logger.log(`Marketplace ad ${dto.adId} rejected by admin ${dto.adminUserId}. Reason: ${dto.reason}`);
+
+      await this.notifications.createNotification({
+        userId: updated.userId,
+        type: 'AD_APPROVAL',
+        title: 'Marketplace ad rejected',
+        body: updated.title,
+        data: { adId: updated.id, reason: dto.reason },
+      });
 
       return {
         success: true,
@@ -638,6 +676,52 @@ export class AdminService {
       this.logger.error('Failed to get active ad boosts:', error instanceof Error ? error.message : 'Unknown error');
       throw new BadRequestException(`Failed to get active ad boosts: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  async getEscrows(status?: string) {
+    const escrows = await this.escrowService.listForAdmin(status);
+    return {
+      success: true,
+      escrows,
+      total: escrows.length,
+      message: 'Escrows retrieved successfully',
+    };
+  }
+
+  async forceReleaseEscrow(dto: AdminEscrowActionDto) {
+    await this.verifyAdmin(dto.adminUserId);
+    const escrow = await this.escrowService.release(0, dto.escrowId, true);
+    return { success: true, escrow, message: 'Escrow released by admin' };
+  }
+
+  async forceRefundEscrow(dto: AdminEscrowActionDto) {
+    await this.verifyAdmin(dto.adminUserId);
+    const escrow = await this.escrowService.refund(0, dto.escrowId, true);
+    return { success: true, escrow, message: 'Escrow refunded by admin' };
+  }
+
+  async extendEscrow(dto: AdminEscrowExtendDto) {
+    await this.verifyAdmin(dto.adminUserId);
+    const escrow = await this.escrowService.extendDeadline(0, dto.escrowId, dto.newDeadline);
+    return { success: true, escrow, message: 'Escrow deadline extended' };
+  }
+
+  async resolveDispute(dto: AdminEscrowActionDto) {
+    await this.verifyAdmin(dto.adminUserId);
+    const escrow = await this.escrowService.unfreeze(0, dto.escrowId);
+    return { success: true, escrow, message: 'Escrow dispute resolved' };
+  }
+
+  async freezeEscrow(dto: AdminEscrowActionDto) {
+    await this.verifyAdmin(dto.adminUserId);
+    const escrow = await this.escrowService.freeze(0, dto.escrowId);
+    return { success: true, escrow, message: 'Escrow frozen' };
+  }
+
+  async flagEscrow(dto: AdminEscrowActionDto) {
+    await this.verifyAdmin(dto.adminUserId);
+    const escrow = await this.escrowService.flag(0, dto.escrowId, dto.reason || '');
+    return { success: true, escrow, message: 'Escrow flagged' };
   }
 
   // Get dashboard statistics

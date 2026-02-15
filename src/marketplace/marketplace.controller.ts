@@ -28,12 +28,38 @@ export class MarketplaceController {
     @Query('limit') limit = 20,
     @Query('category') category?: string,
     @Query('subCategory') subCategory?: string,
+    @Query('sort') sort?: string,
   ) {
-    return this.marketplaceService.listPublic({
+    const baseParams = {
       page: Number(page) || 1,
       limit: Number(limit) || 20,
       category,
       subCategory,
+    };
+    if (sort === 'trending') {
+      return this.marketplaceService.listTrending(baseParams);
+    }
+    return this.marketplaceService.listPublic(baseParams);
+  }
+
+  @Get('ads/trending')
+  @ApiOperation({ summary: 'List trending marketplace ads' })
+  async listTrending(@Query('page') page = 1, @Query('limit') limit = 20) {
+    return this.marketplaceService.listTrending({
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
+    });
+  }
+
+  @Get('ads/for-you')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'List personalized marketplace ads' })
+  async listForYou(@Req() req: any, @Query('page') page = 1, @Query('limit') limit = 20) {
+    const userId = req?.user?.userId || req?.user?.sub;
+    return this.marketplaceService.listForYou(Number(userId), {
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
     });
   }
 
@@ -70,7 +96,13 @@ export class MarketplaceController {
   @Get('ads/:id')
   @ApiOperation({ summary: 'Get a published marketplace ad' })
   async getPublicAd(@Param('id') id: string) {
-    return this.marketplaceService.getPublicAd(id);
+    const ad = await this.marketplaceService.getPublicAd(id);
+    try {
+      await this.marketplaceService.recordInteraction(id, 'VIEW');
+    } catch {
+      // ignore tracking errors
+    }
+    return ad;
   }
 
   @Post('ads/:id/pay')
@@ -112,5 +144,15 @@ export class MarketplaceController {
     const userId = req?.user?.userId || req?.user?.sub;
     const email = req?.user?.email;
     return this.marketplaceService.markSold(userId, id, email);
+  }
+
+  @Post('ads/:id/share')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Record share event for XP' })
+  async shareAd(@Param('id') id: string, @Req() req: any) {
+    const userId = req?.user?.userId || req?.user?.sub;
+    await this.marketplaceService.recordInteraction(id, 'SHARE', Number(userId));
+    return { success: true };
   }
 }

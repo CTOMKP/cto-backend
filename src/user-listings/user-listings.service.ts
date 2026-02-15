@@ -5,12 +5,17 @@ import { UpdateUserListingDto } from './dto/update-user-listing.dto';
 import { CreateAdBoostDto } from './dto/ad-boost.dto';
 import { ScanDto } from './dto/scan.dto';
 import { ScanService } from '../scan/services/scan.service';
+import { XpService } from '../xp/xp.service';
 
 @Injectable()
 export class UserListingsService {
   private readonly MIN_QUALIFYING_SCORE = 50; // pass if risk_score >= MIN_QUALIFYING_SCORE (higher = safer, score range: 0-100)
 
-  constructor(private prisma: PrismaService, private scanService: ScanService) {}
+  constructor(
+    private prisma: PrismaService,
+    private scanService: ScanService,
+    private xpService: XpService,
+  ) {}
 
   private async getLatestScan(contractAddress: string) {
     if (!contractAddress) return null;
@@ -134,6 +139,7 @@ export class UserListingsService {
         vettingScore: dto.vettingScore,
       },
     });
+    await this.xpService.awardCreateListing(userId, created.id);
     return { success: true, data: created };
   }
 

@@ -110,6 +110,7 @@ export class AuthController {
       name: user.name || null,
       bio: user.bio || null,
       role: user.role, // EXPOSING ROLE
+      xpBalance: (user as any).xpBalance ?? 0,
       createdAt: user.createdAt.toISOString(),
       accountAgeDays: ageInDays,
       accountAge,

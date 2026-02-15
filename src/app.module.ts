@@ -21,6 +21,10 @@ import { MovementWalletModule } from './wallet/movement-wallet.module';
 import { SentioModule } from './sentio/sentio.module';
 import { TradesModule } from './trades/trades.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { XpModule } from './xp/xp.module';
+import { MessagingModule } from './messaging/messaging.module';
+import { EscrowModule } from './escrow/escrow.module';
 
 @Module({
   imports: [
@@ -53,6 +57,10 @@ import { MarketplaceModule } from './marketplace/marketplace.module';
     SentioModule,
     TradesModule,
     MarketplaceModule,
+    NotificationsModule,
+    XpModule,
+    MessagingModule,
+    EscrowModule,
   ],
   controllers: [HealthController],
   providers: [],

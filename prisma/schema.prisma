@@ -32,6 +32,8 @@ model User {
   // Profile fields
   avatarUrl       String?        // Profile picture URL
   bio             String?        // User bio
+  xpBalance       Int            @default(0) // Cached XP balance for fast checks
+  lastDailyXpAt   DateTime?      // Last time daily login XP was awarded
 
   // Relations
   wallets         Wallet[]
@@ -42,6 +44,14 @@ model User {
   payments        Payment[]
   userTrades      UserTrade[]
   pendingOrders   PendingOrder[]
+  xpTransactions  XpTransaction[]
+  conversationsAsPoster    Conversation[] @relation("PosterConversations")
+  conversationsAsApplicant Conversation[] @relation("ApplicantConversations")
+  messagesSent    Message[] @relation("MessageSender")
+  messagesReceived Message[] @relation("MessageReceiver")
+  escrowsAsPoster    Escrow[] @relation("PosterEscrows")
+  escrowsAsApplicant Escrow[] @relation("ApplicantEscrows")
+  notifications  Notification[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -256,6 +266,8 @@ model Payment {
   adBoostId         String?       // Reference to AdBoost
   marketplaceAdId   String?       // Reference to MarketplaceAd
   marketplaceAd     MarketplaceAd? @relation(fields: [marketplaceAdId], references: [id])
+  escrowId          String?       // Reference to Escrow
+  escrow            Escrow?       @relation(fields: [escrowId], references: [id])
   
   // Payment details
   amount            Float
@@ -287,6 +299,7 @@ model Payment {
   @@index([listingId])
   @@index([adBoostId])
   @@index([marketplaceAdId])
+  @@index([escrowId])
 }
 
 enum PaymentType {
@@ -333,6 +346,39 @@ enum MarketplacePricingKind {
   TIER
 }
 
+enum ConversationStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum MessageType {
+  COVER_LETTER
+  MESSAGE
+  SYSTEM
+}
+
+enum EscrowStatus {
+  PROPOSED
+  AWAITING_PAYMENT
+  FUNDED_ACTIVE
+  UNDER_REVIEW
+  COMPLETED
+  DECLINED
+  CANCELLED
+  REFUNDED
+  DISPUTED
+}
+
+enum NotificationType {
+  MESSAGE
+  ESCROW
+  XP
+  PAYMENT
+  LISTING_APPROVAL
+  AD_APPROVAL
+  SYSTEM
+}
+
 model MarketplaceAd {
   id                 String              @id @default(cuid())
   userId             Int
@@ -367,6 +413,9 @@ model MarketplaceAd {
   status             MarketplaceAdStatus @default(DRAFT)
   rejectionReason    String?
   approvedBy         Int?
+  viewCount          Int                 @default(0)
+  messageCount       Int                 @default(0)
+  lastInteractionAt  DateTime?
 
   payments           Payment[]
 
@@ -384,6 +433,23 @@ model MarketplaceAd {
   @@index([category])
   @@index([subCategory])
   @@index([expiresAt])
+  @@index([lastInteractionAt])
+}
+
+model MarketplaceAdInteraction {
+  id        String   @id @default(cuid())
+  adId      String
+  ad        MarketplaceAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // VIEW | APPLY | MESSAGE | SHARE
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([adId])
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
 }
 
 model MarketplacePricing {
@@ -402,6 +468,131 @@ model MarketplacePricing {
   @@unique([kind, key])
   @@index([kind])
   @@index([active])
+}
+
+model Conversation {
+  id           String              @id @default(cuid())
+  adId         String
+  ad           MarketplaceAd       @relation(fields: [adId], references: [id], onDelete: Cascade)
+  posterId     Int
+  poster       User                @relation("PosterConversations", fields: [posterId], references: [id], onDelete: Cascade)
+  applicantId  Int
+  applicant    User                @relation("ApplicantConversations", fields: [applicantId], references: [id], onDelete: Cascade)
+  status       ConversationStatus  @default(ACTIVE)
+  lastMessageAt DateTime?
+  lastMessagePreview String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  messages     Message[]
+  escrows      Escrow[]
+
+  @@unique([adId, applicantId])
+  @@index([posterId])
+  @@index([applicantId])
+  @@index([adId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       Int
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId     Int
+  receiver       User         @relation("MessageReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  type           MessageType  @default(MESSAGE)
+  body           String
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([createdAt])
+}
+
+model Escrow {
+  id             String        @id @default(cuid())
+  adId           String
+  ad             MarketplaceAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  posterId       Int
+  poster         User          @relation("PosterEscrows", fields: [posterId], references: [id], onDelete: Cascade)
+  applicantId    Int
+  applicant      User          @relation("ApplicantEscrows", fields: [applicantId], references: [id], onDelete: Cascade)
+
+  title          String
+  totalAmount    Float
+  currency       String        @default("USDC")
+  deadline       DateTime?
+  noDeadline     Boolean       @default(false)
+  status         EscrowStatus  @default(PROPOSED)
+  isFrozen       Boolean       @default(false)
+  flaggedReason  String?
+  disputeReason  String?
+  proposedAt     DateTime      @default(now())
+  acceptedAt     DateTime?
+  fundedAt       DateTime?
+  submittedAt    DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+
+  payment        Payment?
+  milestones     EscrowMilestone[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([posterId])
+  @@index([applicantId])
+  @@index([status])
+  @@index([adId])
+}
+
+model EscrowMilestone {
+  id        String   @id @default(cuid())
+  escrowId  String
+  escrow    Escrow   @relation(fields: [escrowId], references: [id], onDelete: Cascade)
+  title     String
+  amount    Float
+  dueDate   DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([escrowId])
+}
+
+model XpTransaction {
+  id        String   @id @default(cuid())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // EARN | SPEND
+  reason    String   // signup, login, share, create_ad, create_listing, fund_wallet, start_conversation, etc.
+  amount    Int
+  balanceAfter Int
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String?
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([type])
 }
 
 // Movement wallet balance tracking

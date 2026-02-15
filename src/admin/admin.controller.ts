@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
-import { ApproveListingDto, RejectListingDto, UpdateUserRoleDto, ApproveMarketplaceAdDto, RejectMarketplaceAdDto } from './dto/admin.dto';
+import { ApproveListingDto, RejectListingDto, UpdateUserRoleDto, ApproveMarketplaceAdDto, RejectMarketplaceAdDto, AdminEscrowActionDto, AdminEscrowExtendDto } from './dto/admin.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 
@@ -227,6 +227,48 @@ export class AdminController {
   @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
   async getActiveAdBoosts() {
     return this.adminService.getActiveAdBoosts();
+  }
+
+  @Get('escrows')
+  @ApiOperation({ summary: 'Get all escrows (admin only)' })
+  async getEscrows(@Query('status') status?: string) {
+    return this.adminService.getEscrows(status);
+  }
+
+  @Post('escrows/release')
+  @ApiOperation({ summary: 'Force release escrow funds (admin only)' })
+  async forceReleaseEscrow(@Body() dto: AdminEscrowActionDto) {
+    return this.adminService.forceReleaseEscrow(dto);
+  }
+
+  @Post('escrows/refund')
+  @ApiOperation({ summary: 'Force refund escrow (admin only)' })
+  async forceRefundEscrow(@Body() dto: AdminEscrowActionDto) {
+    return this.adminService.forceRefundEscrow(dto);
+  }
+
+  @Post('escrows/extend')
+  @ApiOperation({ summary: 'Extend escrow deadline (admin only)' })
+  async extendEscrow(@Body() dto: AdminEscrowExtendDto) {
+    return this.adminService.extendEscrow(dto);
+  }
+
+  @Post('escrows/freeze')
+  @ApiOperation({ summary: 'Freeze escrow (admin only)' })
+  async freezeEscrow(@Body() dto: AdminEscrowActionDto) {
+    return this.adminService.freezeEscrow(dto);
+  }
+
+  @Post('escrows/flag')
+  @ApiOperation({ summary: 'Flag escrow (admin only)' })
+  async flagEscrow(@Body() dto: AdminEscrowActionDto) {
+    return this.adminService.flagEscrow(dto);
+  }
+
+  @Post('escrows/resolve-dispute')
+  @ApiOperation({ summary: 'Resolve escrow dispute (admin only)' })
+  async resolveEscrow(@Body() dto: AdminEscrowActionDto) {
+    return this.adminService.resolveDispute(dto);
   }
 
   @Post('users/update-role')

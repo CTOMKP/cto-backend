@@ -2,6 +2,8 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { NotificationsService } from '../notifications/notifications.service';
+import { XpService } from '../xp/xp.service';
 
 /**
  * Movement Wallet Service
@@ -61,6 +63,8 @@ export class MovementWalletService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly notifications: NotificationsService,
+    private readonly xpService: XpService,
   ) {
 
     this.logger.log(`🚀 MovementWalletService initialized (Version: ${this.SERVICE_VERSION})`);
@@ -296,8 +300,7 @@ export class MovementWalletService {
     description?: string;
     metadata?: any;
   }): Promise<any> {
-
-    return (this.prisma as any).walletTransaction.create({
+    const record = await (this.prisma as any).walletTransaction.create({
       data: {
         walletId: data.walletId,
         txHash: data.txHash,
@@ -313,6 +316,35 @@ export class MovementWalletService {
         metadata: data.metadata,
       },
     });
+
+    try {
+      const wallet = await this.prisma.wallet.findUnique({ where: { id: data.walletId } });
+      if (wallet?.userId) {
+        if (data.txType === 'CREDIT') {
+          await this.notifications.createNotification({
+            userId: wallet.userId,
+            type: 'PAYMENT',
+            title: 'Wallet funded',
+            body: `${data.tokenSymbol} deposit confirmed`,
+            data: { txHash: data.txHash, amount: data.amount, token: data.tokenSymbol },
+          });
+          await this.xpService.awardFundWallet(wallet.userId, data.amount);
+        }
+        if (data.txType === 'DEBIT') {
+          await this.notifications.createNotification({
+            userId: wallet.userId,
+            type: 'PAYMENT',
+            title: 'Wallet payment sent',
+            body: `${data.tokenSymbol} payment recorded`,
+            data: { txHash: data.txHash, amount: data.amount, token: data.tokenSymbol },
+          });
+        }
+      }
+    } catch {
+      // Notifications are best-effort
+    }
+
+    return record;
   }
 
   /**

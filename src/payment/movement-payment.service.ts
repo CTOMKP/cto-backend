@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { MovementWalletService } from '../wallet/movement-wallet.service';
 import { ConfigService } from '@nestjs/config';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * Movement Payment Service
@@ -15,6 +16,7 @@ export class MovementPaymentService {
     private readonly prisma: PrismaService,
     private readonly movementWalletService: MovementWalletService,
     private readonly configService: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -294,6 +296,107 @@ export class MovementPaymentService {
   }
 
   /**
+   * Create an escrow funding payment using Movement wallet
+   */
+  async createEscrowPayment(userId: number, escrowId: string, amountUsd?: number) {
+    this.logger.log(`🚀 [CRITICAL] createEscrowPayment starting for User: ${userId}, Escrow: ${escrowId}`);
+
+    const escrow = await this.prisma.escrow.findUnique({ where: { id: escrowId } });
+    if (!escrow) throw new NotFoundException('Escrow not found');
+    if (escrow.posterId !== userId) throw new BadRequestException('Only poster can fund escrow');
+    if (escrow.status !== 'AWAITING_PAYMENT') {
+      throw new BadRequestException('Escrow not awaiting payment');
+    }
+
+    const amountToCharge = amountUsd && amountUsd > 0 ? amountUsd : escrow.totalAmount;
+    if (!amountToCharge || amountToCharge <= 0) {
+      throw new BadRequestException('Payment amount must be greater than 0');
+    }
+
+    let user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { wallets: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    let movementWallet = user.wallets.find(w =>
+      w.blockchain?.toString().toUpperCase() === 'MOVEMENT' ||
+      w.blockchain?.toString().toUpperCase() === 'APTOS'
+    );
+    if (!movementWallet) {
+      const freshWallet = await this.prisma.wallet.findFirst({
+        where: { userId, blockchain: { in: ['MOVEMENT', 'APTOS'] as any } },
+      });
+      if (freshWallet) movementWallet = freshWallet;
+    }
+    if (!movementWallet || !movementWallet.address) {
+      throw new BadRequestException('No Movement wallet found for your account');
+    }
+
+    const paymentAmount = Math.round(amountToCharge * 1e6).toString();
+    const hasBalance = await this.movementWalletService.hasSufficientBalance(
+      movementWallet.id,
+      paymentAmount,
+    );
+    if (!hasBalance) {
+      const freshBalanceData = await this.movementWalletService.getWalletBalance(movementWallet.address, undefined, true);
+      await this.movementWalletService.syncWalletBalance(movementWallet.id, undefined, true);
+      const nowHasBalance = BigInt(freshBalanceData.balance) >= BigInt(paymentAmount);
+      if (!nowHasBalance) {
+        throw new BadRequestException('Insufficient balance');
+      }
+    }
+
+    const adminWallet = this.configService.get(
+      'MOVEMENT_ADMIN_WALLET',
+      '0x1745a447b0571a69c19d779db9ef05cfeffaa67ca74c8947aca81e0482e10523'
+    );
+    const usdcAddress = this.configService.get(
+      'MOVEMENT_TEST_TOKEN_ADDRESS',
+      '0xb89077cfd2a82a0c1450534d49cfd5f2707643155273069bc23a912bcfefdee7'
+    );
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        userId: user.id,
+        amount: parseFloat(paymentAmount) / 1e6,
+        currency: 'USDC',
+        paymentType: 'ESCROW',
+        escrowId,
+        status: 'PENDING',
+        toAddress: adminWallet,
+        fromWalletId: movementWallet.id,
+        metadata: {
+          chain: 'MOVEMENT',
+          fromWallet: movementWallet.address,
+          toWallet: adminWallet,
+          tokenAddress: usdcAddress,
+          paymentMethod: 'MOVEMENT_WALLET',
+          amountInNativeUnits: paymentAmount,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      paymentId: payment.id,
+      chain: 'movement',
+      fromAddress: movementWallet.address,
+      toAddress: adminWallet,
+      amount: paymentAmount,
+      amountDisplay: parseFloat(paymentAmount) / 1e6,
+      tokenSymbol: 'USDC.e',
+      transactionData: {
+        type: 'entry_function_payload',
+        function: '0x1::primary_fungible_store::transfer',
+        type_arguments: ['0x1::fungible_asset::Metadata'],
+        arguments: [usdcAddress, adminWallet, paymentAmount],
+      },
+      message: 'Transaction ready. Please sign with your Privy Movement wallet.',
+    };
+  }
+
+  /**
    * Verify payment was completed on-chain
    * Called after frontend confirms transaction
    */
@@ -359,6 +462,37 @@ export class MovementPaymentService {
         this.logger.log(`✅ Marketplace ad ${payment.marketplaceAdId} status updated to PENDING_APPROVAL`);
       }
 
+      if (payment.paymentType === 'ESCROW' && payment.escrowId) {
+        const updatedEscrow = await this.prisma.escrow.update({
+          where: { id: payment.escrowId },
+          data: { status: 'FUNDED_ACTIVE', fundedAt: new Date() },
+        });
+        this.logger.log(`✅ Escrow ${payment.escrowId} status updated to FUNDED_ACTIVE`);
+
+        await this.notifications.createNotification({
+          userId: updatedEscrow.posterId,
+          type: 'ESCROW',
+          title: 'Escrow funded',
+          body: updatedEscrow.title,
+          data: { escrowId: updatedEscrow.id },
+        });
+        await this.notifications.createNotification({
+          userId: updatedEscrow.applicantId,
+          type: 'ESCROW',
+          title: 'Escrow funded',
+          body: updatedEscrow.title,
+          data: { escrowId: updatedEscrow.id },
+        });
+      }
+
+      await this.notifications.createNotification({
+        userId: payment.userId,
+        type: 'PAYMENT',
+        title: 'Payment confirmed',
+        body: payment.paymentType,
+        data: { paymentId: payment.id, paymentType: payment.paymentType },
+      });
+
       this.logger.log(`✅ Payment verified: ${paymentId}`);
 
       return {
@@ -387,8 +521,5 @@ export class MovementPaymentService {
     return this.verifyPayment(paymentId, txHash);
   }
 }
-
-
-
 
 

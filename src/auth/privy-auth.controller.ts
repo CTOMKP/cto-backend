@@ -350,6 +350,7 @@ export class PrivyAuthController {
           privyUserId: (privyUser as any).userId,
           walletsCount: (userFull as any)?.wallets?.length || 0,
           avatarUrl: (userFull as any).avatarUrl || null,
+          xpBalance: (userFull as any).xpBalance ?? 0,
           wallets: (userFull as any).wallets || [], // ADDING FULL WALLETS ARRAY
         },
         token: jwtToken.access_token,

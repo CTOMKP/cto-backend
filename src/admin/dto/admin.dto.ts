@@ -81,3 +81,26 @@ export class UpdateUserRoleDto {
   adminUserId: string;
 }
 
+export class AdminEscrowActionDto {
+  @IsString()
+  escrowId: string;
+
+  @IsString()
+  adminUserId: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
+}
+
+export class AdminEscrowExtendDto {
+  @IsString()
+  escrowId: string;
+
+  @IsString()
+  adminUserId: string;
+
+  @IsString()
+  newDeadline: string;
+}
+

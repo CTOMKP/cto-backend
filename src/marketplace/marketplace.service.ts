@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { PrismaService } from '../prisma/prisma.service';
 import { MovementPaymentService } from '../payment/movement-payment.service';
 import { MarketplacePricingService } from './marketplace-pricing.service';
+import { XpService } from '../xp/xp.service';
 import { CreateMarketplaceAdDto } from './dto/create-marketplace-ad.dto';
 import { UpdateMarketplaceAdDto } from './dto/update-marketplace-ad.dto';
 
@@ -23,6 +24,7 @@ export class MarketplaceService {
     private readonly prisma: PrismaService,
     private readonly movementPaymentService: MovementPaymentService,
     private readonly pricingService: MarketplacePricingService,
+    private readonly xpService: XpService,
   ) {}
 
   private async resolveUserId(userIdOrSub: unknown, email?: string | null) {
@@ -120,6 +122,8 @@ export class MarketplaceService {
       },
     });
 
+    await this.xpService.awardCreateAd(userId, created.id);
+
     return { success: true, data: created };
   }
 
@@ -203,6 +207,98 @@ export class MarketplaceService {
     ]);
 
     return { page, limit, total, items };
+  }
+
+  async listTrending(params: { page?: number; limit?: number }) {
+    const page = Math.max(params.page || 1, 1);
+    const limit = Math.min(Math.max(params.limit || 20, 1), 100);
+    const skip = (page - 1) * limit;
+    const now = new Date();
+
+    const where: any = {
+      status: 'PUBLISHED',
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    };
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.marketplaceAd.count({ where }),
+      this.prisma.marketplaceAd.findMany({
+        where,
+        orderBy: [
+          { lastInteractionAt: 'desc' },
+          { messageCount: 'desc' },
+          { viewCount: 'desc' },
+        ],
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return { page, limit, total, items };
+  }
+
+  async listForYou(userId: number, params: { page?: number; limit?: number }) {
+    const page = Math.max(params.page || 1, 1);
+    const limit = Math.min(Math.max(params.limit || 20, 1), 100);
+    const skip = (page - 1) * limit;
+    const now = new Date();
+
+    const recentInteractions = await this.prisma.marketplaceAdInteraction.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: { ad: true },
+    });
+
+    const categories = Array.from(
+      new Set(recentInteractions.map((i) => i.ad?.category).filter(Boolean))
+    ) as string[];
+
+    if (!categories.length) {
+      return this.listPublic({ page, limit });
+    }
+
+    const where: any = {
+      status: 'PUBLISHED',
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      ...(categories.length ? { category: { in: categories } } : {}),
+    };
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.marketplaceAd.count({ where }),
+      this.prisma.marketplaceAd.findMany({
+        where,
+        orderBy: [
+          { lastInteractionAt: 'desc' },
+          { publishedAt: 'desc' },
+        ],
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return { page, limit, total, items };
+  }
+
+  async recordInteraction(adId: string, type: 'VIEW' | 'APPLY' | 'MESSAGE' | 'SHARE', userId?: number) {
+    await this.prisma.marketplaceAdInteraction.create({
+      data: { adId, userId: userId ?? null, type },
+    });
+
+    const updateData: any = {
+      lastInteractionAt: new Date(),
+    };
+    if (type === 'VIEW') updateData.viewCount = { increment: 1 };
+    if (type === 'MESSAGE' || type === 'APPLY') updateData.messageCount = { increment: 1 };
+
+    await this.prisma.marketplaceAd.update({
+      where: { id: adId },
+      data: updateData,
+    });
+
+    if (type === 'SHARE' && userId) {
+      await this.xpService.awardShareAd(userId, adId);
+    }
   }
 
   async getPublicAd(id: string) {

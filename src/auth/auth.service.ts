@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { XpService } from '../xp/xp.service';
 
 @Injectable()
 export class AuthService {
@@ -26,6 +27,7 @@ export class AuthService {
     lastLoginAt: true,
     avatarUrl: true,
     bio: true,
+    xpBalance: true,
     createdAt: true,
     updatedAt: true,
     wallets: {
@@ -38,6 +40,7 @@ export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
+    private readonly xpService: XpService,
   ) {}
 
   // Validate user by email and password against DB
@@ -87,6 +90,7 @@ export class AuthService {
           passwordHash 
         },
       });
+      await this.xpService.awardSignup(created.id);
       const { passwordHash: _, ...safe } = created as any;
       return safe;
     } catch (e) {
@@ -187,6 +191,8 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload, { expiresIn: '24h' }); // Extended for testing
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
+    await this.xpService.awardDailyLogin(user.id);
+
     const moveWallet = user.wallets?.find((w: any) => 
       w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
       w.blockchain?.toString().toUpperCase() === 'APTOS'
@@ -202,6 +208,7 @@ export class AuthService {
         avatarUrl: user.avatarUrl || null,
         name: user.name || null,
         bio: user.bio || null,
+        xpBalance: user.xpBalance ?? 0,
         walletId: moveWallet?.id || null, // Primary Movement wallet ID
         wallets: user.wallets || [], // Full list of wallets
       },
