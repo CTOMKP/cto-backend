@@ -119,13 +119,22 @@ export class MessagingService {
       orderBy: { lastMessageAt: 'desc' },
       include: {
         ad: true,
+        poster: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        applicant: { select: { id: true, name: true, avatarUrl: true, email: true } },
       },
     });
     return items;
   }
 
   async getConversation(userId: number, conversationId: string) {
-    return this.getConversationForUser(userId, conversationId);
+    return this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        ad: true,
+        poster: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        applicant: { select: { id: true, name: true, avatarUrl: true, email: true } },
+      },
+    });
   }
 
   async listMessages(userId: number, conversationId: string) {
