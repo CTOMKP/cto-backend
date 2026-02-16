@@ -10,6 +10,7 @@ export class XpService {
   ) {}
 
   async getBalance(userId: number) {
+    await this.awardDailyLogin(userId);
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     return user?.xpBalance ?? 0;
   }
