@@ -118,7 +118,7 @@ export class MessagingService {
       },
       orderBy: { lastMessageAt: 'desc' },
       include: {
-        ad: true,
+        ad: { include: { user: { select: { id: true, name: true, avatarUrl: true, email: true } } } },
         poster: { select: { id: true, name: true, avatarUrl: true, email: true } },
         applicant: { select: { id: true, name: true, avatarUrl: true, email: true } },
       },
@@ -142,7 +142,7 @@ export class MessagingService {
     return this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
-        ad: true,
+        ad: { include: { user: { select: { id: true, name: true, avatarUrl: true, email: true } } } },
         poster: { select: { id: true, name: true, avatarUrl: true, email: true } },
         applicant: { select: { id: true, name: true, avatarUrl: true, email: true } },
       },
