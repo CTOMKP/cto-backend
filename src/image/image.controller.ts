@@ -194,7 +194,7 @@ export class ImageController {
         }
         const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
         const arrayBuffer = await upstream.arrayBuffer();
-        return res
+        res
           .set({
             'Cache-Control': 'public, max-age=300',
             'Content-Type': contentType,
@@ -203,6 +203,7 @@ export class ImageController {
           })
           .status(200)
           .send(Buffer.from(arrayBuffer));
+        return;
       }
 
       // Fallback to CloudFront for non-user uploads
