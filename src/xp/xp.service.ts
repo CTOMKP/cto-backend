@@ -82,6 +82,10 @@ export class XpService {
   }
 
   async awardSignup(userId: number) {
+    const existing = await this.prisma.xpTransaction.findFirst({
+      where: { userId, reason: 'signup' },
+    });
+    if (existing) return existing;
     return this.award(userId, 8, 'signup');
   }
 

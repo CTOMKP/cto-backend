@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { AptosWalletService } from './aptos-wallet.service';
 import { PrivyAuthGuard } from './guards/privy-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { XpService } from '../xp/xp.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -27,6 +28,7 @@ export class PrivyAuthController {
     private privyAuthService: PrivyAuthService,
     private authService: AuthService,
     private aptosWalletService: AptosWalletService,
+    private xpService: XpService,
   ) {}
 
   private async retryWithBackoff<T>(
@@ -233,6 +235,7 @@ export class PrivyAuthController {
       this.logger.log(`User found in DB: ${!!user}`);
       this.logToFile(`User found in DB: ${!!user}`);
 
+      let isNewUser = false;
       if (!user) {
         this.logger.log(`Creating NEW user in database...`);
         try {
@@ -243,6 +246,7 @@ export class PrivyAuthController {
           });
           
           this.logger.log(`✅ User created with ID: ${user.id}`);
+          isNewUser = true;
         } catch (registerError: any) {
           // If email already exists (race condition or previous failed attempt), find the existing user
           if (registerError.message?.includes('Email already in use') || 
@@ -286,6 +290,22 @@ export class PrivyAuthController {
           lastLoginAt: new Date(),
         });
         this.logger.log(`✅ Updated existing user: ${email} (ID: ${user.id})`);
+      }
+
+      // Award signup XP once for new users (idempotent guarded by XP transaction)
+      if (isNewUser) {
+        try {
+          await this.xpService.awardSignup(user.id);
+        } catch (xpError: any) {
+          this.logger.warn(`Signup XP award failed (non-fatal): ${xpError?.message || xpError}`);
+        }
+      }
+
+      // Always award daily login XP on successful sync
+      try {
+        await this.xpService.awardDailyLogin(user.id);
+      } catch (xpError: any) {
+        this.logger.warn(`Daily XP award failed (non-fatal): ${xpError?.message || xpError}`);
       }
 
       // Sync wallets from Privy
