@@ -141,6 +141,12 @@ export class ImageController {
     }
     
     try {
+      // Always set CORP/CORS headers so images can be embedded cross-origin
+      res.set({
+        'Access-Control-Allow-Origin': '*',
+        'Cross-Origin-Resource-Policy': 'cross-origin',
+      });
+
       // Accept legacy comma-separated keys like "user-uploads,4,generic,foo.jpg"
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
       
@@ -182,11 +188,7 @@ export class ImageController {
       if (usePresigned) {
         const presignedUrl = await this.imageService.getPresignedViewUrl(normalizedKey, 3600);
         return res
-          .set({
-            'Cache-Control': 'public, max-age=300',
-            'Access-Control-Allow-Origin': '*',
-            'Cross-Origin-Resource-Policy': 'cross-origin',
-          })
+          .set({ 'Cache-Control': 'public, max-age=300' })
           .redirect(302, presignedUrl);
       }
 
