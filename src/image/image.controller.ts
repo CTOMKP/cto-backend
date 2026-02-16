@@ -187,9 +187,22 @@ export class ImageController {
       const usePresigned = normalizedKey.startsWith('user-uploads/');
       if (usePresigned) {
         const presignedUrl = await this.imageService.getPresignedViewUrl(normalizedKey, 3600);
+        // Proxy the image bytes to ensure CORP headers are controlled by our API
+        const upstream = await fetch(presignedUrl);
+        if (!upstream.ok) {
+          throw new HttpException('Image not found', HttpStatus.NOT_FOUND);
+        }
+        const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+        const arrayBuffer = await upstream.arrayBuffer();
         return res
-          .set({ 'Cache-Control': 'public, max-age=300' })
-          .redirect(302, presignedUrl);
+          .set({
+            'Cache-Control': 'public, max-age=300',
+            'Content-Type': contentType,
+            'Access-Control-Allow-Origin': '*',
+            'Cross-Origin-Resource-Policy': 'cross-origin',
+          })
+          .status(200)
+          .send(Buffer.from(arrayBuffer));
       }
 
       // Fallback to CloudFront for non-user uploads
