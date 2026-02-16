@@ -177,13 +177,23 @@ export class ImageController {
         // Continue anyway - we can still generate presigned URL
       }
       
-      // Use CloudFront URL instead of S3 presigned URL (same approach as memes)
-      // CloudFront handles CORS properly and is faster
+      // For user uploads, prefer presigned S3 URL to avoid CORP issues from CDN
+      const usePresigned = normalizedKey.startsWith('user-uploads/');
+      if (usePresigned) {
+        const presignedUrl = await this.imageService.getPresignedViewUrl(normalizedKey, 3600);
+        return res
+          .set({
+            'Cache-Control': 'public, max-age=300',
+            'Access-Control-Allow-Origin': '*',
+            'Cross-Origin-Resource-Policy': 'cross-origin',
+          })
+          .redirect(302, presignedUrl);
+      }
+
+      // Fallback to CloudFront for non-user uploads
       const cloudfrontDomain = process.env.CLOUDFRONT_DOMAIN || 'd2cjbd1iqkwr9j.cloudfront.net';
       const cloudfrontUrl = `https://${cloudfrontDomain}/${normalizedKey}`;
       console.log(`[ImageController] ✅ Using CloudFront URL: ${cloudfrontUrl}`);
-      
-      // Redirect to CloudFront URL - CloudFront handles CORS properly
       res.set({ 'Cache-Control': 'public, max-age=86400' }).redirect(302, cloudfrontUrl);
     } catch (error: any) {
       const normalizedKey = String(key).replace(/^user-uploads[,\/]/, 'user-uploads/').replace(/,/g, '/');
