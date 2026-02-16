@@ -132,6 +132,11 @@ export class ImageController {
     let key = fullPath.startsWith(viewPrefix) 
       ? fullPath.substring(viewPrefix.length) 
       : fullPath.replace(/^\/api\/v1\/images\/view\//, '');
+    // Strip querystring (e.g., ?v=timestamp)
+    const qIndex = key.indexOf('?');
+    if (qIndex !== -1) {
+      key = key.substring(0, qIndex);
+    }
     
     // Decode URL encoding
     try {
