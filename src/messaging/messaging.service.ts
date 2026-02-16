@@ -257,6 +257,19 @@ export class MessagingService {
       select: { id: true, userId: true, emoji: true, createdAt: true },
     });
 
+    if (action === 'added') {
+      const otherUserId = message.senderId === userId ? message.receiverId : message.senderId;
+      if (otherUserId && otherUserId !== userId) {
+        await this.notifications.createNotification({
+          userId: otherUserId,
+          type: 'MESSAGE',
+          title: 'New reaction',
+          body: `${emoji.trim()} on your message`,
+          data: { conversationId: message.conversationId, messageId, emoji: emoji.trim() },
+        });
+      }
+    }
+
     const payload = { conversationId: message.conversationId, messageId, reactions, action };
     this.notifications.emitToUser(convo.posterId, 'messages.reaction', payload);
     this.notifications.emitToUser(convo.applicantId, 'messages.reaction', payload);
