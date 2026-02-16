@@ -123,7 +123,19 @@ export class MessagingService {
         applicant: { select: { id: true, name: true, avatarUrl: true, email: true } },
       },
     });
-    return items;
+    const withUnread = await Promise.all(
+      items.map(async (c) => {
+        const unreadCount = await this.prisma.message.count({
+          where: {
+            conversationId: c.id,
+            receiverId: userId,
+            readAt: null,
+          },
+        });
+        return { ...c, unreadCount };
+      }),
+    );
+    return withUnread;
   }
 
   async getConversation(userId: number, conversationId: string) {
