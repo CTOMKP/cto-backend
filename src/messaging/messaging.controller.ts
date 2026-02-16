@@ -56,4 +56,14 @@ export class MessagingController {
     const userId = Number(req?.user?.userId || req?.user?.sub);
     return this.messagingService.markRead(userId, id);
   }
+
+  @Post('reactions/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Toggle emoji reaction for a message' })
+  async toggleReaction(@Req() req: any, @Param('id') id: string, @Body('emoji') emoji: string) {
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    const result = await this.messagingService.toggleReaction(userId, id, emoji);
+    return { success: true, ...result };
+  }
 }

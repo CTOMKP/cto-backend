@@ -154,6 +154,11 @@ export class MessagingService {
     return this.prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
+      include: {
+        reactions: {
+          select: { id: true, userId: true, emoji: true, createdAt: true },
+        },
+      },
     });
   }
 
@@ -215,5 +220,47 @@ export class MessagingService {
       data: { readAt: new Date() },
     });
     return { success: true };
+  }
+
+  async toggleReaction(userId: number, messageId: string, emoji: string) {
+    if (!emoji || !emoji.trim()) throw new BadRequestException('Emoji is required');
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { conversation: true },
+    });
+    if (!message) throw new NotFoundException('Message not found');
+    const convo = message.conversation;
+    if (convo.posterId !== userId && convo.applicantId !== userId) {
+      throw new ForbiddenException('Not authorized for this conversation');
+    }
+
+    const existing = await this.prisma.messageReaction.findUnique({
+      where: { messageId_userId_emoji: { messageId, userId, emoji: emoji.trim() } },
+    });
+
+    let action: 'added' | 'removed' = 'added';
+    if (existing) {
+      await this.prisma.messageReaction.delete({ where: { id: existing.id } });
+      action = 'removed';
+    } else {
+      await this.prisma.messageReaction.create({
+        data: {
+          messageId,
+          userId,
+          emoji: emoji.trim(),
+        },
+      });
+    }
+
+    const reactions = await this.prisma.messageReaction.findMany({
+      where: { messageId },
+      select: { id: true, userId: true, emoji: true, createdAt: true },
+    });
+
+    const payload = { conversationId: message.conversationId, messageId, reactions, action };
+    this.notifications.emitToUser(convo.posterId, 'messages.reaction', payload);
+    this.notifications.emitToUser(convo.applicantId, 'messages.reaction', payload);
+
+    return { messageId, reactions, action };
   }
 }

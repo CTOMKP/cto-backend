@@ -50,6 +50,7 @@ model User {
   conversationsAsApplicant Conversation[] @relation("ApplicantConversations")
   messagesSent    Message[] @relation("MessageSender")
   messagesReceived Message[] @relation("MessageReceiver")
+  messageReactions MessageReaction[]
   escrowsAsPoster    Escrow[] @relation("PosterEscrows")
   escrowsAsApplicant Escrow[] @relation("ApplicantEscrows")
   notifications  Notification[]
@@ -510,10 +511,26 @@ model Message {
   readAt         DateTime?
   createdAt      DateTime     @default(now())
 
+  reactions      MessageReaction[]
+
   @@index([conversationId])
   @@index([senderId])
   @@index([receiverId])
   @@index([createdAt])
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
 }
 
 model Escrow {
