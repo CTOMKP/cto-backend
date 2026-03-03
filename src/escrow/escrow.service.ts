@@ -121,6 +121,17 @@ export class EscrowService {
     return escrow;
   }
 
+  private async getEscrowForAction(userId: number, escrowId: string, byAdmin = false) {
+    if (byAdmin) {
+      const escrow = await this.prisma.escrow.findUnique({ where: { id: escrowId } });
+      if (!escrow) throw new NotFoundException('Escrow not found');
+      return escrow;
+    }
+
+    return this.getEscrow(userId, escrowId);
+  }
+
+
   async accept(userId: number, escrowId: string) {
     const escrow = await this.getEscrow(userId, escrowId);
     this.ensureNotFrozen(escrow);
@@ -202,7 +213,7 @@ export class EscrowService {
   }
 
   async release(userId: number, escrowId: string, byAdmin = false) {
-    const escrow = await this.getEscrow(userId, escrowId);
+    const escrow = await this.getEscrowForAction(userId, escrowId, byAdmin);
     if (!byAdmin) this.ensureNotFrozen(escrow);
     if (!byAdmin) this.ensurePoster(escrow, userId);
     if (!['UNDER_REVIEW', 'FUNDED_ACTIVE'].includes(escrow.status)) {
@@ -217,7 +228,7 @@ export class EscrowService {
   }
 
   async refund(userId: number, escrowId: string, byAdmin = false) {
-    const escrow = await this.getEscrow(userId, escrowId);
+    const escrow = await this.getEscrowForAction(userId, escrowId, byAdmin);
     if (!byAdmin) this.ensureNotFrozen(escrow);
     if (!byAdmin) this.ensurePoster(escrow, userId);
     if (!['AWAITING_PAYMENT', 'FUNDED_ACTIVE', 'UNDER_REVIEW'].includes(escrow.status)) {
