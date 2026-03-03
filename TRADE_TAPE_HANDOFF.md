@@ -2,6 +2,8 @@
 
 Status pinned to commit `815f513` on branch `backend-auth-scan`.
 
+Note (Feb 16, 2026): This file now also tracks the Marketplace/Notifications/XP work done after the trade fixes, plus what was reverted at the user's request. Use the "Marketplace Messaging / XP / Notifications / Escrow" section as the handoff for that work.
+
 This document explains how trade fetching works, the provider order per chain, required env vars, and what to check when trades are missing.
 
 ## Quick Summary
@@ -226,3 +228,105 @@ Then re-apply the `loadMyAds` + My Ads table changes.
 
 - Marketplace tables and enums were created in production via manual SQL in postgres container.
 - Ensure tables exist: `MarketplaceAd`, `MarketplacePricing`, plus `Payment.marketplaceAdId`.
+
+---
+
+# Marketplace Messaging / XP / Notifications / Escrow (Feb 16, 2026)
+
+This section summarizes the work done for marketplace messaging, XP, notifications, escrow, admin actions, and related frontend changes.
+
+## Backend (cto-backend-old-fresh, branch `backend-auth-scan`)
+
+### Messaging + Escrow
+- Messaging endpoints are under `src/messaging/*`.
+- Conversations include `poster`, `applicant`, and `ad.user` to supply avatars/emails.
+- Messages are created for cover letters and normal replies.
+- Unread counts returned from `GET /api/v1/messages/threads`.
+
+### XP
+- XP balance stored on `User.xpBalance`.
+- Daily login XP is awarded by `XpService.awardDailyLogin()`.
+- Signup XP is awarded once via `XpService.awardSignup()` (now idempotent).
+- XP transactions saved in `XpTransaction`.
+
+### Notifications
+- Notifications created for XP, messages, escrow events.
+- Notifications are emitted over websocket (`notifications.new`).
+- Notifications list endpoint: `GET /api/v1/notifications`.
+
+### Privy Signup (industry-standard flow)
+- In `auth/privy/sync`, new users now trigger:
+  - `awardSignup()` (+8 XP, notification)
+  - `awardDailyLogin()` (+1 XP if new day, notification)
+- This removes reliance on a separate “register” route for Privy.
+ - **User directive:** Privy is the only auth flow. Any Circle login flow should be removed.
+
+### Image delivery / CORP fix
+- `GET /api/v1/images/view/**` now:
+  - strips querystrings
+  - proxies user-upload images from presigned S3 (not CloudFront)
+  - sets `Cross-Origin-Resource-Policy: cross-origin`
+- Helmet configured to allow cross-origin resource policy globally.
+
+### Message Reactions
+- New Prisma model: `MessageReaction`.
+- Migration: `20260216_add_message_reactions`.
+- Endpoint: `POST /api/v1/messages/reactions/:id` toggles reactions.
+- Reactions included in `listMessages`.
+- Reactions emit websocket `messages.reaction`.
+- Reactions create a notification for the other participant.
+
+### Admin Escrow Actions (API)
+Admin endpoints for:
+- view all escrows
+- force release
+- force refund/cancel
+- extend deadline
+- resolve dispute
+- freeze/flag
+
+## Frontend Test App (cto-frontend-old-fresh, branch `main`)
+
+### Messaging UI
+- Messages page uses websocket updates.
+- Avatars now render (via corrected API image proxy).
+- Unread message badge in top nav + messages icon.
+- Emoji picker for typing.
+- Emoji reactions on existing messages:
+  - click message bubble to open picker
+  - reaction counts shown under messages
+  - clicking a reaction toggles it
+
+### Notifications
+- Notifications bell shows unread count + list.
+- Suppresses message notifications when viewing that same thread.
+
+### Profile Page (PrivyProfilePage)
+- XP balance shown.
+- Notifications bell + messages icon shown (styled for light header).
+
+### Known Issue (unresolved)
+**XP notifications appear in DB but not in bell on profile.**
+- Verified in DB: notifications exist for new users (`type=XP`, `+8`, `+1`).
+- UI does not show them on profile consistently.
+- Likely cause: notification bell fetch lifecycle (token timing / mount order).
+- A “ping on profile mount” fix was tried but reverted at user request.
+- Current state: notifications work on market page, not consistently on profile.
+ - User also reports notification bell + message icon not appearing on profile page even after restart.
+
+## Reverted Change (per user request)
+- Commit `cb72f26` on test frontend (profile notification ping) was reverted by `6873e21`.
+
+## Deployment Notes
+- Backend deployments can fail if Prisma migration state is inconsistent.
+- Production failure resolved by marking failed migration in `_prisma_migrations`.
+
+## Next Agent TODO (priority)
+1. **Fix XP notifications display on profile**:
+   - Confirm bell is mounted and loading notifications after auth token exists.
+   - Ensure `notificationsService.list()` returns items and UI renders them on profile.
+   - Consider forcing `notificationsService.list()` after Privy sync success OR on profile mount once token is present.
+2. **Stabilize Privy flow**:
+   - Check for any UI deadlocks in Movement wallet creation.
+3. **Escrow testing**:
+   - Validate escrow create/fund/accept/decline flow end-to-end.

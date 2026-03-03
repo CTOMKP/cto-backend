@@ -17,6 +17,7 @@ export class XpService {
 
   async award(userId: number, amount: number, reason: string, metadata?: any) {
     if (amount <= 0) return null;
+    const reasonLabel = this.formatReason(reason);
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) throw new BadRequestException('User not found');
@@ -39,7 +40,7 @@ export class XpService {
         userId,
         type: 'XP',
         title: `+${amount} XP`,
-        body: `XP earned: ${reason}`,
+        body: `XP earned: ${reasonLabel}`,
         data: { reason, amount, balance: nextBalance },
       });
       return record;
@@ -48,6 +49,7 @@ export class XpService {
 
   async spend(userId: number, amount: number, reason: string, metadata?: any) {
     if (amount <= 0) return null;
+    const reasonLabel = this.formatReason(reason);
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) throw new BadRequestException('User not found');
@@ -74,7 +76,7 @@ export class XpService {
         userId,
         type: 'XP',
         title: `-${amount} XP`,
-        body: `XP spent: ${reason}`,
+        body: `XP spent: ${reasonLabel}`,
         data: { reason, amount, balance: nextBalance },
       });
       return record;
@@ -119,5 +121,11 @@ export class XpService {
       data: { lastDailyXpAt: now },
     });
     return this.award(userId, 1, 'daily_login');
+  }
+
+  private formatReason(reason: string) {
+    if (!reason) return 'Unknown';
+    const withSpaces = reason.replace(/_/g, ' ');
+    return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
   }
 }

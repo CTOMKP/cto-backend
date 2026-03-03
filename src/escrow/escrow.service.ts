@@ -164,22 +164,24 @@ export class EscrowService {
       type: 'ESCROW',
       title: 'Escrow funding initiated',
       body: escrow.title,
-      data: { escrowId: escrow.id, paymentId: payment.paymentId },
+      data: { escrowId: escrow.id, paymentId: payment.paymentId, conversationId: escrow.conversationId },
     });
     await this.notifications.createNotification({
       userId: escrow.posterId,
       type: 'ESCROW',
       title: 'Escrow funding initiated',
       body: escrow.title,
-      data: { escrowId: escrow.id, paymentId: payment.paymentId },
+      data: { escrowId: escrow.id, paymentId: payment.paymentId, conversationId: escrow.conversationId },
     });
     this.notifications.emitToUser(escrow.posterId, 'escrow.update', {
       escrowId: escrow.id,
       status: escrow.status,
+      conversationId: escrow.conversationId,
     });
     this.notifications.emitToUser(escrow.applicantId, 'escrow.update', {
       escrowId: escrow.id,
       status: escrow.status,
+      conversationId: escrow.conversationId,
     });
     return { escrow, payment };
   }
@@ -294,16 +296,24 @@ export class EscrowService {
       type: 'ESCROW',
       title,
       body: escrow.title,
-      data: { escrowId: escrow.id },
+      data: { escrowId: escrow.id, conversationId: escrow.conversationId },
     });
     await this.notifications.createNotification({
       userId: escrow.applicantId,
       type: 'ESCROW',
       title,
       body: escrow.title,
-      data: { escrowId: escrow.id },
+      data: { escrowId: escrow.id, conversationId: escrow.conversationId },
     });
-    this.notifications.emitToUser(escrow.posterId, 'escrow.update', { escrowId: escrow.id, status: escrow.status });
-    this.notifications.emitToUser(escrow.applicantId, 'escrow.update', { escrowId: escrow.id, status: escrow.status });
+    this.notifications.emitToUser(escrow.posterId, 'escrow.update', {
+      escrowId: escrow.id,
+      status: escrow.status,
+      conversationId: escrow.conversationId,
+    });
+    this.notifications.emitToUser(escrow.applicantId, 'escrow.update', {
+      escrowId: escrow.id,
+      status: escrow.status,
+      conversationId: escrow.conversationId,
+    });
   }
 }
