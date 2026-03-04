@@ -63,4 +63,23 @@ export class NotificationsService {
       data: { readAt: new Date() },
     });
   }
+
+  async markAllRead(userId: number) {
+    const updated = await this.prisma.notification.updateMany({
+      where: {
+        userId,
+        readAt: null,
+      },
+      data: { readAt: new Date() },
+    });
+    return updated.count;
+  }
+
+  async delete(userId: number, id: string) {
+    const notification = await this.prisma.notification.findUnique({ where: { id } });
+    if (!notification || notification.userId !== userId) {
+      return null;
+    }
+    return this.prisma.notification.delete({ where: { id } });
+  }
 }
