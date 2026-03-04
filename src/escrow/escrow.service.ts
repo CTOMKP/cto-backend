@@ -1,12 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MovementPaymentService } from '../payment/movement-payment.service';
 
-type EscrowAction = 'accept' | 'decline' | 'fund' | 'submit' | 'release' | 'refund' | 'cancel';
-
 @Injectable()
 export class EscrowService {
+  private readonly logger = new Logger(EscrowService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
@@ -301,6 +301,187 @@ export class EscrowService {
     });
   }
 
+  async processExpiredEscrows() {
+    const now = new Date();
+    const expired = await this.prisma.escrow.findMany({
+      where: {
+        status: 'FUNDED_ACTIVE',
+        noDeadline: false,
+        deadline: { not: null, lte: now },
+        isFrozen: false,
+      },
+      select: {
+        id: true,
+        title: true,
+        posterId: true,
+        applicantId: true,
+        conversationId: true,
+      },
+    });
+
+    for (const escrow of expired) {
+      const updated = await this.prisma.escrow.update({
+        where: { id: escrow.id },
+        data: { status: 'UNDER_REVIEW' },
+      });
+
+      await this.notifications.createNotification({
+        userId: escrow.posterId,
+        type: 'ESCROW',
+        title: 'Escrow deadline elapsed: review required',
+        body: 'Escrow period has elapsed. If satisfied, release funds. If not, report issue.',
+        data: {
+          escrowId: escrow.id,
+          conversationId: escrow.conversationId,
+          actionRequired: 'POSTER_REVIEW',
+        },
+      });
+
+      await this.notifications.createNotification({
+        userId: escrow.applicantId,
+        type: 'ESCROW',
+        title: 'Escrow deadline elapsed',
+        body: 'Escrow period has elapsed. Awaiting client review decision.',
+        data: {
+          escrowId: escrow.id,
+          conversationId: escrow.conversationId,
+          actionRequired: 'WAIT_POSTER_REVIEW',
+        },
+      });
+
+      this.notifications.emitToUser(escrow.posterId, 'escrow.update', {
+        escrowId: escrow.id,
+        status: updated.status,
+        conversationId: escrow.conversationId,
+      });
+      this.notifications.emitToUser(escrow.applicantId, 'escrow.update', {
+        escrowId: escrow.id,
+        status: updated.status,
+        conversationId: escrow.conversationId,
+      });
+    }
+
+    if (expired.length > 0) {
+      this.logger.log(`Processed ${expired.length} expired escrow(s) into UNDER_REVIEW state`);
+    }
+
+    return expired.length;
+  }
+
+  async posterReview(userId: number, escrowId: string, payload: { satisfied: boolean; reason?: string }) {
+    const escrow = await this.getEscrow(userId, escrowId);
+    this.ensureNotFrozen(escrow);
+    this.ensurePoster(escrow, userId);
+
+    if (!['UNDER_REVIEW', 'FUNDED_ACTIVE'].includes(escrow.status)) {
+      throw new BadRequestException('Escrow is not ready for poster review');
+    }
+
+    if (payload.satisfied) {
+      return this.release(userId, escrowId, false);
+    }
+
+    const reason = (payload.reason || '').trim() || 'Client reported dissatisfaction after deadline';
+    const updated = await this.prisma.escrow.update({
+      where: { id: escrowId },
+      data: {
+        status: 'DISPUTED',
+        disputeReason: reason,
+      },
+    });
+
+    await this.notifications.createNotification({
+      userId: escrow.posterId,
+      type: 'ESCROW',
+      title: 'Dispute opened',
+      body: reason,
+      data: { escrowId: escrow.id, conversationId: escrow.conversationId },
+    });
+
+    await this.notifications.createNotification({
+      userId: escrow.applicantId,
+      type: 'ESCROW',
+      title: 'Client reported an issue',
+      body: 'Please explain what happened so admin can review both sides.',
+      data: {
+        escrowId: escrow.id,
+        conversationId: escrow.conversationId,
+        actionRequired: 'APPLICANT_EXPLANATION',
+      },
+    });
+
+    await this.notifyAdmins(
+      'Escrow dispute requires review',
+      `${escrow.title}: ${reason}`,
+      { escrowId: escrow.id, conversationId: escrow.conversationId },
+    );
+
+    this.notifications.emitToUser(escrow.posterId, 'escrow.update', {
+      escrowId: escrow.id,
+      status: updated.status,
+      conversationId: escrow.conversationId,
+    });
+    this.notifications.emitToUser(escrow.applicantId, 'escrow.update', {
+      escrowId: escrow.id,
+      status: updated.status,
+      conversationId: escrow.conversationId,
+    });
+
+    return updated;
+  }
+
+  async applicantDisputeResponse(userId: number, escrowId: string, explanation: string) {
+    const cleanExplanation = (explanation || '').trim();
+    if (cleanExplanation.length < 10) {
+      throw new BadRequestException('Explanation must be at least 10 characters');
+    }
+
+    const escrow = await this.getEscrow(userId, escrowId);
+    this.ensureNotFrozen(escrow);
+    this.ensureApplicant(escrow, userId);
+
+    if (escrow.status !== 'DISPUTED') {
+      throw new BadRequestException('Escrow is not in disputed state');
+    }
+
+    const stampedExplanation = `Applicant response (${new Date().toISOString()}): ${cleanExplanation}`;
+    const disputeReason = escrow.disputeReason
+      ? `${escrow.disputeReason}\n${stampedExplanation}`
+      : stampedExplanation;
+
+    const updated = await this.prisma.escrow.update({
+      where: { id: escrowId },
+      data: { disputeReason },
+    });
+
+    await this.notifications.createNotification({
+      userId: escrow.posterId,
+      type: 'ESCROW',
+      title: 'Applicant submitted dispute response',
+      body: cleanExplanation,
+      data: { escrowId: escrow.id, conversationId: escrow.conversationId },
+    });
+
+    await this.notifyAdmins(
+      'Applicant response received',
+      `${escrow.title}: ${cleanExplanation}`,
+      { escrowId: escrow.id, conversationId: escrow.conversationId },
+    );
+
+    this.notifications.emitToUser(escrow.posterId, 'escrow.update', {
+      escrowId: escrow.id,
+      status: updated.status,
+      conversationId: escrow.conversationId,
+    });
+    this.notifications.emitToUser(escrow.applicantId, 'escrow.update', {
+      escrowId: escrow.id,
+      status: updated.status,
+      conversationId: escrow.conversationId,
+    });
+
+    return updated;
+  }
+
   private async notifyBoth(escrow: any, title: string) {
     await this.notifications.createNotification({
       userId: escrow.posterId,
@@ -326,5 +507,22 @@ export class EscrowService {
       status: escrow.status,
       conversationId: escrow.conversationId,
     });
+  }
+
+  private async notifyAdmins(title: string, body: string, data?: any) {
+    const admins = await this.prisma.user.findMany({
+      where: { role: { in: ['ADMIN', 'MODERATOR'] } },
+      select: { id: true },
+    });
+
+    for (const admin of admins) {
+      await this.notifications.createNotification({
+        userId: admin.id,
+        type: 'ESCROW',
+        title,
+        body,
+        data,
+      });
+    }
   }
 }

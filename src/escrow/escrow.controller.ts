@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards, Req, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EscrowService } from './escrow.service';
@@ -103,6 +103,33 @@ export class EscrowController {
   async cancel(@Req() req: any, @Param('id') id: string) {
     const userId = Number(req?.user?.userId || req?.user?.sub);
     const escrow = await this.escrowService.cancel(userId, id);
+    return { success: true, escrow };
+  }
+
+  @Post(':id/review')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary:
+      'Poster review after deadline (satisfied=true releases funds, satisfied=false opens dispute)',
+  })
+  async posterReview(@Req() req: any, @Param('id') id: string, @Body() payload: { satisfied: boolean; reason?: string }) {
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    const escrow = await this.escrowService.posterReview(userId, id, payload);
+    return { success: true, escrow };
+  }
+
+  @Post(':id/dispute-response')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Applicant responds to a dispute with explanation' })
+  async applicantDisputeResponse(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() payload: { explanation: string },
+  ) {
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    const escrow = await this.escrowService.applicantDisputeResponse(userId, id, payload?.explanation || '');
     return { success: true, escrow };
   }
 }
