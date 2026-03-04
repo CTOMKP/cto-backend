@@ -259,6 +259,12 @@ export class AdminController {
     return this.adminService.freezeEscrow(dto);
   }
 
+  @Post('escrows/unfreeze')
+  @ApiOperation({ summary: 'Unfreeze escrow (admin only)' })
+  async unfreezeEscrow(@Body() dto: AdminEscrowActionDto) {
+    return this.adminService.unfreezeEscrow(dto);
+  }
+
   @Post('escrows/flag')
   @ApiOperation({ summary: 'Flag escrow (admin only)' })
   async flagEscrow(@Body() dto: AdminEscrowActionDto) {

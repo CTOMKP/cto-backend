@@ -718,6 +718,12 @@ export class AdminService {
     return { success: true, escrow, message: 'Escrow frozen' };
   }
 
+  async unfreezeEscrow(dto: AdminEscrowActionDto) {
+    await this.verifyAdmin(dto.adminUserId);
+    const escrow = await this.escrowService.unfreeze(0, dto.escrowId);
+    return { success: true, escrow, message: 'Escrow unfrozen' };
+  }
+
   async flagEscrow(dto: AdminEscrowActionDto) {
     await this.verifyAdmin(dto.adminUserId);
     const escrow = await this.escrowService.flag(0, dto.escrowId, dto.reason || '');
