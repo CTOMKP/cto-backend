@@ -96,6 +96,11 @@ export class EscrowService {
       status: escrow.status,
       conversationId: convo.id,
     });
+    await this.notifyAdmins(
+      'Escrow offer created',
+      `${escrow.title} (${escrow.totalAmount} ${escrow.currency})`,
+      { escrowId: escrow.id, conversationId: convo.id, status: escrow.status },
+    );
 
     return escrow;
   }
@@ -144,6 +149,11 @@ export class EscrowService {
       data: { status: 'AWAITING_PAYMENT', acceptedAt: new Date() },
     });
     await this.notifyBoth(updated, 'Escrow accepted');
+    await this.notifyAdmins(
+      'Escrow accepted',
+      `${updated.title} is awaiting funding`,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -159,6 +169,11 @@ export class EscrowService {
       data: { status: 'DECLINED', cancelledAt: new Date() },
     });
     await this.notifyBoth(updated, 'Escrow declined');
+    await this.notifyAdmins(
+      'Escrow declined',
+      updated.title,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -194,6 +209,11 @@ export class EscrowService {
       status: escrow.status,
       conversationId: escrow.conversationId,
     });
+    await this.notifyAdmins(
+      'Escrow funding initiated',
+      `${escrow.title} funding started`,
+      { escrowId: escrow.id, conversationId: escrow.conversationId, status: escrow.status },
+    );
     return { escrow, payment };
   }
 
@@ -209,6 +229,11 @@ export class EscrowService {
       data: { status: 'UNDER_REVIEW', submittedAt: new Date() },
     });
     await this.notifyBoth(updated, 'Work submitted for review');
+    await this.notifyAdmins(
+      'Escrow work submitted',
+      updated.title,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -224,6 +249,11 @@ export class EscrowService {
       data: { status: 'COMPLETED', completedAt: new Date() },
     });
     await this.notifyBoth(updated, 'Escrow released');
+    await this.notifyAdmins(
+      'Escrow completed',
+      updated.title,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -239,6 +269,11 @@ export class EscrowService {
       data: { status: 'REFUNDED', cancelledAt: new Date() },
     });
     await this.notifyBoth(updated, 'Escrow refunded');
+    await this.notifyAdmins(
+      'Escrow refunded',
+      updated.title,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -254,6 +289,11 @@ export class EscrowService {
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
     await this.notifyBoth(updated, 'Escrow cancelled');
+    await this.notifyAdmins(
+      'Escrow cancelled',
+      updated.title,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -263,6 +303,11 @@ export class EscrowService {
       data: { isFrozen: true, flaggedReason: reason || 'Flagged by admin' },
     });
     await this.notifyBoth(updated, 'Escrow flagged by admin');
+    await this.notifyAdmins(
+      'Escrow flagged',
+      `${updated.title}: ${reason || 'Flagged by admin'}`,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -272,6 +317,11 @@ export class EscrowService {
       data: { isFrozen: true },
     });
     await this.notifyBoth(updated, 'Escrow frozen by admin');
+    await this.notifyAdmins(
+      'Escrow frozen',
+      updated.title,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -281,6 +331,11 @@ export class EscrowService {
       data: { isFrozen: false },
     });
     await this.notifyBoth(updated, 'Escrow unfrozen by admin');
+    await this.notifyAdmins(
+      'Escrow unfrozen',
+      updated.title,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -290,6 +345,11 @@ export class EscrowService {
       data: { deadline: new Date(newDeadline) },
     });
     await this.notifyBoth(updated, 'Escrow deadline extended');
+    await this.notifyAdmins(
+      'Escrow deadline extended',
+      `${updated.title} -> ${new Date(newDeadline).toISOString()}`,
+      { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
+    );
     return updated;
   }
 
@@ -348,6 +408,12 @@ export class EscrowService {
           actionRequired: 'WAIT_POSTER_REVIEW',
         },
       });
+
+      await this.notifyAdmins(
+        'Escrow deadline elapsed',
+        `${escrow.title} moved to under review`,
+        { escrowId: escrow.id, conversationId: escrow.conversationId, status: updated.status },
+      );
 
       this.notifications.emitToUser(escrow.posterId, 'escrow.update', {
         escrowId: escrow.id,
