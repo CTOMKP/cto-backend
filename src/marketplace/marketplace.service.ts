@@ -19,6 +19,12 @@ export class MarketplaceService {
   private readonly logger = new Logger(MarketplaceService.name);
   private readonly baseExpiryDays = 28;
   private readonly freeExtensionLimit = 3;
+  private readonly adUserSelect = {
+    id: true,
+    email: true,
+    name: true,
+    avatarUrl: true,
+  } as const;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -120,6 +126,11 @@ export class MarketplaceService {
         multiChainTag: dto.multiChainTag ?? false,
         status: 'DRAFT',
       },
+      include: {
+        user: {
+          select: this.adUserSelect,
+        },
+      },
     });
 
     await this.xpService.awardCreateAd(userId, created.id);
@@ -164,6 +175,11 @@ export class MarketplaceService {
         urgentTag: dto.urgentTag ?? found.urgentTag,
         multiChainTag: dto.multiChainTag ?? found.multiChainTag,
       },
+      include: {
+        user: {
+          select: this.adUserSelect,
+        },
+      },
     });
 
     return { success: true, data: updated };
@@ -174,6 +190,11 @@ export class MarketplaceService {
     const items = await this.prisma.marketplaceAd.findMany({
       where: { userId },
       orderBy: { updatedAt: 'desc' },
+      include: {
+        user: {
+          select: this.adUserSelect,
+        },
+      },
     });
     return { success: true, items };
   }
@@ -203,6 +224,11 @@ export class MarketplaceService {
         ],
         skip,
         take: limit,
+        include: {
+          user: {
+            select: this.adUserSelect,
+          },
+        },
       }),
     ]);
 
@@ -231,6 +257,11 @@ export class MarketplaceService {
         ],
         skip,
         take: limit,
+        include: {
+          user: {
+            select: this.adUserSelect,
+          },
+        },
       }),
     ]);
 
@@ -274,6 +305,11 @@ export class MarketplaceService {
         ],
         skip,
         take: limit,
+        include: {
+          user: {
+            select: this.adUserSelect,
+          },
+        },
       }),
     ]);
 
@@ -303,7 +339,14 @@ export class MarketplaceService {
 
   async getPublicAd(id: string) {
     const now = new Date();
-    const found = await this.prisma.marketplaceAd.findUnique({ where: { id } });
+    const found = await this.prisma.marketplaceAd.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: this.adUserSelect,
+        },
+      },
+    });
     if (!found || found.status !== 'PUBLISHED') {
       throw new NotFoundException('Ad not found');
     }

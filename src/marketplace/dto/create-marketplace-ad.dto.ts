@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Allow, IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateMarketplaceAdDto {
   @IsOptional()
@@ -49,6 +49,16 @@ export class CreateMarketplaceAdDto {
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  // Accepted for frontend compatibility. Ad expiry is still driven by publish flow.
+  @IsOptional()
+  @IsString()
+  deadline?: string;
+
+  // Accepted for frontend compatibility; uploader identity is derived from JWT on backend.
+  @IsOptional()
+  @Allow()
+  user?: unknown;
 
   @IsOptional()
   @IsEnum(['FREE', 'PLUS', 'PREMIUM'])
