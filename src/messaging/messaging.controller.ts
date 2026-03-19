@@ -11,7 +11,7 @@ export class MessagingController {
   @Post('apply/:adId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Apply to a marketplace ad with a cover letter (costs 8 XP)' })
+  @ApiOperation({ summary: 'Apply to a marketplace ad with a cover letter (costs 15 XP)' })
   async apply(@Req() req: any, @Param('adId') adId: string, @Body('coverLetter') coverLetter: string) {
     const userId = Number(req?.user?.userId || req?.user?.sub);
     return this.messagingService.applyToAd(userId, adId, coverLetter);

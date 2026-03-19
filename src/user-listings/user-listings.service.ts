@@ -139,7 +139,6 @@ export class UserListingsService {
         vettingScore: dto.vettingScore,
       },
     });
-    await this.xpService.awardCreateListing(userId, created.id);
     return { success: true, data: created };
   }
 

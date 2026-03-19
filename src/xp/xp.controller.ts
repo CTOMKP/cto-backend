@@ -18,13 +18,40 @@ export class XpController {
   @ApiOperation({ summary: 'Get XP balance and recent history' })
   async me(@Req() req: any, @Query('limit') limit?: string) {
     const userId = Number(req?.user?.userId || req?.user?.sub);
-    const balance = await this.xpService.getBalance(userId);
+    const progress = await this.xpService.getUserProgress(userId, { awardDailyLogin: true });
     const take = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const history = await this.prisma.xpTransaction.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take,
     });
-    return { success: true, balance, history };
+    const rankHistory = await this.prisma.rankScoreTransaction.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(take, 100),
+    });
+
+    return {
+      success: true,
+      balance: progress.xpBalance,
+      xpBalance: progress.xpBalance,
+      rankScore: progress.rankScore,
+      rankTier: progress.rankTier,
+      rankLevel: progress.rankLevel,
+      rankLabel: progress.rankLabel,
+      rankEmoji: progress.rankEmoji,
+      nextRankTier: progress.nextRankTier,
+      nextRankLevel: progress.nextRankLevel,
+      nextRankLabel: progress.nextRankLabel,
+      progressPercent: progress.progressPercent,
+      scoreProgressPercent: progress.scoreProgressPercent,
+      dayProgressPercent: progress.dayProgressPercent,
+      rankScoreToNext: progress.rankScoreToNext,
+      daysToNext: progress.daysToNext,
+      daysOnPlatform: progress.daysOnPlatform,
+      currentStreakDays: progress.currentStreakDays,
+      history,
+      rankHistory,
+    };
   }
 }

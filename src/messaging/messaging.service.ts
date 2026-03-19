@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import { XpService } from '../xp/xp.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { START_CONVERSATION_XP_COST, XP_REASONS } from '../xp/xp.constants';
 
 @Injectable()
 export class MessagingService {
@@ -39,7 +40,12 @@ export class MessagingService {
     let conversation = existing;
     if (!conversation) {
       // Spend XP for starting a new conversation
-      await this.xpService.spend(userId, 8, 'start_conversation', { adId });
+      await this.xpService.spend(
+        userId,
+        START_CONVERSATION_XP_COST,
+        XP_REASONS.START_CONVERSATION,
+        { adId },
+      );
       conversation = await this.prisma.conversation.create({
         data: {
           adId,

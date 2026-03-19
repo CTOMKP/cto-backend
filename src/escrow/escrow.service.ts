@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MovementPaymentService } from '../payment/movement-payment.service';
+import { XpService } from '../xp/xp.service';
 
 @Injectable()
 export class EscrowService {
@@ -11,6 +12,7 @@ export class EscrowService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly movementPaymentService: MovementPaymentService,
+    private readonly xpService: XpService,
   ) {}
 
   private ensurePoster(escrow: any, userId: number) {
@@ -254,6 +256,10 @@ export class EscrowService {
       updated.title,
       { escrowId: updated.id, conversationId: updated.conversationId, status: updated.status },
     );
+    await Promise.all([
+      this.xpService.awardEscrowCompletion(updated.posterId, updated.id, 'poster'),
+      this.xpService.awardEscrowCompletion(updated.applicantId, updated.id, 'applicant'),
+    ]);
     return updated;
   }
 

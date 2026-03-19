@@ -353,6 +353,7 @@ export class PrivyAuthController {
 
       // Refresh user data to get latest avatarUrl and wallets
       const userFull = await this.authService.getUserById(user.id);
+      const rewardProgress = await this.xpService.getUserProgress(user.id);
       
       const moveWallet = (userFull as any)?.wallets?.find((w: any) => 
         w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
@@ -370,7 +371,17 @@ export class PrivyAuthController {
           privyUserId: (privyUser as any).userId,
           walletsCount: (userFull as any)?.wallets?.length || 0,
           avatarUrl: (userFull as any).avatarUrl || null,
-          xpBalance: (userFull as any).xpBalance ?? 0,
+          xpBalance: rewardProgress.xpBalance,
+          rankScore: rewardProgress.rankScore,
+          rankTier: rewardProgress.rankTier,
+          rankLevel: rewardProgress.rankLevel,
+          rankLabel: rewardProgress.rankLabel,
+          rankEmoji: rewardProgress.rankEmoji,
+          nextRankTier: rewardProgress.nextRankTier,
+          nextRankLevel: rewardProgress.nextRankLevel,
+          nextRankLabel: rewardProgress.nextRankLabel,
+          rankProgressPercent: rewardProgress.progressPercent,
+          currentStreakDays: rewardProgress.currentStreakDays,
           wallets: (userFull as any).wallets || [], // ADDING FULL WALLETS ARRAY
         },
         token: jwtToken.access_token,

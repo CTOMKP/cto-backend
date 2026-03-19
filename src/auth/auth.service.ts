@@ -28,6 +28,10 @@ export class AuthService {
     avatarUrl: true,
     bio: true,
     xpBalance: true,
+    rankScore: true,
+    rankTier: true,
+    currentStreakDays: true,
+    lastLoginDate: true,
     createdAt: true,
     updatedAt: true,
     wallets: {
@@ -192,6 +196,7 @@ export class AuthService {
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
     await this.xpService.awardDailyLogin(user.id);
+    const rewardProgress = await this.xpService.getUserProgress(user.id);
 
     const moveWallet = user.wallets?.find((w: any) => 
       w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
@@ -205,7 +210,17 @@ export class AuthService {
       expires_in: 86400, // 24 hours
       user: { 
         ...safeUser,
-        xpBalance: user.xpBalance ?? 0,
+        xpBalance: rewardProgress.xpBalance,
+        rankScore: rewardProgress.rankScore,
+        rankTier: rewardProgress.rankTier,
+        rankLevel: rewardProgress.rankLevel,
+        rankLabel: rewardProgress.rankLabel,
+        rankEmoji: rewardProgress.rankEmoji,
+        nextRankTier: rewardProgress.nextRankTier,
+        nextRankLevel: rewardProgress.nextRankLevel,
+        nextRankLabel: rewardProgress.nextRankLabel,
+        rankProgressPercent: rewardProgress.progressPercent,
+        currentStreakDays: rewardProgress.currentStreakDays,
         walletId: moveWallet?.id || null, // Primary Movement wallet ID
         wallets: user.wallets || [], // Full list of wallets
       },
@@ -221,10 +236,12 @@ export class AuthService {
 
   // Update user fields
   async updateUser(userId: number, data: any) {
-    return this.prisma.user.update({
+    await this.prisma.user.update({
       where: { id: userId },
       data,
     });
+    await this.xpService.checkAndAwardProfileCompletion(userId);
+    return this.getUserById(userId);
   }
 
   // Sync Privy wallet to database

@@ -33,7 +33,11 @@ model User {
   avatarUrl       String?        // Profile picture URL
   bio             String?        // User bio
   xpBalance       Int            @default(0) // Cached XP balance for fast checks
+  rankScore       Int            @default(0) // Append-only reputation score for rank
+  rankTier        Int            @default(1) // Cached rank tier for fast lookups
+  currentStreakDays Int          @default(0)
   lastDailyXpAt   DateTime?      // Last time daily login XP was awarded
+  lastLoginDate   DateTime?      // Last calendar date counted toward login streak
 
   // Relations
   wallets         Wallet[]
@@ -46,6 +50,7 @@ model User {
   userTrades      UserTrade[]
   pendingOrders   PendingOrder[]
   xpTransactions  XpTransaction[]
+  rankScoreTransactions RankScoreTransaction[]
   conversationsAsPoster    Conversation[] @relation("PosterConversations")
   conversationsAsApplicant Conversation[] @relation("ApplicantConversations")
   messagesSent    Message[] @relation("MessageSender")
@@ -593,8 +598,24 @@ model XpTransaction {
   reason    String   // signup, login, share, create_ad, create_listing, fund_wallet, start_conversation, etc.
   amount    Int
   balanceAfter Int
+  eventKey  String?  @unique
   metadata  Json?
   createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model RankScoreTransaction {
+  id             String   @id @default(cuid())
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason         String
+  amount         Int
+  rankScoreAfter Int
+  eventKey       String?  @unique
+  metadata       Json?
+  createdAt      DateTime @default(now())
 
   @@index([userId])
   @@index([createdAt])

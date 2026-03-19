@@ -16,11 +16,15 @@ import {
 } from './dto/auth-response.dto';
 import { RegisterResponseDto } from './dto/register-response.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
+import { XpService } from '../xp/xp.service';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private readonly xpService: XpService,
+  ) {}
 
   @ApiOperation({ summary: 'Register user', description: 'Create a new account with email and password' })
   @ApiBody({ type: RegisterDto })
@@ -102,6 +106,7 @@ export class AuthController {
       w.blockchain?.toString().toUpperCase() === 'MOVEMENT' || 
       w.blockchain?.toString().toUpperCase() === 'APTOS'
     );
+    const rewardProgress = await this.xpService.getUserProgress(Number(userId));
 
     return { 
       id: user.id, 
@@ -110,9 +115,19 @@ export class AuthController {
       name: user.name || null,
       bio: user.bio || null,
       role: user.role, // EXPOSING ROLE
-      xpBalance: (user as any).xpBalance ?? 0,
+      xpBalance: rewardProgress.xpBalance,
+      rankScore: rewardProgress.rankScore,
+      rankTier: rewardProgress.rankTier,
+      rankLevel: rewardProgress.rankLevel,
+      rankLabel: rewardProgress.rankLabel,
+      rankEmoji: rewardProgress.rankEmoji,
+      nextRankTier: rewardProgress.nextRankTier,
+      nextRankLevel: rewardProgress.nextRankLevel,
+      nextRankLabel: rewardProgress.nextRankLabel,
+      rankProgressPercent: rewardProgress.progressPercent,
+      currentStreakDays: rewardProgress.currentStreakDays,
       createdAt: user.createdAt.toISOString(),
-      accountAgeDays: ageInDays,
+      accountAgeDays: rewardProgress.daysOnPlatform,
       accountAge,
       walletId: moveWallet?.id || null, // EXPOSING WALLET ID
       wallets: user.wallets || [], // EXPOSING WALLETS ARRAY
@@ -165,11 +180,25 @@ export class AuthController {
 
       const updatedUser = await this.authService.updateUser(Number(userId), dto);
       const { passwordHash, ...safeUser } = updatedUser as any;
+      const rewardProgress = await this.xpService.getUserProgress(Number(userId));
 
       return {
         success: true,
         message: 'Profile updated successfully',
-        user: safeUser,
+        user: {
+          ...safeUser,
+          xpBalance: rewardProgress.xpBalance,
+          rankScore: rewardProgress.rankScore,
+          rankTier: rewardProgress.rankTier,
+          rankLevel: rewardProgress.rankLevel,
+          rankLabel: rewardProgress.rankLabel,
+          rankEmoji: rewardProgress.rankEmoji,
+          nextRankTier: rewardProgress.nextRankTier,
+          nextRankLevel: rewardProgress.nextRankLevel,
+          nextRankLabel: rewardProgress.nextRankLabel,
+          rankProgressPercent: rewardProgress.progressPercent,
+          currentStreakDays: rewardProgress.currentStreakDays,
+        },
       };
     } catch (error) {
       if (error instanceof UnauthorizedException) {

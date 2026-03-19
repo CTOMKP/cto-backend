@@ -132,9 +132,6 @@ export class MarketplaceService {
         },
       },
     });
-
-    await this.xpService.awardCreateAd(userId, created.id);
-
     return { success: true, data: created };
   }
 

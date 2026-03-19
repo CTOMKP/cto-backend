@@ -4,6 +4,7 @@ import { ApproveListingDto, RejectListingDto, ApproveMarketplaceAdDto, RejectMar
 import { Prisma } from '@prisma/client';
 import { EscrowService } from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { XpService } from '../xp/xp.service';
 
 @Injectable()
 export class AdminService {
@@ -13,6 +14,7 @@ export class AdminService {
     private prisma: PrismaService,
     private escrowService: EscrowService,
     private notifications: NotificationsService,
+    private xpService: XpService,
   ) {}
 
   // Verify admin permissions
@@ -295,6 +297,8 @@ export class AdminService {
         data: { listingId: updatedListing.id },
       });
 
+      await this.xpService.awardApprovedListing(updatedListing.userId, updatedListing.id);
+
       return {
         success: true,
         listing: updatedListing,
@@ -504,6 +508,8 @@ export class AdminService {
         body: updated.title,
         data: { adId: updated.id },
       });
+
+      await this.xpService.awardApprovedAd(updated.userId, updated.id);
 
       return {
         success: true,

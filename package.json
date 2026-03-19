@@ -12,6 +12,8 @@
     "start": "prisma migrate deploy && node dist/main",
     "backfill:signup-xp": "node dist/scripts/backfill-signup-xp.js",
     "backfill:signup-xp:dev": "ts-node src/scripts/backfill-signup-xp.ts",
+    "backfill:reward-system": "node dist/scripts/backfill-reward-system.js",
+    "backfill:reward-system:dev": "ts-node src/scripts/backfill-reward-system.ts",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",

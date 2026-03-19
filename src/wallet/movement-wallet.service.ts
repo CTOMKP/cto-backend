@@ -331,7 +331,8 @@ export class MovementWalletService {
           const amountNumber = Number(data.amount);
           await this.xpService.awardFundWallet(
             wallet.userId,
-            Number.isFinite(amountNumber) ? amountNumber : undefined
+            Number.isFinite(amountNumber) ? amountNumber : undefined,
+            data.txHash
           );
         }
         if (data.txType === 'DEBIT') {
