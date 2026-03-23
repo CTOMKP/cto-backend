@@ -365,12 +365,16 @@ export class PrivyAuthController {
         user: {
           id: user.id,
           email: user.email,
+          name: (userFull as any).name || null,
+          bio: (userFull as any).bio || null,
           walletAddress: moveWallet?.address || primaryWallet?.address,
           walletId: moveWallet?.id || null, // ADDING WALLET ID FOR DASHBOARD
           role: user.role,
           privyUserId: (privyUser as any).userId,
           walletsCount: (userFull as any)?.wallets?.length || 0,
           avatarUrl: (userFull as any).avatarUrl || null,
+          createdAt: (userFull as any).createdAt || user.createdAt,
+          updatedAt: (userFull as any).updatedAt || user.updatedAt,
           xpBalance: rewardProgress.xpBalance,
           rankScore: rewardProgress.rankScore,
           rankTier: rewardProgress.rankTier,
