@@ -43,13 +43,16 @@ export class UserListingsService {
     try {
       const now = Date.now();
       const cacheWindowMs = 24 * 60 * 60 * 1000;
-      const recentScan = await (this.prisma as any).scanResult.findFirst({
-        where: {
-          contractAddress: dto.contractAddr,
-          createdAt: { gte: new Date(now - cacheWindowMs) },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      const shouldUseCache = chain !== 'APTOS';
+      const recentScan = shouldUseCache
+        ? await (this.prisma as any).scanResult.findFirst({
+            where: {
+              contractAddress: dto.contractAddr,
+              createdAt: { gte: new Date(now - cacheWindowMs) },
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : null;
 
       if (recentScan?.resultData) {
         const stored = recentScan.resultData as any;
