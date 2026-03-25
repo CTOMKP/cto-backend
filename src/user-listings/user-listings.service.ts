@@ -100,12 +100,17 @@ export class UserListingsService {
         const response = error.getResponse() as any;
         if (response?.risk_score !== undefined) {
           const score = response.risk_score ?? 0;
-          const tier = response.tier ?? null;
+          const tier = response.tier ?? 'UNQUALIFIED';
           return {
             success: false,
+            risk_score: score,
+            tier,
+            risk_level: response.risk_level ?? null,
             vettingScore: score,
             vettingTier: tier,
-            eligible: false,
+            eligible: response.eligible ?? false,
+            summary: response.summary ?? null,
+            metadata: response.metadata ?? null,
             details: response,
           };
         }

@@ -224,14 +224,17 @@ export class ScanService {
       insufficient_data: 'HIGH',
     };
     const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
-    const tier = vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier;
+    const tier =
+      vettingResults.eligibleTier === 'none'
+        ? (vettingResults.overallScore >= 50 ? 'seed' : null)
+        : vettingResults.eligibleTier;
     const summary = this.generateAptosSummary(tokenData, vettingResults);
 
     const result = {
       tier,
       risk_score: vettingResults.overallScore,
       risk_level: riskLevel,
-      eligible: tier !== null,
+      eligible: (vettingResults.overallScore || 0) >= 50,
       summary,
       metadata: {
         chain: 'APTOS',
@@ -275,7 +278,7 @@ export class ScanService {
       }
     }
 
-    if (!result.eligible || !result.risk_score || result.risk_score < 50) {
+    if (!result.risk_score || result.risk_score < 50) {
       throw new HttpException(
         {
           message:

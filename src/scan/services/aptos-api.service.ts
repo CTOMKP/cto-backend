@@ -380,19 +380,12 @@ export class AptosApiService {
     const query = `
       query CoinHolders($coinType: String!, $limit: Int!) {
         current_coin_balances(
-          where: { coin_type: { _eq: $coinType }, amount: { _gt: "0" } }
-          order_by: [{ amount: desc }]
+          where: { coin_type: { _eq: $coinType }, amount: { _gt: 0 } }
+          order_by: { amount: desc }
           limit: $limit
         ) {
           owner_address
           amount
-        }
-        current_coin_balances_aggregate(
-          where: { coin_type: { _eq: $coinType }, amount: { _gt: "0" } }
-        ) {
-          aggregate {
-            count
-          }
         }
       }
     `;
@@ -406,19 +399,12 @@ export class AptosApiService {
         query: `
           query AssetHolders($assetType: String!, $limit: Int!) {
             current_unified_fungible_asset_balances(
-              where: { asset_type: { _eq: $assetType }, amount: { _gt: "0" } }
-              order_by: [{ amount: desc }]
+              where: { asset_type: { _eq: $assetType }, amount: { _gt: 0 } }
+              order_by: { amount: desc }
               limit: $limit
             ) {
               owner_address
               amount
-            }
-            current_unified_fungible_asset_balances_aggregate(
-              where: { asset_type: { _eq: $assetType }, amount: { _gt: "0" } }
-            ) {
-              aggregate {
-                count
-              }
             }
           }
         `,
@@ -428,23 +414,31 @@ export class AptosApiService {
         query: `
           query AssetHoldersAlt($metadataAddress: String!, $limit: Int!) {
             current_fungible_asset_balances(
-              where: { metadata_address: { _eq: $metadataAddress }, amount: { _gt: "0" } }
-              order_by: [{ amount: desc }]
+              where: { metadata_address: { _eq: $metadataAddress }, amount: { _gt: 0 } }
+              order_by: { amount: desc }
               limit: $limit
             ) {
               owner_address
               amount
             }
-            current_fungible_asset_balances_aggregate(
-              where: { metadata_address: { _eq: $metadataAddress }, amount: { _gt: "0" } }
-            ) {
-              aggregate {
-                count
-              }
-            }
           }
         `,
         variables: { metadataAddress: faAddress, limit: 10 },
+      },
+      {
+        query: `
+          query AssetHoldersByAssetType($assetType: String!, $limit: Int!) {
+            current_fungible_asset_balances(
+              where: { asset_type: { _eq: $assetType }, amount: { _gt: 0 } }
+              order_by: { amount: desc }
+              limit: $limit
+            ) {
+              owner_address
+              amount
+            }
+          }
+        `,
+        variables: { assetType: faAddress, limit: 10 },
       },
     ];
 
@@ -488,14 +482,16 @@ export class AptosApiService {
       const rows = this.extractFirstArray(data);
       const aggregate = this.extractAggregateCount(data);
 
-      const topHolders = (rows || []).map((row: any) => {
-        const amount = Number(row.amount || 0);
-        return {
-          address: row.owner_address || row.ownerAddress || '',
-          balance: amount,
-          percentage: totalSupply > 0 ? (amount / totalSupply) * 100 : 0,
-        };
-      });
+      const topHolders = (rows || [])
+        .map((row: any) => {
+          const amount = Number(row.amount || 0);
+          return {
+            address: row.owner_address || row.ownerAddress || '',
+            balance: amount,
+            percentage: totalSupply > 0 ? (amount / totalSupply) * 100 : 0,
+          };
+        })
+        .filter((holder: HolderEntry) => holder.balance > 0 && holder.address);
 
       return {
         count: aggregate || topHolders.length,
