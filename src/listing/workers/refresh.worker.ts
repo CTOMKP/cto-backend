@@ -1389,8 +1389,8 @@ export class RefreshWorker {
         const address = typeof item === 'string' ? item : item.address;
         const chain = typeof item === 'string' ? 'SOLANA' : item.chain;
         try {
-          if (chain !== 'SOLANA') {
-            // Skip enrichment for non-SOLANA for now
+          if (chain !== 'SOLANA' && chain !== 'APTOS') {
+            // Skip enrichment for unsupported non-SOLANA chains for now
             await this.repo.persistScanAndUpsertListing({
               contractAddress: address,
               chain,

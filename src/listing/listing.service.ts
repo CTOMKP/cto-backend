@@ -47,25 +47,11 @@ export class ListingService {
     return listing;
   }
 
-  async scan(contractAddress: string, chain: 'SOLANA' | 'EVM' | 'NEAR' | 'OSMOSIS' | 'OTHER' = 'SOLANA') {
+  async scan(contractAddress: string, chain: 'SOLANA' | 'APTOS' | 'EVM' | 'NEAR' | 'OSMOSIS' | 'OTHER' = 'SOLANA') {
     if (!contractAddress) throw new BadRequestException('contractAddress is required');
 
     // Map EVM to ETHEREUM for Prisma
     const prismaChain = chain === 'EVM' ? 'ETHEREUM' : chain;
-
-    // Guard: only Solana supported for enrichment
-    if (chain !== 'SOLANA') {
-      const summary = `${chain} enrichment not supported yet`;
-      const { listing } = await this.repo.persistScanAndUpsertListing({
-        contractAddress,
-        chain: prismaChain as any,
-        token: null,
-        riskScore: null,
-        tier: null,
-        summary,
-      });
-      return { contractAddress, chain, riskScore: null, tier: null, summary, listing };
-    }
 
     const result = await this.scanService.scanToken(contractAddress, undefined, chain);
     const { listing, scan } = await this.repo.persistScanAndUpsertListing({

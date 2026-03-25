@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { SolanaApiService } from './solana-api.service';
-import { validateSolanaAddress } from '../../utils/validation';
+import { AptosApiService } from './aptos-api.service';
+import { AptosRiskScoringService } from './aptos-risk-scoring.service';
+import { validateAptosAddress, validateSolanaAddress } from '../../utils/validation';
 import { formatTokenAge, formatTokenAgeShort } from '../../utils/age-formatter';
 import { Pillar1RiskScoringService, TokenVettingData } from '../../services/pillar1-risk-scoring.service';
 import { ExternalApisService } from '../../services/external-apis.service';
@@ -18,8 +20,10 @@ export class ScanService {
 
   constructor(
     private readonly solanaApiService: SolanaApiService,
+    private readonly aptosApiService: AptosApiService,
     private readonly prisma: PrismaService,
     private readonly pillar1RiskScoringService: Pillar1RiskScoringService,
+    private readonly aptosRiskScoringService: AptosRiskScoringService,
     private readonly externalApisService: ExternalApisService,
     private readonly tokenImageService: TokenImageService,
     private readonly analyticsService: AnalyticsService,
@@ -28,10 +32,17 @@ export class ScanService {
   ) {}
 
   // Scans a single token, optionally persists result if userId provided
-  async scanToken(contractAddress: string, userId?: number, chain: 'SOLANA' | 'EVM' | 'NEAR' | 'OSMOSIS' | 'OTHER' = 'SOLANA') {
+  async scanToken(contractAddress: string, userId?: number, chain: 'SOLANA' | 'APTOS' | 'EVM' | 'NEAR' | 'OSMOSIS' | 'OTHER' = 'SOLANA') {
     try {
       if (!contractAddress) {
         throw new HttpException('Contract address is required', HttpStatus.BAD_REQUEST);
+      }
+
+      if (chain === 'APTOS') {
+        if (!validateAptosAddress(contractAddress)) {
+          throw new HttpException('Invalid Aptos token address format', HttpStatus.BAD_REQUEST);
+        }
+        return await this.scanAptosToken(contractAddress, userId);
       }
 
       if (chain !== 'SOLANA') {
@@ -190,6 +201,99 @@ export class ScanService {
       this.logger.error(`❌ Unexpected scan error for ${contractAddress}: ${errorMessage}`, errorStack);
       throw new HttpException('Scan failed. Please try again later.', HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  private async scanAptosToken(contractAddress: string, userId?: number) {
+    const tokenData = await this.aptosApiService.fetchTokenData(contractAddress);
+    const vettingData = this.transformAptosToVettingData(contractAddress, tokenData);
+    const creationDate =
+      tokenData.creation_date ??
+      (Number.isFinite(vettingData.tokenAge)
+        ? new Date(Date.now() - vettingData.tokenAge * 24 * 60 * 60 * 1000)
+        : null);
+
+    const vettingResults = this.aptosRiskScoringService.calculateRiskScore(vettingData, {
+      panoraTags: tokenData.panora_tags || [],
+      verified: tokenData.verified,
+    });
+
+    const riskLevelMap: Record<string, string> = {
+      low: 'LOW',
+      medium: 'MEDIUM',
+      high: 'HIGH',
+      insufficient_data: 'HIGH',
+    };
+    const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
+    const tier = vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier;
+    const summary = this.generateAptosSummary(tokenData, vettingResults);
+
+    const result = {
+      tier,
+      risk_score: vettingResults.overallScore,
+      risk_level: riskLevel,
+      eligible: tier !== null,
+      summary,
+      metadata: {
+        chain: 'APTOS',
+        contractAddress,
+        token_symbol: vettingData.tokenInfo.symbol,
+        token_name: vettingData.tokenInfo.name,
+        token_type: tokenData.token_type ?? null,
+        fa_address: tokenData.fa_address ?? null,
+        asset_type: tokenData.asset_type ?? null,
+        panora_tags: tokenData.panora_tags || [],
+        project_age_days: vettingData.tokenAge,
+        age_display: formatTokenAge(vettingData.tokenAge),
+        age_display_short: formatTokenAgeShort(vettingData.tokenAge),
+        creation_date: creationDate ?? null,
+        lp_amount_usd: vettingData.trading.liquidity,
+        token_price: vettingData.trading.price,
+        volume_24h: vettingData.trading.volume24h,
+        market_cap: vettingData.trading.fdv,
+        holder_count: vettingData.holders.count,
+        creator_address: tokenData.creator_address ?? null,
+        creator_balance_pct: tokenData.creator_balance_pct ?? 0,
+        websites: tokenData.websites || [],
+        socials: tokenData.socials || [],
+        scan_timestamp: new Date().toISOString(),
+        vetting_results: vettingResults,
+        source: tokenData.source ?? null,
+      },
+    };
+
+    if (userId) {
+      try {
+        await this.prisma.scanResult.create({
+          data: {
+            contractAddress,
+            resultData: result as any,
+            userId,
+          },
+        });
+      } catch (dbError: any) {
+        this.logger.warn(`Failed to persist Aptos scan result for ${contractAddress}: ${dbError.message}`);
+      }
+    }
+
+    if (!result.eligible || !result.risk_score || result.risk_score < 50) {
+      throw new HttpException(
+        {
+          message:
+            result.risk_score && result.risk_score < 50
+              ? `Risk score ${result.risk_score} is below minimum threshold of 50`
+              : 'Token does not meet minimum Aptos listing criteria',
+          eligible: false,
+          tier,
+          risk_score: result.risk_score ?? 0,
+          risk_level: result.risk_level,
+          summary: result.summary,
+          metadata: result.metadata,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    return result;
   }
 
   // Scans multiple tokens in batch (no persistence here to limit DB writes)
@@ -647,5 +751,89 @@ export class ScanService {
       },
       tokenAge: Math.max(0, Math.floor(tokenData.project_age_days || 0)),
     };
+  }
+
+  private transformAptosToVettingData(contractAddress: string, tokenData: any): TokenVettingData {
+    const topHolders = (tokenData.top_holders || []).slice(0, 10).map((holder: any) => ({
+      address: holder.address || '',
+      balance: Number(holder.amount || 0),
+      percentage: Number(holder.share || holder.percentage || 0),
+    }));
+
+    const top10HolderRate = topHolders.reduce((sum, holder) => sum + holder.percentage, 0) / 100;
+
+    return {
+      contractAddress,
+      chain: 'aptos',
+      tokenInfo: {
+        name: tokenData.name || 'Unknown Aptos Token',
+        symbol: tokenData.symbol || 'UNKNOWN',
+        image:
+          tokenData.image ||
+          tokenData.icon ||
+          `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(contractAddress)}`,
+        decimals: Number(tokenData.decimals || 8),
+        description: tokenData.description || null,
+        websites: tokenData.websites || [],
+        socials: tokenData.socials || [],
+      },
+      security: {
+        isMintable: false,
+        isFreezable: false,
+        lpLockPercentage: 0,
+        totalSupply: Number(tokenData.total_supply || 0),
+        circulatingSupply: Number(tokenData.circulating_supply || tokenData.total_supply || 0),
+        lpLocks: [],
+      },
+      holders: {
+        count: Number(tokenData.holder_count || tokenData.total_holders || 0),
+        topHolders,
+      },
+      developer: {
+        creatorAddress: tokenData.creator_address || null,
+        creatorBalance: Number(tokenData.creator_balance_pct || 0),
+        creatorStatus: Number(tokenData.creator_balance_pct || 0) > 1 ? 'creator_hold' : 'creator_sold',
+        top10HolderRate,
+        twitterCreateTokenCount: 0,
+      },
+      trading: {
+        price: Number(tokenData.token_price || 0),
+        priceChange24h: 0,
+        volume24h: Number(tokenData.volume_24h || 0),
+        buys24h: 0,
+        sells24h: 0,
+        liquidity: Number(tokenData.lp_amount_usd || 0),
+        fdv: Number(tokenData.market_cap || 0),
+        holderCount: Number(tokenData.holder_count || tokenData.total_holders || 0),
+      },
+      tokenAge: Math.max(0, Math.floor(tokenData.project_age_days || 0)),
+    };
+  }
+
+  private generateAptosSummary(tokenData: any, vettingResults: any): string {
+    const symbol = tokenData.symbol || 'UNKNOWN';
+    const tags = Array.isArray(tokenData.panora_tags) ? tokenData.panora_tags.join(', ') : '';
+    const age = Math.max(0, Math.floor(tokenData.project_age_days || 0));
+    const liquidity = Number(tokenData.lp_amount_usd || 0);
+    const volume = Number(tokenData.volume_24h || 0);
+    const tierLabel = vettingResults.eligibleTier === 'none' ? 'no listing tier' : `${vettingResults.eligibleTier} tier`;
+
+    const parts = [
+      `${symbol} on Aptos has been analyzed with ${tierLabel} and a risk score of ${vettingResults.overallScore}/100.`,
+      age > 0
+        ? `Token age is ${age} day${age === 1 ? '' : 's'} with estimated liquidity of $${liquidity.toLocaleString()} and 24h volume of $${volume.toLocaleString()}.`
+        : `Liquidity is estimated at $${liquidity.toLocaleString()} with 24h volume of $${volume.toLocaleString()}.`,
+    ];
+
+    if (tags) {
+      parts.push(`Panora tags: ${tags}.`);
+    }
+
+    const firstFlag = vettingResults.allFlags?.[0];
+    if (firstFlag) {
+      parts.push(firstFlag);
+    }
+
+    return parts.join(' ');
   }
 }

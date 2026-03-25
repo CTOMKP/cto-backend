@@ -3,6 +3,8 @@ import { HttpModule } from '@nestjs/axios';
 import { ScanController } from './scan.controller';
 import { ScanService } from './services/scan.service';
 import { SolanaApiService } from './services/solana-api.service';
+import { AptosApiService } from './services/aptos-api.service';
+import { AptosRiskScoringService } from './services/aptos-risk-scoring.service';
 import { TokenVettingModule } from '../services/token-vetting.module';
 import { ListingModule } from '../listing/listing.module';
 
@@ -13,7 +15,7 @@ import { ListingModule } from '../listing/listing.module';
     forwardRef(() => ListingModule), // Need AnalyticsService from ListingModule
   ],
   controllers: [ScanController],
-  providers: [ScanService, SolanaApiService],
+  providers: [ScanService, SolanaApiService, AptosApiService, AptosRiskScoringService],
   exports: [ScanService]
 })
 export class ScanModule {}

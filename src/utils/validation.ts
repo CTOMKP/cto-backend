@@ -23,6 +23,70 @@ export function validateSolanaAddress(address: string): boolean {
 }
 
 /**
+ * Normalize an Aptos-style hex address to a canonical 0x + 64 hex format.
+ */
+export function normalizeAptosHexAddress(address: string): string | null {
+  if (!address || typeof address !== 'string') {
+    return null;
+  }
+
+  const raw = address.trim();
+  const match = raw.match(/^0x([a-fA-F0-9]{1,64})$/);
+  if (!match) {
+    return null;
+  }
+
+  return `0x${match[1].toLowerCase().padStart(64, '0')}`;
+}
+
+/**
+ * Aptos coin types can be either:
+ * - 0x...::module::CoinName
+ * - plain metadata / asset addresses (0x...)
+ */
+export function validateAptosAddress(address: string): boolean {
+  if (!address || typeof address !== 'string') {
+    return false;
+  }
+
+  const trimmed = address.trim();
+  if (normalizeAptosHexAddress(trimmed)) {
+    return true;
+  }
+
+  const coinTypeMatch = trimmed.match(
+    /^0x([a-fA-F0-9]{1,64})::([A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)$/,
+  );
+
+  return !!coinTypeMatch;
+}
+
+export function isAptosCoinType(address: string): boolean {
+  if (!address || typeof address !== 'string') {
+    return false;
+  }
+
+  return /^0x([a-fA-F0-9]{1,64})::([A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)$/.test(
+    address.trim(),
+  );
+}
+
+export function normalizeAptosCoinType(address: string): string | null {
+  if (!isAptosCoinType(address)) {
+    return null;
+  }
+
+  const trimmed = address.trim();
+  const [account, module, structName] = trimmed.split('::');
+  const normalizedAccount = normalizeAptosHexAddress(account);
+  if (!normalizedAccount) {
+    return null;
+  }
+
+  return `${normalizedAccount}::${module}::${structName}`;
+}
+
+/**
  * Sanitizes user input to prevent injection attacks
  */
 export function sanitizeInput(input: any): any {

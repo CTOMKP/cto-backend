@@ -3,6 +3,7 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export enum ScanChainInput {
   SOLANA = 'SOLANA',
+  APTOS = 'APTOS',
   EVM = 'EVM',
   NEAR = 'NEAR',
   OSMOSIS = 'OSMOSIS',
