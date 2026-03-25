@@ -5,7 +5,10 @@ import { TokenVettingData, VettingResults, ComponentScore } from '../../services
 export class AptosRiskScoringService {
   private readonly logger = new Logger(AptosRiskScoringService.name);
 
-  calculateRiskScore(data: TokenVettingData, context?: { panoraTags?: string[]; verified?: boolean | null }): VettingResults {
+  calculateRiskScore(
+    data: TokenVettingData,
+    context?: { panoraTags?: string[]; verified?: boolean | null; hasReliableAge?: boolean },
+  ): VettingResults {
     this.logger.debug(`Calculating Aptos risk score for token: ${data.contractAddress}`);
 
     const distribution = this.calculateDistributionScore(data.holders, data.tokenAge);
@@ -29,6 +32,9 @@ export class AptosRiskScoringService {
     }
     if (!data.trading?.volume24h || data.trading.volume24h <= 0) {
       missingCriticalData.push('24h Volume');
+    }
+    if (context?.hasReliableAge === false) {
+      missingCriticalData.push('Token Age');
     }
 
     if (missingCriticalData.length > 0) {

@@ -206,15 +206,21 @@ export class ScanService {
   private async scanAptosToken(contractAddress: string, userId?: number) {
     const tokenData = await this.aptosApiService.fetchTokenData(contractAddress);
     const vettingData = this.transformAptosToVettingData(contractAddress, tokenData);
+    const hasReliableAge =
+      !!tokenData.creation_date ||
+      (Number.isFinite(Number(tokenData.project_age_days)) && Number(tokenData.project_age_days) > 0);
     const creationDate =
-      tokenData.creation_date ??
+      hasReliableAge
+        ? tokenData.creation_date ??
       (Number.isFinite(vettingData.tokenAge)
         ? new Date(Date.now() - vettingData.tokenAge * 24 * 60 * 60 * 1000)
-        : null);
+        : null)
+        : null;
 
     const vettingResults = this.aptosRiskScoringService.calculateRiskScore(vettingData, {
       panoraTags: tokenData.panora_tags || [],
       verified: tokenData.verified,
+      hasReliableAge,
     });
 
     const riskLevelMap: Record<string, string> = {
@@ -245,9 +251,9 @@ export class ScanService {
         fa_address: tokenData.fa_address ?? null,
         asset_type: tokenData.asset_type ?? null,
         panora_tags: tokenData.panora_tags || [],
-        project_age_days: vettingData.tokenAge,
-        age_display: formatTokenAge(vettingData.tokenAge),
-        age_display_short: formatTokenAgeShort(vettingData.tokenAge),
+        project_age_days: hasReliableAge ? vettingData.tokenAge : null,
+        age_display: hasReliableAge ? formatTokenAge(vettingData.tokenAge) : 'N/A',
+        age_display_short: hasReliableAge ? formatTokenAgeShort(vettingData.tokenAge) : 'N/A',
         creation_date: creationDate ?? null,
         lp_amount_usd: vettingData.trading.liquidity,
         token_price: vettingData.trading.price,
