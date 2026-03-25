@@ -13,16 +13,38 @@ export class AptosRiskScoringService {
     const devAbandonment = this.calculateDevScore(data.developer, data.tokenAge);
     const technical = this.calculateTechnicalScore(data, context);
 
-    const overallScore = Math.round(
+    let overallScore = Math.round(
       distribution.score * 0.3 +
       liquidity.score * 0.35 +
       devAbandonment.score * 0.15 +
       technical.score * 0.2,
     );
 
+    const missingCriticalData: string[] = [];
+    if (!data.holders?.count && (!data.holders?.topHolders || data.holders.topHolders.length === 0)) {
+      missingCriticalData.push('Holders');
+    }
+    if (!data.trading?.liquidity || data.trading.liquidity <= 0) {
+      missingCriticalData.push('Liquidity');
+    }
+    if (!data.trading?.volume24h || data.trading.volume24h <= 0) {
+      missingCriticalData.push('24h Volume');
+    }
+
+    if (missingCriticalData.length > 0) {
+      // Keep scoring available, but never allow high-confidence pass when core data is absent.
+      overallScore = Math.min(overallScore, 49);
+      this.logger.debug(
+        `Aptos confidence gate applied for ${data.contractAddress}. Missing: ${missingCriticalData.join(', ')}`,
+      );
+    }
+
     let riskLevel: VettingResults['riskLevel'] = 'high';
     if (overallScore >= 70) riskLevel = 'low';
     else if (overallScore >= 50) riskLevel = 'medium';
+    if (missingCriticalData.length > 0) {
+      riskLevel = 'insufficient_data';
+    }
 
     const eligibleTier = this.determineEligibleTier(
       overallScore,
@@ -30,6 +52,7 @@ export class AptosRiskScoringService {
       data.trading.liquidity,
       data.trading.volume24h,
       context?.panoraTags || [],
+      missingCriticalData.length > 0,
     );
 
     const allFlags = [
@@ -38,6 +61,9 @@ export class AptosRiskScoringService {
       ...devAbandonment.flags,
       ...technical.flags,
     ];
+    if (missingCriticalData.length > 0) {
+      allFlags.push(`Insufficient critical data: ${missingCriticalData.join(', ')}.`);
+    }
 
     return {
       componentScores: {
@@ -50,8 +76,8 @@ export class AptosRiskScoringService {
       riskLevel,
       eligibleTier,
       allFlags,
-      dataSufficient: true,
-      missingData: [],
+      dataSufficient: missingCriticalData.length === 0,
+      missingData: missingCriticalData,
       calculatedAt: new Date().toISOString(),
     };
   }
@@ -244,9 +270,11 @@ export class AptosRiskScoringService {
     liquidityUsd: number,
     volume24h: number,
     panoraTags: string[],
+    hasCriticalDataGap: boolean,
   ): VettingResults['eligibleTier'] {
     const tags = new Set(panoraTags.map((tag) => tag.toLowerCase()));
     if (tags.has('banned')) return 'none';
+    if (hasCriticalDataGap) return 'none';
     if (score < 50) return 'none';
 
     if (ageDays >= 60 && liquidityUsd >= 100000 && volume24h >= 10000 && score >= 75) return 'stellar';
