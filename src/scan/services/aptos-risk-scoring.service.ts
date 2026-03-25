@@ -13,7 +13,11 @@ export class AptosRiskScoringService {
 
     const distribution = this.calculateDistributionScore(data.holders, data.tokenAge);
     const liquidity = this.calculateLiquidityScore(data.trading, data.tokenAge, context?.panoraTags || []);
-    const devAbandonment = this.calculateDevScore(data.developer, data.tokenAge);
+    const devAbandonment = this.calculateDevScore(
+      data.developer,
+      data.tokenAge,
+      context?.hasReliableAge !== false,
+    );
     const technical = this.calculateTechnicalScore(data, context);
 
     let overallScore = Math.round(
@@ -206,7 +210,11 @@ export class AptosRiskScoringService {
     };
   }
 
-  private calculateDevScore(developer: TokenVettingData['developer'], tokenAge: number): ComponentScore {
+  private calculateDevScore(
+    developer: TokenVettingData['developer'],
+    tokenAge: number,
+    hasReliableAge: boolean,
+  ): ComponentScore {
     let score = 100;
     const flags: string[] = [];
 
@@ -223,7 +231,9 @@ export class AptosRiskScoringService {
       flags.push(`Creator holds ${developer.creatorBalance.toFixed(2)}% (acceptable)`);
     }
 
-    if (tokenAge < 14) {
+    if (!hasReliableAge) {
+      flags.push('Token age unavailable from providers');
+    } else if (tokenAge < 14) {
       score -= 30;
       flags.push(`Token only ${tokenAge} days old (<14 day baseline)`);
     } else if (tokenAge >= 30) {
