@@ -48,10 +48,7 @@ export class AptosApiService {
 
   async fetchTokenData(contractAddress: string) {
     const normalized = this.normalizeIdentifier(contractAddress);
-    const [panoraToken, panoraPrice] = await Promise.all([
-      this.fetchPanoraToken(normalized),
-      this.fetchPanoraPrice(normalized),
-    ]);
+    const panoraToken = await this.fetchPanoraToken(normalized);
 
     const faAddress =
       this.pickString(
@@ -70,6 +67,10 @@ export class AptosApiService {
         panoraToken?.coin_type,
         isAptosCoinType(normalized) ? normalized : null,
       ) || null;
+
+    const panoraPrice = await this.fetchPanoraPriceCandidates(
+      [normalized, faAddress, coinType].filter((v): v is string => !!v),
+    );
 
     const onChainMeta = await this.fetchOnChainMetadata({ coinType, faAddress });
     const holders = await this.fetchHolderSnapshot({ coinType, faAddress, totalSupply: onChainMeta.totalSupply });
@@ -101,6 +102,10 @@ export class AptosApiService {
       panoraPrice?.liquidity,
       panoraPrice?.liquidityUsd,
       panoraPrice?.liquidity_usd,
+      panoraPrice?.totalLiquidityUsd,
+      panoraPrice?.total_liquidity_usd,
+      panoraPrice?.tvlUsd,
+      panoraPrice?.tvl_usd,
       panoraToken?.liquidity,
       panoraToken?.liquidityUsd,
       panoraToken?.liquidity_usd,
@@ -110,6 +115,10 @@ export class AptosApiService {
     const volume24h = this.pickNumber(
       panoraPrice?.volume24h,
       panoraPrice?.volume_24h,
+      panoraPrice?.volume24hUsd,
+      panoraPrice?.volume_24h_usd,
+      panoraPrice?.volume24hUSD,
+      panoraPrice?.volumeUSD24h,
       panoraToken?.volume24h,
       panoraToken?.volume_24h,
       0,
@@ -119,8 +128,10 @@ export class AptosApiService {
       panoraPrice?.price,
       panoraPrice?.priceUsd,
       panoraPrice?.price_usd,
+      panoraPrice?.usdPrice,
       panoraToken?.price,
       panoraToken?.priceUsd,
+      panoraToken?.usdPrice,
       0,
     );
 
@@ -128,6 +139,10 @@ export class AptosApiService {
       panoraPrice?.marketCap,
       panoraPrice?.market_cap,
       panoraPrice?.fdv,
+      panoraPrice?.fdvUsd,
+      panoraPrice?.fdv_usd,
+      panoraPrice?.marketCapUsd,
+      panoraPrice?.market_cap_usd,
       panoraToken?.marketCap,
       panoraToken?.market_cap,
       onChainMeta.totalSupply && price ? onChainMeta.totalSupply * price : 0,
@@ -251,6 +266,16 @@ export class AptosApiService {
     }
 
     this.logger.warn(`Panora token price not found for ${identifier}`);
+    return null;
+  }
+
+  private async fetchPanoraPriceCandidates(identifiers: string[]): Promise<any | null> {
+    for (const identifier of identifiers) {
+      const price = await this.fetchPanoraPrice(identifier);
+      if (price) {
+        return price;
+      }
+    }
     return null;
   }
 
@@ -380,7 +405,7 @@ export class AptosApiService {
     const query = `
       query CoinHolders($coinType: String!, $limit: Int!) {
         current_coin_balances(
-          where: { coin_type: { _eq: $coinType }, amount: { _gt: 0 } }
+          where: { coin_type: { _eq: $coinType } }
           order_by: { amount: desc }
           limit: $limit
         ) {
@@ -399,7 +424,7 @@ export class AptosApiService {
         query: `
           query AssetHolders($assetType: String!, $limit: Int!) {
             current_unified_fungible_asset_balances(
-              where: { asset_type: { _eq: $assetType }, amount: { _gt: 0 } }
+              where: { asset_type: { _eq: $assetType } }
               order_by: { amount: desc }
               limit: $limit
             ) {
@@ -414,7 +439,7 @@ export class AptosApiService {
         query: `
           query AssetHoldersAlt($metadataAddress: String!, $limit: Int!) {
             current_fungible_asset_balances(
-              where: { metadata_address: { _eq: $metadataAddress }, amount: { _gt: 0 } }
+              where: { metadata_address: { _eq: $metadataAddress } }
               order_by: { amount: desc }
               limit: $limit
             ) {
@@ -429,7 +454,7 @@ export class AptosApiService {
         query: `
           query AssetHoldersByAssetType($assetType: String!, $limit: Int!) {
             current_fungible_asset_balances(
-              where: { asset_type: { _eq: $assetType }, amount: { _gt: 0 } }
+              where: { asset_type: { _eq: $assetType } }
               order_by: { amount: desc }
               limit: $limit
             ) {
