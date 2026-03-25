@@ -86,15 +86,21 @@ export class UserListingsService {
 
       const score = result?.risk_score ?? 0; // higher is better (score range: 0-100, higher = safer)
       const tier = result?.tier ?? 'Seed';
+      const metadata = result?.metadata ?? null;
+      const summary = result?.summary ?? null;
+      const riskLevel = result?.risk_level ?? null;
 
       const passed = typeof score === 'number' && score >= this.MIN_QUALIFYING_SCORE && result?.eligible !== false;
       return {
         success: passed,
         risk_score: score, // Added for frontend compatibility
         tier: tier,       // Added for frontend compatibility
+        risk_level: riskLevel,
         vettingScore: score,
         vettingTier: tier,
         eligible: passed,
+        summary,
+        metadata,
         details: result,
       };
     } catch (error: any) {
