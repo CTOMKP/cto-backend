@@ -518,6 +518,12 @@ export class AptosApiService {
         })
         .filter((holder: HolderEntry) => holder.balance > 0 && holder.address);
 
+      const count = aggregate || topHolders.length;
+      // Treat empty results as unresolved so the caller can try fallback queries.
+      if (!count && topHolders.length === 0) {
+        return null;
+      }
+
       return {
         count: aggregate || topHolders.length,
         topHolders,
