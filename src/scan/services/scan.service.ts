@@ -228,7 +228,7 @@ export class ScanService {
       vettingResults.eligibleTier === 'none'
         ? (vettingResults.overallScore >= 50 ? 'seed' : null)
         : vettingResults.eligibleTier;
-    const summary = this.generateAptosSummary(tokenData, vettingResults);
+    const summary = this.generateAptosSummary(tokenData, vettingResults, tier);
 
     const result = {
       tier,
@@ -813,13 +813,13 @@ export class ScanService {
     };
   }
 
-  private generateAptosSummary(tokenData: any, vettingResults: any): string {
+  private generateAptosSummary(tokenData: any, vettingResults: any, resolvedTier: string | null): string {
     const symbol = tokenData.symbol || 'UNKNOWN';
     const tags = Array.isArray(tokenData.panora_tags) ? tokenData.panora_tags.join(', ') : '';
     const age = Math.max(0, Math.floor(tokenData.project_age_days || 0));
     const liquidity = Number(tokenData.lp_amount_usd || 0);
     const volume = Number(tokenData.volume_24h || 0);
-    const tierLabel = vettingResults.eligibleTier === 'none' ? 'no listing tier' : `${vettingResults.eligibleTier} tier`;
+    const tierLabel = resolvedTier ? `${resolvedTier} tier` : 'no listing tier';
 
     const parts = [
       `${symbol} on Aptos has been analyzed with ${tierLabel} and a risk score of ${vettingResults.overallScore}/100.`,
