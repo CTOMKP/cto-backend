@@ -131,6 +131,28 @@ export class AptosApiService {
       totalSupply: holderSupply,
     });
     if (!holders.count) {
+      const panoraHolders = this.pickNumber(
+        panoraPrice?.holderCount,
+        panoraPrice?.holder_count,
+        panoraPrice?.holders,
+        panoraPrice?.totalHolders,
+        panoraPrice?.total_holders,
+        panoraToken?.holderCount,
+        panoraToken?.holder_count,
+        panoraToken?.holders,
+        panoraToken?.totalHolders,
+        panoraToken?.total_holders,
+        0,
+      );
+      if (panoraHolders > 0) {
+        holders = {
+          count: panoraHolders,
+          topHolders: [],
+          source: 'panora_token',
+        };
+      }
+    }
+    if (!holders.count) {
       const fallbackHolders = await this.fetchFallbackHolderCount([faAddress, coinType, normalized]);
       if (fallbackHolders && fallbackHolders > 0) {
         holders = {
@@ -620,7 +642,8 @@ export class AptosApiService {
       }
     }
 
-    for (const identifier of identifiers) {
+    const uniqueIdentifiers = [...new Set(identifiers)];
+    for (const identifier of uniqueIdentifiers) {
       const marketByAddress = await this.fetchCoinGeckoSimpleByAddress(identifier);
       if (marketByAddress) {
         return marketByAddress;
@@ -650,6 +673,10 @@ export class AptosApiService {
   }
 
   private async fetchCoinGeckoSimpleByAddress(identifier: string) {
+    if (!normalizeAptosHexAddress(identifier)) {
+      return null;
+    }
+
     const data = await this.coingeckoGet(
       `/simple/token_price/aptos?contract_addresses=${encodeURIComponent(
         identifier,
@@ -722,23 +749,39 @@ export class AptosApiService {
   }
 
   private async coingeckoGet(path: string): Promise<any | null> {
-    try {
-      const headers: Record<string, string> = {
-        Accept: 'application/json',
-      };
-      if (this.coingeckoApiKey) {
-        headers['x-cg-pro-api-key'] = this.coingeckoApiKey;
-      }
-
-      const response = await firstValueFrom(
+    const requestWithHeaders = async (headers: Record<string, string>) =>
+      firstValueFrom(
         this.httpService.get(`${this.coingeckoBaseUrl}${path}`, {
           headers,
           timeout: 15000,
         }),
       );
+
+    try {
+      const headers: Record<string, string> = {
+        Accept: 'application/json',
+      };
+      if (this.coingeckoApiKey) {
+        if (this.coingeckoApiKey.startsWith('CG-')) {
+          headers['x-cg-demo-api-key'] = this.coingeckoApiKey;
+        } else {
+          headers['x-cg-pro-api-key'] = this.coingeckoApiKey;
+        }
+      }
+
+      const response = await requestWithHeaders(headers);
       return response.data;
     } catch (error: any) {
-      this.logger.debug(`CoinGecko request failed for ${path}: ${error.message}`);
+      const status = error?.response?.status;
+      if (this.coingeckoApiKey && [400, 401, 403].includes(status)) {
+        try {
+          const fallback = await requestWithHeaders({ Accept: 'application/json' });
+          return fallback.data;
+        } catch {
+          // continue to debug log below
+        }
+      }
+      this.logger.debug(`CoinGecko request failed for ${path}: status=${status ?? 'n/a'} ${error.message}`);
       return null;
     }
   }
@@ -876,69 +919,135 @@ export class AptosApiService {
     totalSupply: number,
     source: string,
   ): Promise<{ count: number; topHolders: HolderEntry[]; source: string } | null> {
-    try {
+    const request = async (timeout: number) => {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.indexerApiKey) {
         headers['Authorization'] = `Bearer ${this.indexerApiKey}`;
       }
-
-      const response = await firstValueFrom(
+      return firstValueFrom(
         this.httpService.post(
           this.indexerUrl,
           { query, variables },
           {
             headers,
-            timeout: 15000,
+            timeout,
           },
         ),
       );
+    };
 
-      if (response.data?.errors?.length) {
-        this.logger.debug(`Indexer query failed for ${source}: ${JSON.stringify(response.data.errors)}`);
-        return null;
+    for (const timeout of [10000, 15000]) {
+      try {
+        const response = await request(timeout);
+
+        if (response.data?.errors?.length) {
+          this.logger.debug(`Indexer query failed for ${source}: ${JSON.stringify(response.data.errors)}`);
+          continue;
+        }
+
+        const data = response.data?.data || {};
+        const rows = this.extractFirstArray(data);
+        const aggregate = this.extractAggregateCount(data);
+
+        const topHolders = (rows || [])
+          .map((row: any) => {
+            const amount = Number(row.amount || 0);
+            return {
+              address: row.owner_address || row.ownerAddress || '',
+              balance: amount,
+              percentage: totalSupply > 0 ? (amount / totalSupply) * 100 : 0,
+            };
+          })
+          .filter((holder: HolderEntry) => holder.balance > 0 && holder.address);
+
+        const top1Pct = topHolders[0]?.percentage || 0;
+        const top10Pct = topHolders.slice(0, 10).reduce((sum, holder) => sum + holder.percentage, 0);
+        if (top1Pct > 100 || top10Pct > 100) {
+          this.logger.warn(
+            `Discarding invalid Aptos holder distribution from ${source}: top1=${top1Pct.toFixed(
+              2,
+            )}%, top10=${top10Pct.toFixed(2)}%`,
+          );
+          topHolders.length = 0;
+        }
+
+        const count = aggregate || topHolders.length;
+        if (!count && topHolders.length === 0) {
+          continue;
+        }
+
+        return {
+          count: aggregate || topHolders.length,
+          topHolders,
+          source,
+        };
+      } catch (error: any) {
+        this.logger.debug(`Indexer holder query failed for ${source} (timeout=${timeout}): ${error.message}`);
       }
-
-      const data = response.data?.data || {};
-      const rows = this.extractFirstArray(data);
-      const aggregate = this.extractAggregateCount(data);
-
-      const topHolders = (rows || [])
-        .map((row: any) => {
-          const amount = Number(row.amount || 0);
-          return {
-            address: row.owner_address || row.ownerAddress || '',
-            balance: amount,
-            percentage: totalSupply > 0 ? (amount / totalSupply) * 100 : 0,
-          };
-        })
-        .filter((holder: HolderEntry) => holder.balance > 0 && holder.address);
-
-      const top1Pct = topHolders[0]?.percentage || 0;
-      const top10Pct = topHolders.slice(0, 10).reduce((sum, holder) => sum + holder.percentage, 0);
-      if (top1Pct > 100 || top10Pct > 100) {
-        this.logger.warn(
-          `Discarding invalid Aptos holder distribution from ${source}: top1=${top1Pct.toFixed(
-            2,
-          )}%, top10=${top10Pct.toFixed(2)}%`,
-        );
-        topHolders.length = 0;
-      }
-
-      const count = aggregate || topHolders.length;
-      // Treat empty results as unresolved so the caller can try fallback queries.
-      if (!count && topHolders.length === 0) {
-        return null;
-      }
-
-      return {
-        count: aggregate || topHolders.length,
-        topHolders,
-        source,
-      };
-    } catch (error: any) {
-      this.logger.debug(`Indexer holder query failed for ${source}: ${error.message}`);
-      return null;
     }
+
+    const aggregateOnly = await this.queryIndexerHolderCountOnly(String(variables?.assetType || ''), source);
+    if (aggregateOnly > 0) {
+      return {
+        count: aggregateOnly,
+        topHolders: [],
+        source: `${source}:aggregate_only`,
+      };
+    }
+
+    return null;
+  }
+
+  private async queryIndexerHolderCountOnly(assetType: string, source: string): Promise<number> {
+    if (!assetType) return 0;
+
+    const query = `
+      query AssetHolderCountOnly($assetType: String!) {
+        current_fungible_asset_balances_aggregate(
+          where: { asset_type: { _eq: $assetType } }
+        ) {
+          aggregate {
+            count
+          }
+        }
+      }
+    `;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.indexerApiKey) {
+      headers['Authorization'] = `Bearer ${this.indexerApiKey}`;
+    }
+
+    for (const timeout of [8000, 12000]) {
+      try {
+        const response = await firstValueFrom(
+          this.httpService.post(
+            this.indexerUrl,
+            { query, variables: { assetType } },
+            {
+              headers,
+              timeout,
+            },
+          ),
+        );
+        if (response.data?.errors?.length) {
+          this.logger.debug(
+            `Indexer aggregate-only query failed for ${source}: ${JSON.stringify(response.data.errors)}`,
+          );
+          continue;
+        }
+        const count = this.extractAggregateCount(response.data?.data || {});
+        if (count > 0) {
+          return count;
+        }
+      } catch (error: any) {
+        this.logger.debug(
+          `Indexer aggregate-only holder query failed for ${source} (timeout=${timeout}): ${error.message}`,
+        );
+      }
+    }
+
+    return 0;
   }
 
   private async fetchFallbackHolderCount(candidates: Array<string | null>) {
