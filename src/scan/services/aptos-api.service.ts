@@ -27,6 +27,7 @@ export class AptosApiService {
   private readonly coingeckoBaseUrl: string;
   private readonly panoraApiKey: string;
   private readonly coingeckoApiKey: string;
+  private readonly strictAptosDate: boolean;
   private readonly fullnodeApiKey?: string;
   private readonly indexerApiKey?: string;
 
@@ -51,6 +52,10 @@ export class AptosApiService {
       this.configService.get('COINGECKO_BASE_URL') || 'https://api.coingecko.com/api/v3';
     this.panoraApiKey = this.configService.get('PANORA_API_KEY') || '';
     this.coingeckoApiKey = this.configService.get('COINGECKO_API_KEY') || '';
+    this.strictAptosDate = this.parseBoolean(
+      this.configService.get('APTOS_STRICT_DATE') ?? 'true',
+      true,
+    );
     this.fullnodeApiKey =
       this.configService.get('GEOMI_API_KEY') ||
       this.configService.get('APTOS_API_KEY') ||
@@ -177,16 +182,23 @@ export class AptosApiService {
         ? holders.topHolders.find((holder) => holder.address.toLowerCase() === creatorAddress.toLowerCase())?.percentage || 0
         : 0;
 
-    const creationResolution = this.resolveDateWithSource([
-      { provider: 'panora_token', value: panoraToken?.createdAt },
-      { provider: 'panora_token', value: panoraToken?.created_at },
+    const canonicalDateCandidates = [
+      { provider: 'aptos_fullnode', value: onChainMeta.creationTimestamp },
       { provider: 'panora_token', value: panoraToken?.coinCreatedAt },
       { provider: 'panora_token', value: panoraToken?.coin_created_at },
+      { provider: 'panora_token', value: panoraToken?.createdAt },
+      { provider: 'panora_token', value: panoraToken?.created_at },
+    ];
+    const estimatedDateCandidates = [
       { provider: 'panora_price', value: panoraPrice?.createdAt },
       { provider: 'coingecko_coin', value: coinGeckoMarket?.genesisDate },
       { provider: 'geckoterminal_pool', value: geckoPoolStats?.oldestPoolCreatedAt },
-      { provider: 'aptos_fullnode', value: onChainMeta.creationTimestamp },
-    ]);
+    ];
+    const creationResolution = this.resolveDateWithSource(
+      this.strictAptosDate
+        ? canonicalDateCandidates
+        : [...canonicalDateCandidates, ...estimatedDateCandidates],
+    );
     const creationDate = creationResolution.value;
 
     let liquidity = this.pickNumber(
@@ -485,6 +497,7 @@ export class AptosApiService {
         panoraPriceResolved: !!panoraPrice,
         geckoPoolResolved: !!geckoPoolStats,
         coingeckoResolved: !!coinGeckoMarket,
+        strictAptosDate: this.strictAptosDate,
         holderSource: holders.source,
         indexerUrl: this.indexerUrl,
         fieldProvenance,
@@ -1162,5 +1175,15 @@ export class AptosApiService {
     return {
       Authorization: `Bearer ${this.fullnodeApiKey}`,
     };
+  }
+
+  private parseBoolean(value: string | boolean, defaultValue: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value || '')
+      .trim()
+      .toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    return defaultValue;
   }
 }
