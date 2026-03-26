@@ -234,12 +234,14 @@ export class ScanService {
       vettingResults.eligibleTier === 'none'
         ? (vettingResults.overallScore >= 50 ? 'seed' : null)
         : vettingResults.eligibleTier;
+    const reasonCode = vettingResults.reasonCode ?? null;
     const summary = this.generateAptosSummary(tokenData, vettingResults, tier);
 
     const result = {
       tier,
       risk_score: vettingResults.overallScore,
       risk_level: riskLevel,
+      reason_code: reasonCode,
       eligible: (vettingResults.overallScore || 0) >= 50,
       summary,
       metadata: {
@@ -267,6 +269,7 @@ export class ScanService {
         scan_timestamp: new Date().toISOString(),
         vetting_results: vettingResults,
         source: tokenData.source ?? null,
+        reason_code: reasonCode,
       },
     };
 
@@ -295,6 +298,7 @@ export class ScanService {
           tier,
           risk_score: result.risk_score ?? 0,
           risk_level: result.risk_level,
+          reason_code: reasonCode,
           summary: result.summary,
           metadata: result.metadata,
         },

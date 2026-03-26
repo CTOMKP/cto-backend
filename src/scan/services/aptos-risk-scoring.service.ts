@@ -85,6 +85,7 @@ export class AptosRiskScoringService {
       overallScore,
       riskLevel,
       eligibleTier,
+      reasonCode: missingCriticalData.length > 0 ? 'INSUFFICIENT_MARKET_DATA' : null,
       allFlags,
       dataSufficient: missingCriticalData.length === 0,
       missingData: missingCriticalData,

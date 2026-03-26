@@ -62,7 +62,7 @@ export interface ComponentScore {
   flags: string[];
 }
 
-  export interface VettingResults {
+export interface VettingResults {
   componentScores: {
     distribution: ComponentScore;
     liquidity: ComponentScore;
@@ -72,6 +72,7 @@ export interface ComponentScore {
   overallScore: number | null;
   riskLevel: 'low' | 'medium' | 'high' | 'insufficient_data';
   eligibleTier: 'stellar' | 'bloom' | 'sprout' | 'seed' | 'new' | 'none';
+  reasonCode?: string | null;
   allFlags: string[];
   dataSufficient: boolean;
   missingData: string[];

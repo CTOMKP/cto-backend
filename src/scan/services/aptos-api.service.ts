@@ -8,6 +8,7 @@ import {
   normalizeAptosCoinType,
   normalizeAptosHexAddress,
 } from '../../utils/validation';
+import { AnalyticsService } from '../../listing/services/analytics.service';
 
 type HolderEntry = {
   address: string;
@@ -23,25 +24,47 @@ export class AptosApiService {
   private readonly indexerUrl: string;
   private readonly panoraBaseUrl: string;
   private readonly panoraApiKey: string;
+  private readonly fullnodeApiKey?: string;
   private readonly indexerApiKey?: string;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    private readonly analyticsService: AnalyticsService,
   ) {
     this.fullnodeUrl =
-      this.configService.get('APTOS_FULLNODE_URL') || 'https://api.mainnet.aptoslabs.com/v1';
+      this.configService.get('GEOMI_FULLNODE_URL') ||
+      this.configService.get('APTOS_FULLNODE_URL') ||
+      'https://api.mainnet.aptoslabs.com/v1';
     this.indexerUrl =
-      this.configService.get('APTOS_INDEXER_URL') || 'https://indexer.mainnet.aptoslabs.com/v1/graphql';
+      this.configService.get('GEOMI_INDEXER_URL') ||
+      this.configService.get('APTOS_INDEXER_URL') ||
+      'https://api.mainnet.aptoslabs.com/v1/graphql';
     this.panoraBaseUrl =
       this.configService.get('PANORA_BASE_URL') || 'https://api.panora.exchange';
     this.panoraApiKey = this.configService.get('PANORA_API_KEY') || '';
-    this.indexerApiKey = this.configService.get('APTOS_INDEXER_API_KEY') || undefined;
+    this.fullnodeApiKey =
+      this.configService.get('GEOMI_API_KEY') ||
+      this.configService.get('APTOS_API_KEY') ||
+      this.configService.get('APTOS_INDEXER_API_KEY') ||
+      undefined;
+    this.indexerApiKey =
+      this.configService.get('APTOS_INDEXER_API_KEY') ||
+      this.configService.get('GEOMI_API_KEY') ||
+      this.configService.get('APTOS_API_KEY') ||
+      undefined;
 
     const aptosNetwork = (this.configService.get('APTOS_NETWORK') || 'mainnet').toLowerCase();
     const config = new AptosConfig({
       network: aptosNetwork === 'mainnet' ? Network.MAINNET : Network.CUSTOM,
       fullnode: this.fullnodeUrl,
+      clientConfig: this.fullnodeApiKey
+        ? ({
+            HEADERS: {
+              Authorization: `Bearer ${this.fullnodeApiKey}`,
+            },
+          } as any)
+        : undefined,
     });
     this.aptos = new Aptos(config);
   }
@@ -73,7 +96,17 @@ export class AptosApiService {
     );
 
     const onChainMeta = await this.fetchOnChainMetadata({ coinType, faAddress });
-    const holders = await this.fetchHolderSnapshot({ coinType, faAddress, totalSupply: onChainMeta.totalSupply });
+    let holders = await this.fetchHolderSnapshot({ coinType, faAddress, totalSupply: onChainMeta.totalSupply });
+    if (!holders.count) {
+      const fallbackHolders = await this.fetchFallbackHolderCount([faAddress, coinType, normalized]);
+      if (fallbackHolders && fallbackHolders > 0) {
+        holders = {
+          count: fallbackHolders,
+          topHolders: [],
+          source: 'coingecko_onchain',
+        };
+      }
+    }
 
     const creatorAddress =
       this.pickString(
@@ -89,14 +122,15 @@ export class AptosApiService {
         ? holders.topHolders.find((holder) => holder.address.toLowerCase() === creatorAddress.toLowerCase())?.percentage || 0
         : 0;
 
-    const creationDate = this.pickDate(
-      panoraToken?.createdAt,
-      panoraToken?.created_at,
-      panoraToken?.coinCreatedAt,
-      panoraToken?.coin_created_at,
-      panoraPrice?.createdAt,
-      onChainMeta.creationTimestamp,
-    );
+    const creationResolution = this.resolveDateWithSource([
+      { provider: 'panora_token', value: panoraToken?.createdAt },
+      { provider: 'panora_token', value: panoraToken?.created_at },
+      { provider: 'panora_token', value: panoraToken?.coinCreatedAt },
+      { provider: 'panora_token', value: panoraToken?.coin_created_at },
+      { provider: 'panora_price', value: panoraPrice?.createdAt },
+      { provider: 'aptos_fullnode', value: onChainMeta.creationTimestamp },
+    ]);
+    const creationDate = creationResolution.value;
 
     const liquidity = this.pickNumber(
       panoraPrice?.liquidity,
@@ -111,6 +145,24 @@ export class AptosApiService {
       panoraToken?.liquidity_usd,
       0,
     );
+    const liquiditySource = this.resolveProviderForNumber([
+      {
+        provider: 'panora_price',
+        values: [
+          panoraPrice?.liquidity,
+          panoraPrice?.liquidityUsd,
+          panoraPrice?.liquidity_usd,
+          panoraPrice?.totalLiquidityUsd,
+          panoraPrice?.total_liquidity_usd,
+          panoraPrice?.tvlUsd,
+          panoraPrice?.tvl_usd,
+        ],
+      },
+      {
+        provider: 'panora_token',
+        values: [panoraToken?.liquidity, panoraToken?.liquidityUsd, panoraToken?.liquidity_usd],
+      },
+    ]);
 
     const volume24h = this.pickNumber(
       panoraPrice?.volume24h,
@@ -123,6 +175,23 @@ export class AptosApiService {
       panoraToken?.volume_24h,
       0,
     );
+    const volumeSource = this.resolveProviderForNumber([
+      {
+        provider: 'panora_price',
+        values: [
+          panoraPrice?.volume24h,
+          panoraPrice?.volume_24h,
+          panoraPrice?.volume24hUsd,
+          panoraPrice?.volume_24h_usd,
+          panoraPrice?.volume24hUSD,
+          panoraPrice?.volumeUSD24h,
+        ],
+      },
+      {
+        provider: 'panora_token',
+        values: [panoraToken?.volume24h, panoraToken?.volume_24h],
+      },
+    ]);
 
     const price = this.pickNumber(
       panoraPrice?.price,
@@ -134,6 +203,16 @@ export class AptosApiService {
       panoraToken?.usdPrice,
       0,
     );
+    const priceSource = this.resolveProviderForNumber([
+      {
+        provider: 'panora_price',
+        values: [panoraPrice?.price, panoraPrice?.priceUsd, panoraPrice?.price_usd, panoraPrice?.usdPrice],
+      },
+      {
+        provider: 'panora_token',
+        values: [panoraToken?.price, panoraToken?.priceUsd, panoraToken?.usdPrice],
+      },
+    ]);
 
     const marketCap = this.pickNumber(
       panoraPrice?.marketCap,
@@ -147,6 +226,27 @@ export class AptosApiService {
       panoraToken?.market_cap,
       onChainMeta.totalSupply && price ? onChainMeta.totalSupply * price : 0,
     );
+    let marketCapSource = this.resolveProviderForNumber([
+      {
+        provider: 'panora_price',
+        values: [
+          panoraPrice?.marketCap,
+          panoraPrice?.market_cap,
+          panoraPrice?.fdv,
+          panoraPrice?.fdvUsd,
+          panoraPrice?.fdv_usd,
+          panoraPrice?.marketCapUsd,
+          panoraPrice?.market_cap_usd,
+        ],
+      },
+      {
+        provider: 'panora_token',
+        values: [panoraToken?.marketCap, panoraToken?.market_cap],
+      },
+    ]);
+    if (marketCapSource === 'unavailable' && marketCap > 0 && onChainMeta.totalSupply > 0 && price > 0) {
+      marketCapSource = 'derived_supply_x_price';
+    }
 
     const panoraTags = this.parseTags(panoraToken);
     const imageUrl =
@@ -159,6 +259,43 @@ export class AptosApiService {
       ) || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(normalized)}`;
 
     const top10HolderRate = holders.topHolders.slice(0, 10).reduce((sum, holder) => sum + holder.percentage, 0) / 100;
+
+    const projectAgeDays = creationDate
+      ? Math.max(0, Math.floor((Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24)))
+      : null;
+
+    const fieldProvenance = {
+      holders: {
+        provider: holders.source,
+        status: holders.count > 0 ? 'resolved' : 'unavailable',
+        value: holders.count,
+      },
+      liquidity: {
+        provider: liquiditySource,
+        status: liquidity > 0 ? 'resolved' : 'unavailable',
+        value: liquidity,
+      },
+      volume24h: {
+        provider: volumeSource,
+        status: volume24h > 0 ? 'resolved' : 'unavailable',
+        value: volume24h,
+      },
+      tokenAge: {
+        provider: creationResolution.source,
+        status: projectAgeDays !== null ? 'resolved' : 'unavailable',
+        value: projectAgeDays,
+      },
+      price: {
+        provider: priceSource,
+        status: price > 0 ? 'resolved' : 'unavailable',
+        value: price,
+      },
+      marketCap: {
+        provider: marketCapSource,
+        status: marketCap > 0 ? 'resolved' : 'unavailable',
+        value: marketCap,
+      },
+    };
 
     return {
       identifier: normalized,
@@ -180,7 +317,7 @@ export class AptosApiService {
         0,
       ),
       creation_date: creationDate,
-      project_age_days: creationDate ? Math.max(0, Math.floor((Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24))) : 0,
+      project_age_days: projectAgeDays,
       holder_count: holders.count,
       total_holders: holders.count,
       top_holders: holders.topHolders.map((holder) => ({
@@ -219,6 +356,7 @@ export class AptosApiService {
         panoraPriceResolved: !!panoraPrice,
         holderSource: holders.source,
         indexerUrl: this.indexerUrl,
+        fieldProvenance,
       },
     };
   }
@@ -354,6 +492,7 @@ export class AptosApiService {
         const creatorAddress = coinType.split('::')[0];
         const response = await firstValueFrom(
           this.httpService.get(`${this.fullnodeUrl}/accounts/${creatorAddress}/resource/${encodeURIComponent(`0x1::coin::CoinInfo<${coinType}>`)}`, {
+            headers: this.getFullnodeHeaders(),
             timeout: 15000,
           }),
         );
@@ -387,92 +526,45 @@ export class AptosApiService {
     totalSupply: number;
   }): Promise<{ count: number; topHolders: HolderEntry[]; source: string }> {
     const { coinType, faAddress, totalSupply } = params;
+    const candidates = [faAddress, coinType].filter((value): value is string => !!value);
 
-    if (coinType) {
-      const coinResult = await this.queryCoinHolders(coinType, totalSupply);
-      if (coinResult) return coinResult;
-    }
-
-    if (faAddress) {
-      const faResult = await this.queryFungibleAssetHolders(faAddress, totalSupply);
-      if (faResult) return faResult;
+    for (const candidate of candidates) {
+      const holderResult = await this.queryFungibleAssetHolders(candidate, totalSupply);
+      if (holderResult) {
+        return holderResult;
+      }
     }
 
     return { count: 0, topHolders: [], source: 'unavailable' };
   }
 
-  private async queryCoinHolders(coinType: string, totalSupply: number) {
+  private async queryFungibleAssetHolders(identifier: string, totalSupply: number) {
     const query = `
-      query CoinHolders($coinType: String!, $limit: Int!) {
-        current_coin_balances(
-          where: { coin_type: { _eq: $coinType } }
+      query AssetHoldersByAssetType($assetType: String!, $limit: Int!) {
+        current_fungible_asset_balances(
+          where: { asset_type: { _eq: $assetType } }
           order_by: { amount: desc }
           limit: $limit
         ) {
           owner_address
           amount
         }
+        current_fungible_asset_balances_aggregate(
+          where: { asset_type: { _eq: $assetType } }
+        ) {
+          aggregate {
+            count
+          }
+        }
       }
     `;
 
-    return this.queryIndexerHolders(query, { coinType, limit: 10 }, totalSupply, 'coin');
-  }
-
-  private async queryFungibleAssetHolders(faAddress: string, totalSupply: number) {
-    const queries = [
-      {
-        query: `
-          query AssetHolders($assetType: String!, $limit: Int!) {
-            current_unified_fungible_asset_balances(
-              where: { asset_type: { _eq: $assetType } }
-              order_by: { amount: desc }
-              limit: $limit
-            ) {
-              owner_address
-              amount
-            }
-          }
-        `,
-        variables: { assetType: faAddress, limit: 10 },
-      },
-      {
-        query: `
-          query AssetHoldersAlt($metadataAddress: String!, $limit: Int!) {
-            current_fungible_asset_balances(
-              where: { metadata_address: { _eq: $metadataAddress } }
-              order_by: { amount: desc }
-              limit: $limit
-            ) {
-              owner_address
-              amount
-            }
-          }
-        `,
-        variables: { metadataAddress: faAddress, limit: 10 },
-      },
-      {
-        query: `
-          query AssetHoldersByAssetType($assetType: String!, $limit: Int!) {
-            current_fungible_asset_balances(
-              where: { asset_type: { _eq: $assetType } }
-              order_by: { amount: desc }
-              limit: $limit
-            ) {
-              owner_address
-              amount
-            }
-          }
-        `,
-        variables: { assetType: faAddress, limit: 10 },
-      },
-    ];
-
-    for (const item of queries) {
-      const result = await this.queryIndexerHolders(item.query, item.variables, totalSupply, 'fungible_asset');
-      if (result) return result;
-    }
-
-    return null;
+    return this.queryIndexerHolders(
+      query,
+      { assetType: identifier, limit: 10 },
+      totalSupply,
+      `fungible_asset:${identifier}`,
+    );
   }
 
   private async queryIndexerHolders(
@@ -535,6 +627,24 @@ export class AptosApiService {
     }
   }
 
+  private async fetchFallbackHolderCount(candidates: Array<string | null>) {
+    const unique = [...new Set(candidates.filter((value): value is string => !!value))];
+
+    for (const candidate of unique) {
+      try {
+        const holders = await this.analyticsService.getHolderCount(candidate, 'APTOS');
+        if (holders && holders > 0) {
+          this.logger.debug(`Aptos holder fallback resolved ${holders} holders for ${candidate}`);
+          return holders;
+        }
+      } catch (error: any) {
+        this.logger.debug(`Aptos holder fallback failed for ${candidate}: ${error.message}`);
+      }
+    }
+
+    return 0;
+  }
+
   private extractFirstArray(data: Record<string, any>): any[] {
     for (const value of Object.values(data)) {
       if (Array.isArray(value)) return value;
@@ -593,5 +703,41 @@ export class AptosApiService {
       if (!Number.isNaN(date.getTime())) return date;
     }
     return null;
+  }
+
+  private resolveDateWithSource(
+    candidates: Array<{ provider: string; value: any }>,
+  ): { value: Date | null; source: string } {
+    for (const candidate of candidates) {
+      if (!candidate.value) continue;
+      const date = candidate.value instanceof Date ? candidate.value : new Date(candidate.value);
+      if (!Number.isNaN(date.getTime())) {
+        return { value: date, source: candidate.provider };
+      }
+    }
+    return { value: null, source: 'unavailable' };
+  }
+
+  private resolveProviderForNumber(
+    candidates: Array<{ provider: string; values: any[] }>,
+  ): string {
+    for (const candidate of candidates) {
+      for (const value of candidate.values) {
+        const num = typeof value === 'number' ? value : Number(value);
+        if (Number.isFinite(num)) {
+          return candidate.provider;
+        }
+      }
+    }
+    return 'unavailable';
+  }
+
+  private getFullnodeHeaders() {
+    if (!this.fullnodeApiKey) {
+      return undefined;
+    }
+    return {
+      Authorization: `Bearer ${this.fullnodeApiKey}`,
+    };
   }
 }

@@ -66,12 +66,14 @@ export class UserListingsService {
         const metadata = stored?.metadata ?? stored;
         const summary = stored?.summary ?? recentScan.summary ?? null;
         const riskLevel = stored?.risk_level ?? null;
+        const reasonCode = stored?.reason_code ?? metadata?.reason_code ?? null;
 
         return {
           success: eligible,
           risk_score: riskScore,
           tier,
           risk_level: riskLevel,
+          reason_code: reasonCode,
           eligible,
           summary,
           metadata,
@@ -89,6 +91,7 @@ export class UserListingsService {
       const metadata = result?.metadata ?? null;
       const summary = result?.summary ?? null;
       const riskLevel = result?.risk_level ?? null;
+      const reasonCode = (result as any)?.reason_code ?? (metadata as any)?.reason_code ?? null;
 
       const passed = typeof score === 'number' && score >= this.MIN_QUALIFYING_SCORE && result?.eligible !== false;
       return {
@@ -96,6 +99,7 @@ export class UserListingsService {
         risk_score: score, // Added for frontend compatibility
         tier: tier,       // Added for frontend compatibility
         risk_level: riskLevel,
+        reason_code: reasonCode,
         vettingScore: score,
         vettingTier: tier,
         eligible: passed,
@@ -115,6 +119,7 @@ export class UserListingsService {
             risk_score: score,
             tier,
             risk_level: response.risk_level ?? null,
+            reason_code: response.reason_code ?? response.metadata?.reason_code ?? null,
             vettingScore: score,
             vettingTier: tier,
             eligible: response.eligible ?? false,

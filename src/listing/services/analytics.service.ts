@@ -189,6 +189,7 @@ export class AnalyticsService {
         'BASE': 'base',
         'BSC': 'bsc',
         'SUI': 'sui',
+        'APTOS': 'aptos',
       };
 
       const networkId = networkMap[chain.toUpperCase()];
