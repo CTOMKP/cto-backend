@@ -24,7 +24,9 @@ export class AptosApiService {
   private readonly indexerUrl: string;
   private readonly panoraBaseUrl: string;
   private readonly geckoTerminalBaseUrl: string;
+  private readonly coingeckoBaseUrl: string;
   private readonly panoraApiKey: string;
+  private readonly coingeckoApiKey: string;
   private readonly fullnodeApiKey?: string;
   private readonly indexerApiKey?: string;
 
@@ -45,7 +47,10 @@ export class AptosApiService {
       this.configService.get('PANORA_BASE_URL') || 'https://api.panora.exchange';
     this.geckoTerminalBaseUrl =
       this.configService.get('GECKOTERMINAL_BASE_URL') || 'https://api.geckoterminal.com/api/v2';
+    this.coingeckoBaseUrl =
+      this.configService.get('COINGECKO_BASE_URL') || 'https://api.coingecko.com/api/v3';
     this.panoraApiKey = this.configService.get('PANORA_API_KEY') || '';
+    this.coingeckoApiKey = this.configService.get('COINGECKO_API_KEY') || '';
     this.fullnodeApiKey =
       this.configService.get('GEOMI_API_KEY') ||
       this.configService.get('APTOS_API_KEY') ||
@@ -75,6 +80,13 @@ export class AptosApiService {
   async fetchTokenData(contractAddress: string) {
     const normalized = this.normalizeIdentifier(contractAddress);
     const panoraToken = await this.fetchPanoraToken(normalized);
+    const coinGeckoId =
+      this.pickString(
+        panoraToken?.coinGeckoId,
+        panoraToken?.coin_gecko_id,
+        panoraToken?.coingeckoId,
+        panoraToken?.coingecko_id,
+      ) || null;
 
     const faAddress =
       this.pickString(
@@ -100,6 +112,11 @@ export class AptosApiService {
     const geckoToken = await this.fetchGeckoTerminalTokenData(
       [faAddress, normalized, coinType].filter((v): v is string => !!v),
     );
+    const geckoPoolStats = await this.fetchGeckoTerminalPoolStats(geckoToken?.topPoolIds || []);
+    const coinGeckoMarket = await this.fetchCoinGeckoMarketData({
+      coinGeckoId,
+      identifiers: [faAddress, normalized, coinType].filter((v): v is string => !!v),
+    });
 
     const onChainMeta = await this.fetchOnChainMetadata({ coinType, faAddress });
     const holderSupply = this.pickNumber(
@@ -144,6 +161,8 @@ export class AptosApiService {
       { provider: 'panora_token', value: panoraToken?.coinCreatedAt },
       { provider: 'panora_token', value: panoraToken?.coin_created_at },
       { provider: 'panora_price', value: panoraPrice?.createdAt },
+      { provider: 'coingecko_coin', value: coinGeckoMarket?.genesisDate },
+      { provider: 'geckoterminal_pool', value: geckoPoolStats?.oldestPoolCreatedAt },
       { provider: 'aptos_fullnode', value: onChainMeta.creationTimestamp },
     ]);
     const creationDate = creationResolution.value;
@@ -186,6 +205,13 @@ export class AptosApiService {
         liquiditySource = 'geckoterminal_token';
       }
     }
+    if (liquidity <= 0) {
+      const geckoPoolLiquidity = this.pickNumber(geckoPoolStats?.totalReserveUsd, 0);
+      if (geckoPoolLiquidity > 0) {
+        liquidity = geckoPoolLiquidity;
+        liquiditySource = 'geckoterminal_pool';
+      }
+    }
 
     let volume24h = this.pickNumber(
       panoraPrice?.volume24h,
@@ -222,6 +248,20 @@ export class AptosApiService {
         volumeSource = 'geckoterminal_token';
       }
     }
+    if (volume24h <= 0) {
+      const geckoPoolVolume = this.pickNumber(geckoPoolStats?.totalVolume24h, 0);
+      if (geckoPoolVolume > 0) {
+        volume24h = geckoPoolVolume;
+        volumeSource = 'geckoterminal_pool';
+      }
+    }
+    if (volume24h <= 0) {
+      const coinGeckoVolume = this.pickNumber(coinGeckoMarket?.volume24hUsd, 0);
+      if (coinGeckoVolume > 0) {
+        volume24h = coinGeckoVolume;
+        volumeSource = 'coingecko_market';
+      }
+    }
 
     let price = this.pickNumber(
       panoraPrice?.price,
@@ -248,6 +288,13 @@ export class AptosApiService {
       if (geckoPrice > 0) {
         price = geckoPrice;
         priceSource = 'geckoterminal_token';
+      }
+    }
+    if (price <= 0) {
+      const coinGeckoPrice = this.pickNumber(coinGeckoMarket?.priceUsd, 0);
+      if (coinGeckoPrice > 0) {
+        price = coinGeckoPrice;
+        priceSource = 'coingecko_market';
       }
     }
 
@@ -289,6 +336,13 @@ export class AptosApiService {
       if (geckoFdv > 0) {
         marketCap = geckoFdv;
         marketCapSource = 'geckoterminal_token';
+      }
+    }
+    if (marketCap <= 0 || marketCapSource === 'derived_supply_x_price') {
+      const coinGeckoCap = this.pickNumber(coinGeckoMarket?.marketCapUsd, 0);
+      if (coinGeckoCap > 0) {
+        marketCap = coinGeckoCap;
+        marketCapSource = 'coingecko_market';
       }
     }
 
@@ -407,6 +461,8 @@ export class AptosApiService {
       source: {
         panoraTokenResolved: !!panoraToken,
         panoraPriceResolved: !!panoraPrice,
+        geckoPoolResolved: !!geckoPoolStats,
+        coingeckoResolved: !!coinGeckoMarket,
         holderSource: holders.source,
         indexerUrl: this.indexerUrl,
         fieldProvenance,
@@ -480,6 +536,11 @@ export class AptosApiService {
       const data = await this.geckoGet(`/networks/aptos/tokens/${encodeURIComponent(identifier)}`);
       const attrs = data?.data?.attributes;
       if (attrs) {
+        const topPoolIds = Array.isArray(data?.data?.relationships?.top_pools?.data)
+          ? data.data.relationships.top_pools.data
+              .map((pool: any) => this.pickString(pool?.id))
+              .filter((value: string | null): value is string => !!value)
+          : [];
         return {
           priceUsd: this.pickNumber(attrs.price_usd, 0),
           fdvUsd: this.pickNumber(attrs.fdv_usd, 0),
@@ -488,11 +549,136 @@ export class AptosApiService {
           volume24hUsd: this.pickNumber(attrs.volume_usd?.h24, 0),
           totalSupplyRaw: this.pickNumber(attrs.total_supply, 0),
           totalSupplyNormalized: this.pickNumber(attrs.normalized_total_supply, 0),
+          topPoolIds,
         };
       }
     }
 
     return null;
+  }
+
+  private async fetchGeckoTerminalPoolStats(poolIds: string[]) {
+    if (!Array.isArray(poolIds) || poolIds.length === 0) {
+      return null;
+    }
+
+    const uniquePoolIds = [...new Set(poolIds)].slice(0, 5);
+    let totalVolume24h = 0;
+    let totalReserveUsd = 0;
+    let oldestPoolCreatedAt: Date | null = null;
+    let resolved = false;
+
+    for (const poolId of uniquePoolIds) {
+      const poolAddress = poolId.startsWith('aptos_') ? poolId.slice('aptos_'.length) : poolId;
+      const poolCandidates = [...new Set([poolAddress, poolId].filter(Boolean))];
+      let attrs: any = null;
+
+      for (const candidate of poolCandidates) {
+        const data = await this.geckoGet(`/networks/aptos/pools/${encodeURIComponent(candidate)}`);
+        attrs = data?.data?.attributes;
+        if (attrs) break;
+      }
+
+      if (!attrs) continue;
+
+      resolved = true;
+      totalVolume24h += this.pickNumber(attrs.volume_usd?.h24, 0);
+      totalReserveUsd += this.pickNumber(attrs.reserve_in_usd, attrs.total_reserve_in_usd, 0);
+
+      const poolCreatedAt = this.pickDate(
+        attrs.pool_created_at,
+        attrs.created_at,
+        attrs.first_created_at,
+        attrs.createdAt,
+      );
+      if (poolCreatedAt && (!oldestPoolCreatedAt || poolCreatedAt < oldestPoolCreatedAt)) {
+        oldestPoolCreatedAt = poolCreatedAt;
+      }
+    }
+
+    if (!resolved) {
+      return null;
+    }
+
+    return {
+      totalVolume24h,
+      totalReserveUsd,
+      oldestPoolCreatedAt,
+    };
+  }
+
+  private async fetchCoinGeckoMarketData(params: {
+    coinGeckoId: string | null;
+    identifiers: string[];
+  }) {
+    const { coinGeckoId, identifiers } = params;
+
+    if (coinGeckoId) {
+      const marketById = await this.fetchCoinGeckoById(coinGeckoId);
+      if (marketById) {
+        return marketById;
+      }
+    }
+
+    for (const identifier of identifiers) {
+      const marketByAddress = await this.fetchCoinGeckoSimpleByAddress(identifier);
+      if (marketByAddress) {
+        return marketByAddress;
+      }
+    }
+
+    return null;
+  }
+
+  private async fetchCoinGeckoById(coinGeckoId: string) {
+    const data = await this.coingeckoGet(
+      `/coins/${encodeURIComponent(
+        coinGeckoId,
+      )}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false`,
+    );
+    if (!data) {
+      return null;
+    }
+
+    const marketData = data.market_data || {};
+    return {
+      priceUsd: this.pickNumber(marketData?.current_price?.usd, 0),
+      marketCapUsd: this.pickNumber(marketData?.market_cap?.usd, 0),
+      volume24hUsd: this.pickNumber(marketData?.total_volume?.usd, 0),
+      genesisDate: this.pickDate(data?.genesis_date, marketData?.atl_date?.usd),
+    };
+  }
+
+  private async fetchCoinGeckoSimpleByAddress(identifier: string) {
+    const data = await this.coingeckoGet(
+      `/simple/token_price/aptos?contract_addresses=${encodeURIComponent(
+        identifier,
+      )}&vs_currencies=usd&include_24hr_vol=true&include_market_cap=true`,
+    );
+    if (!data || typeof data !== 'object') {
+      return null;
+    }
+
+    const firstKey = Object.keys(data)[0];
+    const tokenData = firstKey ? data[firstKey] : null;
+    if (!tokenData || typeof tokenData !== 'object') {
+      return null;
+    }
+
+    const priceUsd = this.pickNumber(tokenData?.usd, 0);
+    const marketCapUsd = this.pickNumber(tokenData?.usd_market_cap, 0);
+    const volume24hUsd = this.pickNumber(tokenData?.usd_24h_vol, 0);
+
+    if (priceUsd <= 0 && marketCapUsd <= 0 && volume24hUsd <= 0) {
+      return null;
+    }
+
+    return {
+      priceUsd,
+      marketCapUsd,
+      volume24hUsd,
+      genesisDate: null,
+    };
   }
 
   private async panoraGet(path: string): Promise<any | null> {
@@ -531,6 +717,28 @@ export class AptosApiService {
       return response.data;
     } catch (error: any) {
       this.logger.debug(`GeckoTerminal request failed for ${path}: ${error.message}`);
+      return null;
+    }
+  }
+
+  private async coingeckoGet(path: string): Promise<any | null> {
+    try {
+      const headers: Record<string, string> = {
+        Accept: 'application/json',
+      };
+      if (this.coingeckoApiKey) {
+        headers['x-cg-pro-api-key'] = this.coingeckoApiKey;
+      }
+
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.coingeckoBaseUrl}${path}`, {
+          headers,
+          timeout: 15000,
+        }),
+      );
+      return response.data;
+    } catch (error: any) {
+      this.logger.debug(`CoinGecko request failed for ${path}: ${error.message}`);
       return null;
     }
   }
