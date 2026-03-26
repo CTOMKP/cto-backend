@@ -102,7 +102,17 @@ export class AptosApiService {
     );
 
     const onChainMeta = await this.fetchOnChainMetadata({ coinType, faAddress });
-    let holders = await this.fetchHolderSnapshot({ coinType, faAddress, totalSupply: onChainMeta.totalSupply });
+    const holderSupply = this.pickNumber(
+      geckoToken?.totalSupplyRaw,
+      onChainMeta.totalSupply,
+      geckoToken?.totalSupplyNormalized,
+      0,
+    );
+    let holders = await this.fetchHolderSnapshot({
+      coinType,
+      faAddress,
+      totalSupply: holderSupply,
+    });
     if (!holders.count) {
       const fallbackHolders = await this.fetchFallbackHolderCount([faAddress, coinType, normalized]);
       if (fallbackHolders && fallbackHolders > 0) {
@@ -342,11 +352,20 @@ export class AptosApiService {
       image: imageUrl,
       icon: imageUrl,
       decimals: this.pickNumber(panoraToken?.decimals, onChainMeta.decimals, 8),
-      total_supply: this.pickNumber(panoraToken?.totalSupply, panoraToken?.total_supply, onChainMeta.totalSupply, 0),
+      total_supply: this.pickNumber(
+        panoraToken?.totalSupply,
+        panoraToken?.total_supply,
+        onChainMeta.totalSupply,
+        geckoToken?.totalSupplyRaw,
+        geckoToken?.totalSupplyNormalized,
+        0,
+      ),
       circulating_supply: this.pickNumber(
         panoraToken?.circulatingSupply,
         panoraToken?.circulating_supply,
         onChainMeta.circulatingSupply,
+        geckoToken?.totalSupplyRaw,
+        geckoToken?.totalSupplyNormalized,
         onChainMeta.totalSupply,
         0,
       ),
@@ -467,6 +486,8 @@ export class AptosApiService {
           marketCapUsd: this.pickNumber(attrs.market_cap_usd, 0),
           totalReserveUsd: this.pickNumber(attrs.total_reserve_in_usd, 0),
           volume24hUsd: this.pickNumber(attrs.volume_usd?.h24, 0),
+          totalSupplyRaw: this.pickNumber(attrs.total_supply, 0),
+          totalSupplyNormalized: this.pickNumber(attrs.normalized_total_supply, 0),
         };
       }
     }
@@ -683,6 +704,17 @@ export class AptosApiService {
           };
         })
         .filter((holder: HolderEntry) => holder.balance > 0 && holder.address);
+
+      const top1Pct = topHolders[0]?.percentage || 0;
+      const top10Pct = topHolders.slice(0, 10).reduce((sum, holder) => sum + holder.percentage, 0);
+      if (top1Pct > 100 || top10Pct > 100) {
+        this.logger.warn(
+          `Discarding invalid Aptos holder distribution from ${source}: top1=${top1Pct.toFixed(
+            2,
+          )}%, top10=${top10Pct.toFixed(2)}%`,
+        );
+        topHolders.length = 0;
+      }
 
       const count = aggregate || topHolders.length;
       // Treat empty results as unresolved so the caller can try fallback queries.
