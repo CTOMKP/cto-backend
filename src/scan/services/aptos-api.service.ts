@@ -23,6 +23,7 @@ export class AptosApiService {
   private readonly fullnodeUrl: string;
   private readonly indexerUrl: string;
   private readonly panoraBaseUrl: string;
+  private readonly geckoTerminalBaseUrl: string;
   private readonly panoraApiKey: string;
   private readonly fullnodeApiKey?: string;
   private readonly indexerApiKey?: string;
@@ -42,6 +43,8 @@ export class AptosApiService {
       'https://api.mainnet.aptoslabs.com/v1/graphql';
     this.panoraBaseUrl =
       this.configService.get('PANORA_BASE_URL') || 'https://api.panora.exchange';
+    this.geckoTerminalBaseUrl =
+      this.configService.get('GECKOTERMINAL_BASE_URL') || 'https://api.geckoterminal.com/api/v2';
     this.panoraApiKey = this.configService.get('PANORA_API_KEY') || '';
     this.fullnodeApiKey =
       this.configService.get('GEOMI_API_KEY') ||
@@ -94,6 +97,9 @@ export class AptosApiService {
     const panoraPrice = await this.fetchPanoraPriceCandidates(
       [normalized, faAddress, coinType].filter((v): v is string => !!v),
     );
+    const geckoToken = await this.fetchGeckoTerminalTokenData(
+      [faAddress, normalized, coinType].filter((v): v is string => !!v),
+    );
 
     const onChainMeta = await this.fetchOnChainMetadata({ coinType, faAddress });
     let holders = await this.fetchHolderSnapshot({ coinType, faAddress, totalSupply: onChainMeta.totalSupply });
@@ -132,7 +138,7 @@ export class AptosApiService {
     ]);
     const creationDate = creationResolution.value;
 
-    const liquidity = this.pickNumber(
+    let liquidity = this.pickNumber(
       panoraPrice?.liquidity,
       panoraPrice?.liquidityUsd,
       panoraPrice?.liquidity_usd,
@@ -145,7 +151,7 @@ export class AptosApiService {
       panoraToken?.liquidity_usd,
       0,
     );
-    const liquiditySource = this.resolveProviderForNumber([
+    let liquiditySource = this.resolveProviderForNumber([
       {
         provider: 'panora_price',
         values: [
@@ -163,8 +169,15 @@ export class AptosApiService {
         values: [panoraToken?.liquidity, panoraToken?.liquidityUsd, panoraToken?.liquidity_usd],
       },
     ]);
+    if (liquidity <= 0) {
+      const geckoLiquidity = this.pickNumber(geckoToken?.totalReserveUsd, 0);
+      if (geckoLiquidity > 0) {
+        liquidity = geckoLiquidity;
+        liquiditySource = 'geckoterminal_token';
+      }
+    }
 
-    const volume24h = this.pickNumber(
+    let volume24h = this.pickNumber(
       panoraPrice?.volume24h,
       panoraPrice?.volume_24h,
       panoraPrice?.volume24hUsd,
@@ -175,7 +188,7 @@ export class AptosApiService {
       panoraToken?.volume_24h,
       0,
     );
-    const volumeSource = this.resolveProviderForNumber([
+    let volumeSource = this.resolveProviderForNumber([
       {
         provider: 'panora_price',
         values: [
@@ -192,8 +205,15 @@ export class AptosApiService {
         values: [panoraToken?.volume24h, panoraToken?.volume_24h],
       },
     ]);
+    if (volume24h <= 0) {
+      const geckoVolume = this.pickNumber(geckoToken?.volume24hUsd, 0);
+      if (geckoVolume > 0) {
+        volume24h = geckoVolume;
+        volumeSource = 'geckoterminal_token';
+      }
+    }
 
-    const price = this.pickNumber(
+    let price = this.pickNumber(
       panoraPrice?.price,
       panoraPrice?.priceUsd,
       panoraPrice?.price_usd,
@@ -203,7 +223,7 @@ export class AptosApiService {
       panoraToken?.usdPrice,
       0,
     );
-    const priceSource = this.resolveProviderForNumber([
+    let priceSource = this.resolveProviderForNumber([
       {
         provider: 'panora_price',
         values: [panoraPrice?.price, panoraPrice?.priceUsd, panoraPrice?.price_usd, panoraPrice?.usdPrice],
@@ -213,8 +233,15 @@ export class AptosApiService {
         values: [panoraToken?.price, panoraToken?.priceUsd, panoraToken?.usdPrice],
       },
     ]);
+    if (price <= 0) {
+      const geckoPrice = this.pickNumber(geckoToken?.priceUsd, 0);
+      if (geckoPrice > 0) {
+        price = geckoPrice;
+        priceSource = 'geckoterminal_token';
+      }
+    }
 
-    const marketCap = this.pickNumber(
+    let marketCap = this.pickNumber(
       panoraPrice?.marketCap,
       panoraPrice?.market_cap,
       panoraPrice?.fdv,
@@ -246,6 +273,13 @@ export class AptosApiService {
     ]);
     if (marketCapSource === 'unavailable' && marketCap > 0 && onChainMeta.totalSupply > 0 && price > 0) {
       marketCapSource = 'derived_supply_x_price';
+    }
+    if (marketCapSource === 'derived_supply_x_price') {
+      const geckoFdv = this.pickNumber(geckoToken?.fdvUsd, geckoToken?.marketCapUsd, 0);
+      if (geckoFdv > 0) {
+        marketCap = geckoFdv;
+        marketCapSource = 'geckoterminal_token';
+      }
     }
 
     const panoraTags = this.parseTags(panoraToken);
@@ -417,6 +451,29 @@ export class AptosApiService {
     return null;
   }
 
+  private async fetchGeckoTerminalTokenData(identifiers: string[]) {
+    for (const identifier of identifiers) {
+      // GeckoTerminal Aptos token endpoint expects a hex token/metadata address, not coin-type format.
+      if (!normalizeAptosHexAddress(identifier)) {
+        continue;
+      }
+
+      const data = await this.geckoGet(`/networks/aptos/tokens/${encodeURIComponent(identifier)}`);
+      const attrs = data?.data?.attributes;
+      if (attrs) {
+        return {
+          priceUsd: this.pickNumber(attrs.price_usd, 0),
+          fdvUsd: this.pickNumber(attrs.fdv_usd, 0),
+          marketCapUsd: this.pickNumber(attrs.market_cap_usd, 0),
+          totalReserveUsd: this.pickNumber(attrs.total_reserve_in_usd, 0),
+          volume24hUsd: this.pickNumber(attrs.volume_usd?.h24, 0),
+        };
+      }
+    }
+
+    return null;
+  }
+
   private async panoraGet(path: string): Promise<any | null> {
     if (!this.panoraApiKey) {
       this.logger.warn('PANORA_API_KEY not configured, skipping Panora fetch');
@@ -436,6 +493,23 @@ export class AptosApiService {
       return response.data;
     } catch (error: any) {
       this.logger.debug(`Panora request failed for ${path}: ${error.message}`);
+      return null;
+    }
+  }
+
+  private async geckoGet(path: string): Promise<any | null> {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.geckoTerminalBaseUrl}${path}`, {
+          headers: {
+            Accept: 'application/json',
+          },
+          timeout: 15000,
+        }),
+      );
+      return response.data;
+    } catch (error: any) {
+      this.logger.debug(`GeckoTerminal request failed for ${path}: ${error.message}`);
       return null;
     }
   }
