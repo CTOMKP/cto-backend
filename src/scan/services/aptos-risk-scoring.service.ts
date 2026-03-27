@@ -1,9 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { TokenVettingData, VettingResults, ComponentScore } from '../../services/pillar1-risk-scoring.service';
 
 @Injectable()
 export class AptosRiskScoringService {
   private readonly logger = new Logger(AptosRiskScoringService.name);
+  private readonly confidenceRequiredFields: Set<string>;
+
+  constructor(private readonly configService: ConfigService) {
+    this.confidenceRequiredFields = this.parseRequiredFields(
+      this.configService.get<string>('APTOS_CONFIDENCE_REQUIRED_FIELDS'),
+    );
+  }
 
   calculateRiskScore(
     data: TokenVettingData,
@@ -27,32 +35,41 @@ export class AptosRiskScoringService {
       technical.score * 0.2,
     );
 
-    const missingCriticalData: string[] = [];
+    const missingData: string[] = [];
     if (!data.holders?.count && (!data.holders?.topHolders || data.holders.topHolders.length === 0)) {
-      missingCriticalData.push('Holders');
+      missingData.push('Holders');
     }
     if (!data.trading?.liquidity || data.trading.liquidity <= 0) {
-      missingCriticalData.push('Liquidity');
+      missingData.push('Liquidity');
     }
     if (!data.trading?.volume24h || data.trading.volume24h <= 0) {
-      missingCriticalData.push('24h Volume');
+      missingData.push('24h Volume');
     }
     if (context?.hasReliableAge === false) {
-      missingCriticalData.push('Token Age');
+      missingData.push('Token Age');
     }
 
-    if (missingCriticalData.length > 0) {
+    const criticalMissingData = missingData.filter((field) =>
+      this.confidenceRequiredFields.has(this.normalizeMissingFieldKey(field)),
+    );
+    const nonCriticalMissingData = missingData.filter(
+      (field) => !this.confidenceRequiredFields.has(this.normalizeMissingFieldKey(field)),
+    );
+
+    if (criticalMissingData.length > 0) {
       // Keep scoring available, but never allow high-confidence pass when core data is absent.
       overallScore = Math.min(overallScore, 49);
       this.logger.debug(
-        `Aptos confidence gate applied for ${data.contractAddress}. Missing: ${missingCriticalData.join(', ')}`,
+        `Aptos confidence gate applied for ${data.contractAddress}. Missing required: ${criticalMissingData.join(
+          ', ',
+        )}`,
       );
     }
 
     let riskLevel: VettingResults['riskLevel'] = 'high';
     if (overallScore >= 70) riskLevel = 'low';
     else if (overallScore >= 50) riskLevel = 'medium';
-    if (missingCriticalData.length > 0) {
+    if (criticalMissingData.length > 0) {
       riskLevel = 'insufficient_data';
     }
 
@@ -62,7 +79,7 @@ export class AptosRiskScoringService {
       data.trading.liquidity,
       data.trading.volume24h,
       context?.panoraTags || [],
-      missingCriticalData.length > 0,
+      criticalMissingData.length > 0,
     );
 
     const allFlags = [
@@ -71,8 +88,11 @@ export class AptosRiskScoringService {
       ...devAbandonment.flags,
       ...technical.flags,
     ];
-    if (missingCriticalData.length > 0) {
-      allFlags.push(`Insufficient critical data: ${missingCriticalData.join(', ')}.`);
+    if (criticalMissingData.length > 0) {
+      allFlags.push(`Insufficient required data: ${criticalMissingData.join(', ')}.`);
+    }
+    if (nonCriticalMissingData.length > 0) {
+      allFlags.push(`Non-critical data unavailable: ${nonCriticalMissingData.join(', ')}.`);
     }
 
     return {
@@ -85,10 +105,15 @@ export class AptosRiskScoringService {
       overallScore,
       riskLevel,
       eligibleTier,
-      reasonCode: missingCriticalData.length > 0 ? 'INSUFFICIENT_MARKET_DATA' : null,
+      reasonCode:
+        criticalMissingData.length > 0
+          ? 'INSUFFICIENT_MARKET_DATA'
+          : nonCriticalMissingData.length > 0
+          ? 'PARTIAL_MARKET_DATA'
+          : null,
       allFlags,
-      dataSufficient: missingCriticalData.length === 0,
-      missingData: missingCriticalData,
+      dataSufficient: criticalMissingData.length === 0,
+      missingData,
       calculatedAt: new Date().toISOString(),
     };
   }
@@ -300,5 +325,29 @@ export class AptosRiskScoringService {
     if (ageDays >= 14 && liquidityUsd >= 10000 && score >= 50) return 'seed';
     if (ageDays < 14 && liquidityUsd >= 5000 && score >= 60) return 'new';
     return 'none';
+  }
+
+  private parseRequiredFields(raw?: string): Set<string> {
+    const fallback = ['LIQUIDITY', 'VOLUME_24H'];
+    const normalized = (raw || '')
+      .split(',')
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean);
+    return new Set(normalized.length > 0 ? normalized : fallback);
+  }
+
+  private normalizeMissingFieldKey(field: string): string {
+    switch (field) {
+      case 'Holders':
+        return 'HOLDERS';
+      case 'Liquidity':
+        return 'LIQUIDITY';
+      case '24h Volume':
+        return 'VOLUME_24H';
+      case 'Token Age':
+        return 'TOKEN_AGE';
+      default:
+        return field.trim().toUpperCase().replace(/\s+/g, '_');
+    }
   }
 }

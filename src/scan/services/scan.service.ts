@@ -206,6 +206,9 @@ export class ScanService {
   private async scanAptosToken(contractAddress: string, userId?: number) {
     const tokenData = await this.aptosApiService.fetchTokenData(contractAddress);
     const vettingData = this.transformAptosToVettingData(contractAddress, tokenData);
+    const fieldProvenance = tokenData?.source?.fieldProvenance || {};
+    const hasResolvedField = (field: 'holders' | 'liquidity' | 'volume24h' | 'tokenAge' | 'price' | 'marketCap') =>
+      fieldProvenance?.[field]?.status === 'resolved';
     const hasReliableAge =
       !!tokenData.creation_date ||
       (Number.isFinite(Number(tokenData.project_age_days)) && Number(tokenData.project_age_days) > 0);
@@ -253,15 +256,15 @@ export class ScanService {
         fa_address: tokenData.fa_address ?? null,
         asset_type: tokenData.asset_type ?? null,
         panora_tags: tokenData.panora_tags || [],
-        project_age_days: hasReliableAge ? vettingData.tokenAge : null,
-        age_display: hasReliableAge ? formatTokenAge(vettingData.tokenAge) : 'N/A',
-        age_display_short: hasReliableAge ? formatTokenAgeShort(vettingData.tokenAge) : 'N/A',
+        project_age_days: hasReliableAge && hasResolvedField('tokenAge') ? vettingData.tokenAge : null,
+        age_display: hasReliableAge && hasResolvedField('tokenAge') ? formatTokenAge(vettingData.tokenAge) : 'N/A',
+        age_display_short: hasReliableAge && hasResolvedField('tokenAge') ? formatTokenAgeShort(vettingData.tokenAge) : 'N/A',
         creation_date: creationDate ?? null,
-        lp_amount_usd: vettingData.trading.liquidity,
-        token_price: vettingData.trading.price,
-        volume_24h: vettingData.trading.volume24h,
-        market_cap: vettingData.trading.fdv,
-        holder_count: vettingData.holders.count,
+        lp_amount_usd: hasResolvedField('liquidity') ? vettingData.trading.liquidity : null,
+        token_price: hasResolvedField('price') ? vettingData.trading.price : null,
+        volume_24h: hasResolvedField('volume24h') ? vettingData.trading.volume24h : null,
+        market_cap: hasResolvedField('marketCap') ? vettingData.trading.fdv : null,
+        holder_count: hasResolvedField('holders') ? vettingData.holders.count : null,
         creator_address: tokenData.creator_address ?? null,
         creator_balance_pct: tokenData.creator_balance_pct ?? 0,
         websites: tokenData.websites || [],
@@ -826,16 +829,28 @@ export class ScanService {
   private generateAptosSummary(tokenData: any, vettingResults: any, resolvedTier: string | null): string {
     const symbol = tokenData.symbol || 'UNKNOWN';
     const tags = Array.isArray(tokenData.panora_tags) ? tokenData.panora_tags.join(', ') : '';
-    const age = Math.max(0, Math.floor(tokenData.project_age_days || 0));
+    const age = Number.isFinite(Number(tokenData.project_age_days))
+      ? Math.max(0, Math.floor(Number(tokenData.project_age_days)))
+      : null;
     const liquidity = Number(tokenData.lp_amount_usd || 0);
     const volume = Number(tokenData.volume_24h || 0);
+    const fieldProvenance = tokenData?.source?.fieldProvenance || {};
+    const hasLiquidity = fieldProvenance?.liquidity?.status === 'resolved' || liquidity > 0;
+    const hasVolume = fieldProvenance?.volume24h?.status === 'resolved' || volume > 0;
     const tierLabel = resolvedTier ? `${resolvedTier} tier` : 'no listing tier';
+
+    const marketSegment = hasLiquidity
+      ? `Liquidity is estimated at $${liquidity.toLocaleString()}`
+      : 'Liquidity data is currently unavailable';
+    const volumeSegment = hasVolume
+      ? `24h volume is $${volume.toLocaleString()}`
+      : '24h volume data is currently unavailable';
 
     const parts = [
       `${symbol} on Aptos has been analyzed with ${tierLabel} and a risk score of ${vettingResults.overallScore}/100.`,
-      age > 0
-        ? `Token age is ${age} day${age === 1 ? '' : 's'} with estimated liquidity of $${liquidity.toLocaleString()} and 24h volume of $${volume.toLocaleString()}.`
-        : `Liquidity is estimated at $${liquidity.toLocaleString()} with 24h volume of $${volume.toLocaleString()}.`,
+      age !== null && age > 0
+        ? `Token age is ${age} day${age === 1 ? '' : 's'}. ${marketSegment}, and ${volumeSegment}.`
+        : `${marketSegment}, and ${volumeSegment}.`,
     ];
 
     if (tags) {
