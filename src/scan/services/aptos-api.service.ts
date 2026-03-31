@@ -1309,10 +1309,10 @@ export class AptosApiService {
 
   private resolveHolderConfidence(source: string, topHoldersCount: number): ConfidenceLevel {
     if (!source || source === 'unavailable') return 'low';
-    if (source.startsWith('fungible_asset:') && !source.includes('aggregate_only')) {
-      return topHoldersCount > 0 ? 'high' : 'medium';
+    if (source.startsWith('fungible_asset:')) {
+      // Holder count without distribution is too easy to misread on Aptos memes; treat as low confidence.
+      return topHoldersCount > 0 ? 'high' : 'low';
     }
-    if (source.startsWith('fungible_asset:') && source.includes('aggregate_only')) return 'medium';
     return 'low';
   }
 
