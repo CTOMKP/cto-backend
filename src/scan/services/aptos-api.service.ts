@@ -16,6 +16,8 @@ type HolderEntry = {
   percentage: number;
 };
 
+type ConfidenceLevel = 'high' | 'medium' | 'low';
+
 @Injectable()
 export class AptosApiService {
   private readonly logger = new Logger(AptosApiService.name);
@@ -390,41 +392,177 @@ export class AptosApiService {
         onChainMeta.icon,
       ) || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(normalized)}`;
 
-    const top10HolderRate = holders.topHolders.slice(0, 10).reduce((sum, holder) => sum + holder.percentage, 0) / 100;
-
     const projectAgeDays = creationDate
       ? Math.max(0, Math.floor((Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24)))
       : null;
 
+    const validationWarnings: string[] = [];
+    const holderConfidence = this.resolveHolderConfidence(holders.source, holders.topHolders.length);
+    let holderStatus: 'resolved' | 'unverified' | 'unavailable' =
+      holders.count > 0 ? (holderConfidence === 'low' ? 'unverified' : 'resolved') : 'unavailable';
+    if (holderStatus === 'unverified') {
+      validationWarnings.push('Holder count is fallback-derived and cannot be verified by canonical Aptos indexer.');
+      holders = {
+        count: 0,
+        topHolders: [],
+        source: `${holders.source}:unverified`,
+      };
+    }
+
+    const liquidityCandidates = this.collectPositiveCandidates([
+      { provider: 'panora_price', value: panoraPrice?.liquidity },
+      { provider: 'panora_price', value: panoraPrice?.liquidityUsd },
+      { provider: 'panora_price', value: panoraPrice?.liquidity_usd },
+      { provider: 'panora_price', value: panoraPrice?.totalLiquidityUsd },
+      { provider: 'panora_price', value: panoraPrice?.total_liquidity_usd },
+      { provider: 'panora_price', value: panoraPrice?.tvlUsd },
+      { provider: 'panora_price', value: panoraPrice?.tvl_usd },
+      { provider: 'panora_token', value: panoraToken?.liquidity },
+      { provider: 'panora_token', value: panoraToken?.liquidityUsd },
+      { provider: 'panora_token', value: panoraToken?.liquidity_usd },
+      { provider: 'geckoterminal_token', value: geckoToken?.totalReserveUsd },
+      { provider: 'geckoterminal_pool', value: geckoPoolStats?.totalReserveUsd },
+    ]);
+    const liquidityConfidence = this.resolveFieldConfidence(liquidity, liquidityCandidates, 0.4, liquiditySource);
+    let liquidityStatus: 'resolved' | 'unverified' | 'unavailable' = liquidity > 0 ? 'resolved' : 'unavailable';
+    if (liquidity > 0 && liquidityConfidence === 'low') {
+      liquidityStatus = 'unverified';
+      validationWarnings.push('Liquidity value has low source confidence (single-source fallback).');
+      liquidity = 0;
+      liquiditySource = 'unverified';
+    }
+
+    const volumeCandidates = this.collectPositiveCandidates([
+      { provider: 'panora_price', value: panoraPrice?.volume24h },
+      { provider: 'panora_price', value: panoraPrice?.volume_24h },
+      { provider: 'panora_price', value: panoraPrice?.volume24hUsd },
+      { provider: 'panora_price', value: panoraPrice?.volume_24h_usd },
+      { provider: 'panora_price', value: panoraPrice?.volume24hUSD },
+      { provider: 'panora_price', value: panoraPrice?.volumeUSD24h },
+      { provider: 'panora_token', value: panoraToken?.volume24h },
+      { provider: 'panora_token', value: panoraToken?.volume_24h },
+      { provider: 'geckoterminal_token', value: geckoToken?.volume24hUsd },
+      { provider: 'geckoterminal_pool', value: geckoPoolStats?.totalVolume24h },
+      { provider: 'coingecko_market', value: coinGeckoMarket?.volume24hUsd },
+    ]);
+    const volumeConfidence = this.resolveFieldConfidence(volume24h, volumeCandidates, 0.7, volumeSource);
+    let volumeStatus: 'resolved' | 'unverified' | 'unavailable' = volume24h > 0 ? 'resolved' : 'unavailable';
+    if (volume24h > 0 && volumeConfidence === 'low') {
+      volumeStatus = 'unverified';
+      validationWarnings.push('24h volume value has low source confidence (single-source fallback).');
+      volume24h = 0;
+      volumeSource = 'unverified';
+    }
+
+    const priceCandidates = this.collectPositiveCandidates([
+      { provider: 'panora_price', value: panoraPrice?.price },
+      { provider: 'panora_price', value: panoraPrice?.priceUsd },
+      { provider: 'panora_price', value: panoraPrice?.price_usd },
+      { provider: 'panora_price', value: panoraPrice?.usdPrice },
+      { provider: 'panora_token', value: panoraToken?.price },
+      { provider: 'panora_token', value: panoraToken?.priceUsd },
+      { provider: 'panora_token', value: panoraToken?.usdPrice },
+      { provider: 'geckoterminal_token', value: geckoToken?.priceUsd },
+      { provider: 'coingecko_market', value: coinGeckoMarket?.priceUsd },
+    ]);
+    const priceConfidence = this.resolveFieldConfidence(price, priceCandidates, 0.2, priceSource);
+    let priceStatus: 'resolved' | 'unverified' | 'unavailable' = price > 0 ? 'resolved' : 'unavailable';
+    if (price > 0 && priceConfidence === 'low') {
+      priceStatus = 'unverified';
+      validationWarnings.push('Price value has low source confidence (single-source fallback).');
+      price = 0;
+      priceSource = 'unverified';
+    }
+
+    const marketCapCandidates = this.collectPositiveCandidates([
+      { provider: 'panora_price', value: panoraPrice?.marketCap },
+      { provider: 'panora_price', value: panoraPrice?.market_cap },
+      { provider: 'panora_price', value: panoraPrice?.fdv },
+      { provider: 'panora_price', value: panoraPrice?.fdvUsd },
+      { provider: 'panora_price', value: panoraPrice?.fdv_usd },
+      { provider: 'panora_price', value: panoraPrice?.marketCapUsd },
+      { provider: 'panora_price', value: panoraPrice?.market_cap_usd },
+      { provider: 'panora_token', value: panoraToken?.marketCap },
+      { provider: 'panora_token', value: panoraToken?.market_cap },
+      { provider: 'geckoterminal_token', value: geckoToken?.marketCapUsd },
+      { provider: 'geckoterminal_token', value: geckoToken?.fdvUsd },
+      { provider: 'coingecko_market', value: coinGeckoMarket?.marketCapUsd },
+      {
+        provider: 'derived_supply_x_price',
+        value: onChainMeta.totalSupply && price ? onChainMeta.totalSupply * price : null,
+      },
+    ]);
+    const marketCapConfidence = this.resolveFieldConfidence(
+      marketCap,
+      marketCapCandidates,
+      0.5,
+      marketCapSource,
+    );
+    let marketCapStatus: 'resolved' | 'unverified' | 'unavailable' = marketCap > 0 ? 'resolved' : 'unavailable';
+    const suspiciousMarketCapVsLiquidity =
+      marketCap > 0 && liquidity > 0 && marketCap > 1_000_000_000 && liquidity < 10_000;
+    if (suspiciousMarketCapVsLiquidity) {
+      marketCapStatus = 'unverified';
+      validationWarnings.push(
+        'Market cap rejected by sanity guard: very high market cap with very low liquidity.',
+      );
+    } else if (marketCap > 0 && marketCapConfidence === 'low') {
+      marketCapStatus = 'unverified';
+      validationWarnings.push('Market cap value has low source confidence (single-source fallback).');
+    }
+    if (marketCapStatus === 'unverified') {
+      marketCap = 0;
+      marketCapSource = 'unverified';
+    }
+
+    const tokenAgeConfidence = this.resolveDateConfidence(creationResolution.source);
+    let tokenAgeStatus: 'resolved' | 'unverified' | 'unavailable' =
+      projectAgeDays !== null ? (tokenAgeConfidence === 'low' ? 'unverified' : 'resolved') : 'unavailable';
+    let normalizedCreationDate = creationDate;
+    let normalizedProjectAgeDays = projectAgeDays;
+    if (tokenAgeStatus === 'unverified') {
+      validationWarnings.push('Token age is derived from non-canonical sources and is marked unverified.');
+      normalizedCreationDate = null;
+      normalizedProjectAgeDays = null;
+    }
+
+    const top10HolderRate = holders.topHolders.slice(0, 10).reduce((sum, holder) => sum + holder.percentage, 0) / 100;
+
     const fieldProvenance = {
       holders: {
         provider: holders.source,
-        status: holders.count > 0 ? 'resolved' : 'unavailable',
+        status: holderStatus,
+        confidence: holderConfidence,
         value: holders.count,
       },
       liquidity: {
         provider: liquiditySource,
-        status: liquidity > 0 ? 'resolved' : 'unavailable',
+        status: liquidityStatus,
+        confidence: liquidityConfidence,
         value: liquidity,
       },
       volume24h: {
         provider: volumeSource,
-        status: volume24h > 0 ? 'resolved' : 'unavailable',
+        status: volumeStatus,
+        confidence: volumeConfidence,
         value: volume24h,
       },
       tokenAge: {
         provider: creationResolution.source,
-        status: projectAgeDays !== null ? 'resolved' : 'unavailable',
-        value: projectAgeDays,
+        status: tokenAgeStatus,
+        confidence: tokenAgeConfidence,
+        value: normalizedProjectAgeDays,
       },
       price: {
         provider: priceSource,
-        status: price > 0 ? 'resolved' : 'unavailable',
+        status: priceStatus,
+        confidence: priceConfidence,
         value: price,
       },
       marketCap: {
         provider: marketCapSource,
-        status: marketCap > 0 ? 'resolved' : 'unavailable',
+        status: marketCapStatus,
+        confidence: marketCapConfidence,
         value: marketCap,
       },
     };
@@ -457,8 +595,8 @@ export class AptosApiService {
         onChainMeta.totalSupply,
         0,
       ),
-      creation_date: creationDate,
-      project_age_days: projectAgeDays,
+      creation_date: normalizedCreationDate,
+      project_age_days: normalizedProjectAgeDays,
       holder_count: holders.count,
       total_holders: holders.count,
       top_holders: holders.topHolders.map((holder) => ({
@@ -500,6 +638,7 @@ export class AptosApiService {
         strictAptosDate: this.strictAptosDate,
         holderSource: holders.source,
         indexerUrl: this.indexerUrl,
+        validationWarnings,
         fieldProvenance,
       },
     };
@@ -1166,6 +1305,58 @@ export class AptosApiService {
       }
     }
     return 'unavailable';
+  }
+
+  private resolveHolderConfidence(source: string, topHoldersCount: number): ConfidenceLevel {
+    if (!source || source === 'unavailable') return 'low';
+    if (source.startsWith('fungible_asset:') && !source.includes('aggregate_only')) {
+      return topHoldersCount > 0 ? 'high' : 'medium';
+    }
+    if (source.startsWith('fungible_asset:') && source.includes('aggregate_only')) return 'medium';
+    return 'low';
+  }
+
+  private resolveDateConfidence(source: string): ConfidenceLevel {
+    if (!source || source === 'unavailable') return 'low';
+    if (source === 'aptos_fullnode') return 'high';
+    if (source === 'panora_token') return 'medium';
+    return 'low';
+  }
+
+  private collectPositiveCandidates(
+    candidates: Array<{ provider: string; value: any }>,
+  ): Array<{ provider: string; value: number }> {
+    const deduped = new Map<string, number>();
+    for (const candidate of candidates) {
+      const num = typeof candidate.value === 'number' ? candidate.value : Number(candidate.value);
+      if (!Number.isFinite(num) || num <= 0) continue;
+      const key = `${candidate.provider}:${num.toFixed(12)}`;
+      if (!deduped.has(key)) deduped.set(key, num);
+    }
+    return [...deduped.entries()].map(([key, value]) => ({
+      provider: key.split(':')[0],
+      value,
+    }));
+  }
+
+  private resolveFieldConfidence(
+    selectedValue: number,
+    candidates: Array<{ provider: string; value: number }>,
+    tolerance: number,
+    selectedSource: string,
+  ): ConfidenceLevel {
+    if (!Number.isFinite(selectedValue) || selectedValue <= 0) return 'low';
+    const selectedProvider = (selectedSource || '').split(':')[0];
+    const selectedCandidate = candidates.find((candidate) => candidate.provider === selectedProvider);
+    const base = selectedCandidate?.value ?? selectedValue;
+    const supportingMatches = candidates.filter((candidate) => {
+      if (candidate.provider === selectedProvider) return false;
+      const delta = Math.abs(candidate.value - base) / Math.max(candidate.value, base, 1);
+      return delta <= tolerance;
+    });
+    if (supportingMatches.length >= 1) return 'high';
+    if (candidates.length >= 2) return 'medium';
+    return 'low';
   }
 
   private getFullnodeHeaders() {
