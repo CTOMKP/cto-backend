@@ -112,6 +112,8 @@ export class AptosApiService {
         panoraToken?.coin_type,
         isAptosCoinType(normalized) ? normalized : null,
       ) || null;
+    const panoraTags = this.parseTags(panoraToken);
+    const isEmojicoin = panoraTags.some((tag) => tag.toLowerCase() === 'emojicoin');
 
     const panoraPrice = await this.fetchPanoraPriceCandidates(
       [normalized, faAddress, coinType].filter((v): v is string => !!v),
@@ -168,6 +170,16 @@ export class AptosApiService {
           source: 'coingecko_onchain',
         };
       }
+    }
+    if (isEmojicoin && (!holders.source.startsWith('fungible_asset:') || holders.topHolders.length === 0)) {
+      this.logger.debug(
+        `Suppressing unverified emojicoin holder count for ${normalized}: source=${holders.source}`,
+      );
+      holders = {
+        count: 0,
+        topHolders: [],
+        source: `${holders.source || 'unavailable'}:emojicoin_unverified`,
+      };
     }
 
     const creatorAddress =
@@ -382,7 +394,6 @@ export class AptosApiService {
       }
     }
 
-    const panoraTags = this.parseTags(panoraToken);
     const imageUrl =
       this.pickString(
         panoraToken?.logoURI,

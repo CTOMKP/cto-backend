@@ -204,6 +204,14 @@ export class ScanService {
   }
 
   private async scanAptosToken(contractAddress: string, userId?: number) {
+    const aptosMinQualifyingScoreRaw = Number(
+      this.configService.get('APTOS_MIN_QUALIFYING_SCORE') ??
+        this.configService.get('MIN_QUALIFYING_SCORE') ??
+        50,
+    );
+    const aptosMinQualifyingScore = Number.isFinite(aptosMinQualifyingScoreRaw)
+      ? aptosMinQualifyingScoreRaw
+      : 50;
     const tokenData = await this.aptosApiService.fetchTokenData(contractAddress);
     const vettingData = this.transformAptosToVettingData(contractAddress, tokenData);
     const fieldProvenance = tokenData?.source?.fieldProvenance || {};
@@ -235,7 +243,7 @@ export class ScanService {
     const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
     const tier =
       vettingResults.eligibleTier === 'none'
-        ? (vettingResults.overallScore >= 50 ? 'seed' : null)
+        ? (vettingResults.overallScore >= aptosMinQualifyingScore ? 'seed' : null)
         : vettingResults.eligibleTier;
     const reasonCode = vettingResults.reasonCode ?? null;
     const summary = this.generateAptosSummary(tokenData, vettingResults, tier);
@@ -245,7 +253,7 @@ export class ScanService {
       risk_score: vettingResults.overallScore,
       risk_level: riskLevel,
       reason_code: reasonCode,
-      eligible: (vettingResults.overallScore || 0) >= 50,
+      eligible: (vettingResults.overallScore || 0) >= aptosMinQualifyingScore,
       summary,
       metadata: {
         chain: 'APTOS',
@@ -290,12 +298,12 @@ export class ScanService {
       }
     }
 
-    if (!result.risk_score || result.risk_score < 50) {
+    if (!result.risk_score || result.risk_score < aptosMinQualifyingScore) {
       throw new HttpException(
         {
           message:
-            result.risk_score && result.risk_score < 50
-              ? `Risk score ${result.risk_score} is below minimum threshold of 50`
+            result.risk_score && result.risk_score < aptosMinQualifyingScore
+              ? `Risk score ${result.risk_score} is below minimum threshold of ${aptosMinQualifyingScore}`
               : 'Token does not meet minimum Aptos listing criteria',
           eligible: false,
           tier,
