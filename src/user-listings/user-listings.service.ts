@@ -52,6 +52,25 @@ export class UserListingsService {
     };
   }
 
+  private buildProvisionalInfo(reasonCode: string | null, metadata: any) {
+    const missingData = Array.isArray(metadata?.vetting_results?.missingData)
+      ? metadata.vetting_results.missingData
+      : [];
+    const provisional =
+      reasonCode === 'INSUFFICIENT_MARKET_DATA' || reasonCode === 'PARTIAL_MARKET_DATA';
+    const provisionalReason = provisional
+      ? missingData.length > 0
+        ? `Provisional tier due to missing data: ${missingData.join(', ')}.`
+        : 'Provisional tier due to incomplete market data.'
+      : null;
+
+    return {
+      provisional,
+      provisional_reason: provisionalReason,
+      provisional_missing_data: provisional ? missingData : [],
+    };
+  }
+
   async scan(userId: number | undefined, dto: ScanDto) {
     const chain = dto.chain || 'SOLANA';
     const minQualifyingScore = this.getMinQualifyingScore(chain);
@@ -82,6 +101,7 @@ export class UserListingsService {
         const summary = stored?.summary ?? recentScan.summary ?? null;
         const riskLevel = stored?.risk_level ?? null;
         const reasonCode = stored?.reason_code ?? metadata?.reason_code ?? null;
+        const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata);
 
         return {
           success: eligible,
@@ -89,6 +109,8 @@ export class UserListingsService {
           tier,
           risk_level: riskLevel,
           reason_code: reasonCode,
+          minimum_required_score: minQualifyingScore,
+          ...provisionalInfo,
           eligible,
           summary,
           metadata,
@@ -107,6 +129,7 @@ export class UserListingsService {
       const summary = result?.summary ?? null;
       const riskLevel = result?.risk_level ?? null;
       const reasonCode = (result as any)?.reason_code ?? (metadata as any)?.reason_code ?? null;
+      const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata);
 
       const passed = typeof score === 'number' && score >= minQualifyingScore && result?.eligible !== false;
       return {
@@ -115,6 +138,8 @@ export class UserListingsService {
         tier: tier,       // Added for frontend compatibility
         risk_level: riskLevel,
         reason_code: reasonCode,
+        minimum_required_score: minQualifyingScore,
+        ...provisionalInfo,
         vettingScore: score,
         vettingTier: tier,
         eligible: passed,
@@ -129,17 +154,22 @@ export class UserListingsService {
         if (response?.risk_score !== undefined) {
           const score = response.risk_score ?? 0;
           const tier = response.tier ?? 'UNQUALIFIED';
+          const metadata = response.metadata ?? null;
+          const reasonCode = response.reason_code ?? metadata?.reason_code ?? null;
+          const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata);
           return {
             success: false,
             risk_score: score,
             tier,
             risk_level: response.risk_level ?? null,
-            reason_code: response.reason_code ?? response.metadata?.reason_code ?? null,
+            reason_code: reasonCode,
+            minimum_required_score: minQualifyingScore,
+            ...provisionalInfo,
             vettingScore: score,
             vettingTier: tier,
             eligible: response.eligible ?? false,
             summary: response.summary ?? null,
-            metadata: response.metadata ?? null,
+            metadata,
             details: response,
           };
         }
