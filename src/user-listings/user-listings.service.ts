@@ -1,4 +1,5 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException, HttpException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserListingDto } from './dto/create-user-listing.dto';
 import { UpdateUserListingDto } from './dto/update-user-listing.dto';
@@ -9,13 +10,26 @@ import { XpService } from '../xp/xp.service';
 
 @Injectable()
 export class UserListingsService {
-  private readonly MIN_QUALIFYING_SCORE = 50; // pass if risk_score >= MIN_QUALIFYING_SCORE (higher = safer, score range: 0-100)
+  private defaultMinQualifyingScore = 50;
+  private aptosMinQualifyingScore = 50;
 
   constructor(
     private prisma: PrismaService,
     private scanService: ScanService,
     private xpService: XpService,
-  ) {}
+    private configService: ConfigService,
+  ) {
+    const defaultMin = Number(this.configService.get('MIN_QUALIFYING_SCORE') ?? 50);
+    const aptosMin = Number(this.configService.get('APTOS_MIN_QUALIFYING_SCORE') ?? defaultMin);
+    this.defaultMinQualifyingScore = Number.isFinite(defaultMin) ? defaultMin : 50;
+    this.aptosMinQualifyingScore = Number.isFinite(aptosMin) ? aptosMin : this.defaultMinQualifyingScore;
+  }
+
+  private getMinQualifyingScore(chain?: string): number {
+    return (chain || '').toUpperCase() === 'APTOS'
+      ? this.aptosMinQualifyingScore
+      : this.defaultMinQualifyingScore;
+  }
 
   private async getLatestScan(contractAddress: string) {
     if (!contractAddress) return null;
@@ -40,6 +54,7 @@ export class UserListingsService {
 
   async scan(userId: number | undefined, dto: ScanDto) {
     const chain = dto.chain || 'SOLANA';
+    const minQualifyingScore = this.getMinQualifyingScore(chain);
     try {
       const now = Date.now();
       const cacheWindowMs = 24 * 60 * 60 * 1000;
@@ -61,7 +76,7 @@ export class UserListingsService {
         const eligible =
           stored?.eligible ??
           (typeof riskScore === 'number' &&
-            riskScore >= this.MIN_QUALIFYING_SCORE);
+            riskScore >= minQualifyingScore);
 
         const metadata = stored?.metadata ?? stored;
         const summary = stored?.summary ?? recentScan.summary ?? null;
@@ -93,7 +108,7 @@ export class UserListingsService {
       const riskLevel = result?.risk_level ?? null;
       const reasonCode = (result as any)?.reason_code ?? (metadata as any)?.reason_code ?? null;
 
-      const passed = typeof score === 'number' && score >= this.MIN_QUALIFYING_SCORE && result?.eligible !== false;
+      const passed = typeof score === 'number' && score >= minQualifyingScore && result?.eligible !== false;
       return {
         success: passed,
         risk_score: score, // Added for frontend compatibility
@@ -137,9 +152,10 @@ export class UserListingsService {
   async create(userId: number, dto: CreateUserListingDto) {
     if (!userId) throw new ForbiddenException('Authentication required');
     // Validate that vetting score meets minimum requirement (>= 50)
+    const minQualifyingScore = this.getMinQualifyingScore(dto.chain);
     const vettingScore = dto.vettingScore ?? 0;
-    if (vettingScore < this.MIN_QUALIFYING_SCORE) {
-      throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${this.MIN_QUALIFYING_SCORE}`);
+    if (vettingScore < minQualifyingScore) {
+      throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${minQualifyingScore}`);
     }
 
     const created = await this.prisma.userListing.create({
@@ -191,9 +207,10 @@ export class UserListingsService {
     // minimal validation before publish
     if (!found.title || !found.description) throw new BadRequestException('Missing required fields');
     // Validate that vetting score still meets minimum requirement (>= 50)
+    const minQualifyingScore = this.getMinQualifyingScore(found.chain);
     const vettingScore = found.vettingScore ?? 0;
-    if (vettingScore < this.MIN_QUALIFYING_SCORE) {
-      throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${this.MIN_QUALIFYING_SCORE}`);
+    if (vettingScore < minQualifyingScore) {
+      throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${minQualifyingScore}`);
     }
 
     // ⚠️ CRITICAL: Check if payment has been made before publishing
