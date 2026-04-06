@@ -292,9 +292,14 @@ export class AdminService {
       await this.notifications.createNotification({
         userId: updatedListing.userId,
         type: 'LISTING_APPROVAL',
-        title: 'Listing approved',
-        body: updatedListing.title,
-        data: { listingId: updatedListing.id },
+        title: 'Your listing is now live',
+        body: `${updatedListing.title} was approved and published. Click to view.`,
+        data: {
+          listingId: updatedListing.id,
+          contractAddr: updatedListing.contractAddr,
+          action: 'VIEW_LISTING_LIVE',
+          redirectPath: `/user-listings/${updatedListing.id}/live`,
+        },
       });
 
       await this.xpService.awardApprovedListing(updatedListing.userId, updatedListing.id);
