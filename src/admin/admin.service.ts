@@ -372,8 +372,14 @@ export class AdminService {
         userId: updatedListing.userId,
         type: 'LISTING_APPROVAL',
         title: 'Listing rejected',
-        body: updatedListing.title,
-        data: { listingId: updatedListing.id, reason: dto.reason },
+        body: `${updatedListing.title} was rejected. Click to view feedback.`,
+        data: {
+          listingId: updatedListing.id,
+          reason: dto.reason,
+          action: 'VIEW_REJECTED_LISTING',
+          redirectPath: `/user-listings/${updatedListing.id}`,
+          status: 'REJECTED',
+        },
       });
 
       return {
