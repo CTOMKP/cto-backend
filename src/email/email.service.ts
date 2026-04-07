@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 
 type ListingPendingEmailParams = {
   to: string;
@@ -19,6 +20,7 @@ type ListingApprovedEmailParams = {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
+  private sesClient: SESv2Client | null = null;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -203,6 +205,89 @@ export class EmailService {
     this.logger.log(`Email sent via sendgrid to ${payload.to} (${payload.subject})`);
   }
 
+  private getSesClient(): SESv2Client {
+    if (this.sesClient) {
+      return this.sesClient;
+    }
+
+    const region =
+      this.configService.get<string>('SES_AWS_REGION') ||
+      this.configService.get<string>('AWS_REGION') ||
+      'us-east-1';
+
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
+    const sessionToken = this.configService.get<string>('AWS_SESSION_TOKEN');
+
+    const credentials =
+      accessKeyId && secretAccessKey
+        ? {
+            accessKeyId,
+            secretAccessKey,
+            ...(sessionToken ? { sessionToken } : {}),
+          }
+        : undefined;
+
+    this.sesClient = new SESv2Client({
+      region,
+      ...(credentials ? { credentials } : {}),
+    });
+
+    return this.sesClient;
+  }
+
+  private async sendSesEmail(payload: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+  }): Promise<void> {
+    const fromRaw = this.configService.get<string>('EMAIL_FROM');
+    const replyTo = this.configService.get<string>('EMAIL_REPLY_TO');
+    const fromArn = this.configService.get<string>('SES_FROM_ARN');
+    const configurationSetName = this.configService.get<string>('SES_CONFIGURATION_SET');
+
+    if (!fromRaw) {
+      this.logger.warn('Email skipped: EMAIL_FROM missing for SES provider.');
+      return;
+    }
+
+    const client = this.getSesClient();
+    const from = this.parseFromAddress(fromRaw);
+    const fromEmailAddress = from.name ? `${from.name} <${from.email}>` : from.email;
+
+    const command = new SendEmailCommand({
+      FromEmailAddress: fromEmailAddress,
+      Destination: {
+        ToAddresses: [payload.to],
+      },
+      Content: {
+        Simple: {
+          Subject: {
+            Data: payload.subject,
+            Charset: 'UTF-8',
+          },
+          Body: {
+            Html: {
+              Data: payload.html,
+              Charset: 'UTF-8',
+            },
+            Text: {
+              Data: payload.text,
+              Charset: 'UTF-8',
+            },
+          },
+        },
+      },
+      ...(replyTo ? { ReplyToAddresses: [replyTo] } : {}),
+      ...(fromArn ? { FromEmailAddressIdentityArn: fromArn } : {}),
+      ...(configurationSetName ? { ConfigurationSetName: configurationSetName } : {}),
+    });
+
+    await client.send(command);
+    this.logger.log(`Email sent via ses to ${payload.to} (${payload.subject})`);
+  }
+
   private async sendEmail(payload: {
     to: string;
     subject: string;
@@ -225,7 +310,14 @@ export class EmailService {
       return;
     }
 
-    this.logger.warn(`Email skipped: unsupported EMAIL_PROVIDER="${provider}". Expected "sendgrid" or "resend".`);
+    if (provider === 'ses') {
+      await this.sendSesEmail(payload);
+      return;
+    }
+
+    this.logger.warn(
+      `Email skipped: unsupported EMAIL_PROVIDER="${provider}". Expected "sendgrid", "resend", or "ses".`,
+    );
   }
 
   async sendListingPendingEmail(params: ListingPendingEmailParams): Promise<void> {
