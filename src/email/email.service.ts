@@ -298,7 +298,7 @@ export class EmailService {
       return;
     }
 
-    const provider = (this.configService.get<string>('EMAIL_PROVIDER') || 'resend').toLowerCase();
+    const provider = (this.configService.get<string>('EMAIL_PROVIDER') || 'sendgrid').toLowerCase();
 
     if (provider === 'sendgrid') {
       await this.sendSendGridEmail(payload);
