@@ -300,6 +300,19 @@ export class MovementWalletService {
     description?: string;
     metadata?: any;
   }): Promise<any> {
+    const existing = await (this.prisma as any).walletTransaction.findUnique({
+      where: {
+        walletId_txHash: {
+          walletId: data.walletId,
+          txHash: data.txHash,
+        },
+      },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
     const record = await (this.prisma as any).walletTransaction.create({
       data: {
         walletId: data.walletId,
@@ -388,6 +401,34 @@ export class MovementWalletService {
     tokenAddress?: string
   ): Promise<any> {
     try {
+      const existingTx = await (this.prisma as any).walletTransaction.findUnique({
+        where: {
+          walletId_txHash: {
+            walletId,
+            txHash,
+          },
+        },
+      });
+
+      if (existingTx) {
+        this.logger.warn(`Skipping duplicate debit for wallet ${walletId}, txHash ${txHash} already recorded.`);
+        const existingBalance = await (this.prisma as any).walletBalance.findUnique({
+          where: {
+            walletId_tokenAddress: {
+              walletId,
+              tokenAddress: tokenAddress || this.TEST_TOKEN_ADDRESS,
+            },
+          },
+        });
+
+        return {
+          success: true,
+          newBalance: existingBalance?.balance ?? '0',
+          transactionHash: txHash,
+          alreadyProcessed: true,
+        };
+      }
+
       // Get current balance
 
       const balance = await (this.prisma as any).walletBalance.findUnique({
