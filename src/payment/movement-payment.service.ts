@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MovementWalletService } from '../wallet/movement-wallet.service';
 import { ConfigService } from '@nestjs/config';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EmailService } from '../email/email.service';
 
 /**
  * Movement Payment Service
@@ -17,6 +18,7 @@ export class MovementPaymentService {
     private readonly movementWalletService: MovementWalletService,
     private readonly configService: ConfigService,
     private readonly notifications: NotificationsService,
+    private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -447,11 +449,28 @@ export class MovementPaymentService {
 
       // If this is a listing payment, update listing status to PENDING_APPROVAL
       if (payment.paymentType === 'LISTING' && payment.listingId) {
-        await this.prisma.userListing.update({
+        const updatedListing = await this.prisma.userListing.update({
           where: { id: payment.listingId },
           data: { status: 'PENDING_APPROVAL' },
+          include: {
+            user: {
+              select: {
+                email: true,
+                name: true,
+              },
+            },
+          },
         });
         this.logger.log(`✅ Listing ${payment.listingId} status updated to PENDING_APPROVAL`);
+
+        if (updatedListing.user?.email) {
+          await this.emailService.sendListingPendingEmail({
+            to: updatedListing.user.email,
+            userName: updatedListing.user.name,
+            listingId: updatedListing.id,
+            projectTitle: updatedListing.title,
+          });
+        }
       }
 
       if (payment.paymentType === 'MARKETPLACE_AD' && payment.marketplaceAdId) {
@@ -521,5 +540,4 @@ export class MovementPaymentService {
     return this.verifyPayment(paymentId, txHash);
   }
 }
-
 
