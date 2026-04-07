@@ -7,6 +7,7 @@ import { CreateAdBoostDto } from './dto/ad-boost.dto';
 import { ScanDto } from './dto/scan.dto';
 import { ScanService } from '../scan/services/scan.service';
 import { XpService } from '../xp/xp.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class UserListingsService {
@@ -18,6 +19,7 @@ export class UserListingsService {
     private scanService: ScanService,
     private xpService: XpService,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {
     const defaultMin = Number(this.configService.get('MIN_QUALIFYING_SCORE') ?? 50);
     const aptosMin = Number(this.configService.get('APTOS_MIN_QUALIFYING_SCORE') ?? defaultMin);
@@ -52,15 +54,16 @@ export class UserListingsService {
     };
   }
 
-  private buildProvisionalInfo(reasonCode: string | null, metadata: any) {
+  private buildProvisionalInfo(reasonCode: string | null, metadata: any, tier?: string | null) {
     const missingData = Array.isArray(metadata?.vetting_results?.missingData)
       ? metadata.vetting_results.missingData
       : [];
     const provisional =
       reasonCode === 'INSUFFICIENT_MARKET_DATA' || reasonCode === 'PARTIAL_MARKET_DATA';
+    const tierLabel = tier || 'UNQUALIFIED';
     const provisionalReason = provisional
       ? missingData.length > 0
-        ? `Provisional tier due to missing data: ${missingData.join(', ')}.`
+        ? `${tierLabel} is provisional due to missing data: ${missingData.join(', ')}.`
         : 'Provisional tier due to incomplete market data.'
       : null;
 
@@ -101,7 +104,7 @@ export class UserListingsService {
         const summary = stored?.summary ?? recentScan.summary ?? null;
         const riskLevel = stored?.risk_level ?? null;
         const reasonCode = stored?.reason_code ?? metadata?.reason_code ?? null;
-        const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata);
+        const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata, tier);
 
         return {
           success: eligible,
@@ -129,7 +132,7 @@ export class UserListingsService {
       const summary = result?.summary ?? null;
       const riskLevel = result?.risk_level ?? null;
       const reasonCode = (result as any)?.reason_code ?? (metadata as any)?.reason_code ?? null;
-      const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata);
+      const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata, tier);
 
       const passed = typeof score === 'number' && score >= minQualifyingScore && result?.eligible !== false;
       return {
@@ -156,7 +159,7 @@ export class UserListingsService {
           const tier = response.tier ?? 'UNQUALIFIED';
           const metadata = response.metadata ?? null;
           const reasonCode = response.reason_code ?? metadata?.reason_code ?? null;
-          const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata);
+          const provisionalInfo = this.buildProvisionalInfo(reasonCode, metadata, tier);
           return {
             success: false,
             risk_score: score,
@@ -263,6 +266,21 @@ export class UserListingsService {
       where: { id },
       data: { status: 'PENDING_APPROVAL' },
     });
+
+    const listingOwner = await this.prisma.user.findUnique({
+      where: { id: found.userId },
+      select: { email: true, name: true },
+    });
+
+    if (listingOwner?.email) {
+      await this.emailService.sendListingPendingEmail({
+        to: listingOwner.email,
+        userName: listingOwner.name,
+        listingId: updated.id,
+        projectTitle: updated.title,
+      });
+    }
+
     return { 
       success: true, 
       data: updated,

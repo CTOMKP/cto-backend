@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { EscrowService } from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { XpService } from '../xp/xp.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AdminService {
@@ -15,6 +16,7 @@ export class AdminService {
     private escrowService: EscrowService,
     private notifications: NotificationsService,
     private xpService: XpService,
+    private emailService: EmailService,
   ) {}
 
   // Verify admin permissions
@@ -301,6 +303,15 @@ export class AdminService {
           redirectPath: `/user-listings/${updatedListing.id}/live`,
         },
       });
+
+      if (updatedListing.user?.email) {
+        await this.emailService.sendListingApprovedEmail({
+          to: updatedListing.user.email,
+          userName: updatedListing.user.name,
+          listingId: updatedListing.id,
+          projectTitle: updatedListing.title,
+        });
+      }
 
       await this.xpService.awardApprovedListing(updatedListing.userId, updatedListing.id);
 
