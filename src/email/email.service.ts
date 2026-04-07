@@ -31,13 +31,80 @@ export class EmailService {
     return (
       this.configService.get<string>('FRONTEND_BASE_URL') ||
       this.configService.get<string>('APP_FRONTEND_URL') ||
-      'https://ctomarketplace.com'
+      'https://www.ctomarketplace.com'
     );
   }
 
   private displayName(name?: string | null): string {
     if (!name || !name.trim()) return 'there';
     return name.trim();
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private buildEmailHtml(params: {
+    title: string;
+    intro: string;
+    projectTitle: string;
+    primaryCtaText: string;
+    primaryCtaUrl: string;
+    secondaryCtaText: string;
+    secondaryCtaUrl: string;
+  }): string {
+    const baseUrl = this.getFrontendBaseUrl().replace(/\/+$/, '');
+    const logoUrl = `${baseUrl}/logo.png`;
+    const projectTitle = this.escapeHtml(params.projectTitle);
+    const intro = this.escapeHtml(params.intro);
+
+    return `
+      <div style="margin:0;padding:24px;background:#050505;font-family:Arial,Helvetica,sans-serif;color:#ffffff;">
+        <table role="presentation" style="width:100%;max-width:640px;margin:0 auto;border:1px solid #2a2a2a;border-radius:14px;background:#0b0b0b;overflow:hidden;">
+          <tr>
+            <td style="padding:24px;border-bottom:1px solid #1f1f1f;">
+              <img src="${logoUrl}" alt="CTO Marketplace" style="height:40px;display:block;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 24px 16px 24px;">
+              <h1 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#ffffff;">${this.escapeHtml(params.title)}</h1>
+              <p style="margin:0 0 12px 0;color:#d4d4d8;line-height:1.6;">${intro}</p>
+              <p style="margin:0 0 20px 0;color:#ffffff;line-height:1.5;">
+                Project: <strong>${projectTitle}</strong>
+              </p>
+              <table role="presentation" style="border-collapse:collapse;">
+                <tr>
+                  <td style="padding:0 8px 8px 0;">
+                    <a href="${params.primaryCtaUrl}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:linear-gradient(90deg,#FF0075 0%,#FF4A15 55%,#FFCB45 100%);color:#ffffff;text-decoration:none;font-weight:700;">
+                      ${this.escapeHtml(params.primaryCtaText)}
+                    </a>
+                  </td>
+                  <td style="padding:0 0 8px 0;">
+                    <a href="${params.secondaryCtaUrl}" style="display:inline-block;padding:11px 18px;border-radius:10px;border:1px solid #3f3f46;color:#ffffff;text-decoration:none;font-weight:600;">
+                      ${this.escapeHtml(params.secondaryCtaText)}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:12px 24px 24px 24px;color:#a1a1aa;font-size:12px;line-height:1.6;">
+              If a button does not work, open this link:<br/>
+              <a href="${params.primaryCtaUrl}" style="color:#FFCB45;text-decoration:underline;word-break:break-all;">${params.primaryCtaUrl}</a>
+              <br/><br/>
+              &mdash; CTO Marketplace
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
   }
 
   private async sendResendEmail(payload: {
@@ -74,10 +141,12 @@ export class EmailService {
       },
       timeout: 15000,
     });
+
+    this.logger.log(`Email sent via resend to ${payload.to} (${payload.subject})`);
   }
 
   private parseFromAddress(input: string): { email: string; name?: string } {
-    const value = input.trim();
+    const value = input.trim().replace(/\\"/g, '"');
     const match = value.match(/^\s*"?([^"<]+?)"?\s*<([^>]+)>\s*$/);
     if (match) {
       return {
@@ -130,6 +199,8 @@ export class EmailService {
       },
       timeout: 15000,
     });
+
+    this.logger.log(`Email sent via sendgrid to ${payload.to} (${payload.subject})`);
   }
 
   private async sendEmail(payload: {
@@ -170,19 +241,15 @@ export class EmailService {
       `Track status: ${statusUrl}\n` +
       `Listing details: ${detailsUrl}\n\n` +
       `- CTO Marketplace`;
-
-    const html = `
-      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">
-        <h2>Your listing is pending review</h2>
-        <p>Hi ${name},</p>
-        <p>Your listing <strong>${params.projectTitle}</strong> has been submitted and is now pending admin approval.</p>
-        <p>
-          <a href="${statusUrl}">Check listing status</a><br/>
-          <a href="${detailsUrl}">Open listing details</a>
-        </p>
-        <p style="color:#666;">- CTO Marketplace</p>
-      </div>
-    `;
+    const html = this.buildEmailHtml({
+      title: 'Your Listing Is Pending Review',
+      intro: `Hi ${name}, your listing has been submitted and is now awaiting admin approval.`,
+      projectTitle: params.projectTitle,
+      primaryCtaText: 'Check Listing Status',
+      primaryCtaUrl: statusUrl,
+      secondaryCtaText: 'Open Listing Details',
+      secondaryCtaUrl: detailsUrl,
+    });
 
     try {
       await this.sendEmail({
@@ -209,19 +276,15 @@ export class EmailService {
       `Live page: ${liveUrl}\n` +
       `Listing page: ${listingUrl}\n\n` +
       `- CTO Marketplace`;
-
-    const html = `
-      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">
-        <h2>Your listing is now live</h2>
-        <p>Hi ${name},</p>
-        <p>Great news: your listing <strong>${params.projectTitle}</strong> has been approved and published.</p>
-        <p>
-          <a href="${liveUrl}">View your live listing page</a><br/>
-          <a href="${listingUrl}">Open listing details</a>
-        </p>
-        <p style="color:#666;">- CTO Marketplace</p>
-      </div>
-    `;
+    const html = this.buildEmailHtml({
+      title: 'Your Listing Is Now Live',
+      intro: `Hi ${name}, great news: your listing has been approved and published.`,
+      projectTitle: params.projectTitle,
+      primaryCtaText: 'View Live Listing Page',
+      primaryCtaUrl: liveUrl,
+      secondaryCtaText: 'Open Listing Details',
+      secondaryCtaUrl: listingUrl,
+    });
 
     try {
       await this.sendEmail({
