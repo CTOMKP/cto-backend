@@ -52,11 +52,7 @@ export class ExecutionService {
     const { chain, quote, walletAddress, slippageBps = 50 } = request;
 
       if (chain === 'solana') {
-        throw new BadRequestException({
-          code: 'TRADING_DISABLED',
-          message: 'Solana trading is disabled. This chain is read-only for now.',
-          retryable: false,
-        });
+        return await this.buildSolanaTransaction(quote, walletAddress, slippageBps);
       } else if (chain === 'movement') {
       // Movement signing is server-side; return a structured error to guide the frontend.
       throw new BadRequestException({

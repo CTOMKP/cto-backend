@@ -166,14 +166,6 @@ export class TradesController {
       throw new Error('User not authenticated');
     }
 
-    if (executeRequest.chain === 'solana') {
-      throw new BadRequestException({
-        code: 'TRADING_DISABLED',
-        message: 'Solana trading is disabled. This chain is read-only for now.',
-        retryable: false,
-      });
-    }
-
     // Find user's wallet for the chain
     const wallet = await this.prisma.wallet.findFirst({
       where: {

@@ -5,14 +5,12 @@ import { MarketplaceService } from './marketplace.service';
 import { CreateMarketplaceAdDto } from './dto/create-marketplace-ad.dto';
 import { UpdateMarketplaceAdDto } from './dto/update-marketplace-ad.dto';
 import { VerifyMarketplacePaymentDto } from './dto/marketplace-payment.dto';
-import { MovementPaymentService } from '../payment/movement-payment.service';
 
 @ApiTags('marketplace')
 @Controller('marketplace')
 export class MarketplaceController {
   constructor(
     private readonly marketplaceService: MarketplaceService,
-    private readonly movementPaymentService: MovementPaymentService,
   ) {}
 
   @Get('pricing')
@@ -118,12 +116,12 @@ export class MarketplaceController {
   @Post('ads/payments/:paymentId/verify')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Verify marketplace ad payment (Movement USDC)' })
+  @ApiOperation({ summary: 'Verify marketplace ad payment (Movement/Solana USDC)' })
   async verifyPayment(
     @Param('paymentId') paymentId: string,
     @Body() dto: VerifyMarketplacePaymentDto,
   ) {
-    return this.movementPaymentService.verifyMarketplaceAdPayment(paymentId, dto.txHash);
+    return this.marketplaceService.verifyPayment(paymentId, dto.txHash);
   }
 
   @Post('ads/:id/extend')

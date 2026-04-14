@@ -18,6 +18,7 @@ import { StatsModule } from './stats/stats.module';
 import { PfpModule } from './pfp/pfp.module';
 import { TokenVettingModule } from './services/token-vetting.module';
 import { MovementWalletModule } from './wallet/movement-wallet.module';
+import { SolanaWalletModule } from './wallet/solana-wallet.module';
 import { SentioModule } from './sentio/sentio.module';
 import { TradesModule } from './trades/trades.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
@@ -54,6 +55,7 @@ import { EscrowModule } from './escrow/escrow.module';
     PfpModule,
     TokenVettingModule,
     MovementWalletModule,
+    SolanaWalletModule,
     SentioModule,
     TradesModule,
     MarketplaceModule,

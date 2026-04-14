@@ -104,6 +104,14 @@ export class QuoteService {
         swapMode,
         onlyDirectRoutes: 'false', // Allow multi-hop routes
       });
+      const preferredDexes = this.configService.get('SOLANA_SWAP_PREFERRED_DEXES');
+      const excludedDexes = this.configService.get('SOLANA_SWAP_EXCLUDED_DEXES');
+      if (preferredDexes) {
+        params.set('dexes', preferredDexes);
+      }
+      if (excludedDexes) {
+        params.set('excludeDexes', excludedDexes);
+      }
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',

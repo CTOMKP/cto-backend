@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MovementPaymentService } from '../payment/movement-payment.service';
+import { SolanaPaymentService } from '../payment/solana-payment.service';
 import { MarketplacePricingService } from './marketplace-pricing.service';
 import { XpService } from '../xp/xp.service';
 import { CreateMarketplaceAdDto } from './dto/create-marketplace-ad.dto';
@@ -29,6 +30,7 @@ export class MarketplaceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movementPaymentService: MovementPaymentService,
+    private readonly solanaPaymentService: SolanaPaymentService,
     private readonly pricingService: MarketplacePricingService,
     private readonly xpService: XpService,
   ) {}
@@ -419,12 +421,26 @@ export class MarketplaceService {
       data: { totalPrice: breakdown.total },
     });
 
-    const payment = await this.movementPaymentService.createMarketplaceAdPayment(userId, id, breakdown.total);
+    const chain = (ad.chain || 'MOVEMENT').toString().toUpperCase();
+    const payment =
+      chain === 'SOLANA'
+        ? await this.solanaPaymentService.createMarketplaceAdPayment(userId, id, breakdown.total)
+        : await this.movementPaymentService.createMarketplaceAdPayment(userId, id, breakdown.total);
     return {
       success: true,
       payment,
       pricing: breakdown,
     };
+  }
+
+  async verifyPayment(paymentId: string, txHash: string) {
+    const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+    const chain = (payment.metadata as any)?.chain || (payment as any)?.chain || '';
+    if (String(chain).toUpperCase() === 'SOLANA') {
+      return this.solanaPaymentService.verifyMarketplaceAdPayment(paymentId, txHash);
+    }
+    return this.movementPaymentService.verifyMarketplaceAdPayment(paymentId, txHash);
   }
 
   async markSold(userIdOrSub: unknown, id: string, email?: string | null) {
