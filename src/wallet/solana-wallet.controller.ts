@@ -76,4 +76,40 @@ export class SolanaWalletController {
       };
     }
   }
+
+  @Post('record/:walletId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Persist a confirmed Solana send transaction',
+    description:
+      'Records a known successful Solana send transaction immediately so history persists even when RPC polling is rate-limited.',
+  })
+  @ApiResponse({ status: 201, description: 'Transaction recorded' })
+  async recordTransaction(
+    @Param('walletId') walletId: string,
+    @Body()
+    body: {
+      txHash: string;
+      asset: 'SOL' | 'USDC';
+      amount: string;
+      address?: string;
+      toAddress?: string;
+    },
+  ) {
+    const transaction = await this.solanaWalletService.recordSentTransaction({
+      walletId,
+      txHash: body.txHash,
+      asset: body.asset,
+      amount: body.amount,
+      address: body.address,
+      toAddress: body.toAddress,
+    });
+
+    return {
+      success: true,
+      transaction,
+      message: 'Solana transaction persisted',
+    };
+  }
 }

@@ -241,4 +241,42 @@ export class SolanaWalletService {
 
     return created;
   }
+
+  async recordSentTransaction(params: {
+    walletId: string;
+    txHash: string;
+    asset: 'SOL' | 'USDC';
+    amount: string;
+    address?: string;
+    toAddress?: string;
+  }) {
+    const wallet = await this.prisma.wallet.findUnique({ where: { id: params.walletId } });
+    if (!wallet?.address) throw new BadRequestException('Wallet not found');
+    if (String(wallet.blockchain).toUpperCase() !== 'SOLANA') {
+      throw new BadRequestException('Wallet is not a Solana wallet');
+    }
+
+    const ownerAddress = (() => {
+      const candidate = (params.address || wallet.address || '').trim();
+      try {
+        return new PublicKey(candidate).toBase58();
+      } catch {
+        return wallet.address;
+      }
+    })();
+
+    return this.recordTransaction({
+      walletId: params.walletId,
+      txHash: params.txHash,
+      txType: 'DEBIT',
+      amount: params.amount,
+      tokenAddress: params.asset === 'SOL' ? 'solana-native' : 'solana-usdc',
+      tokenSymbol: params.asset,
+      fromAddress: ownerAddress,
+      toAddress: params.toAddress,
+      description: `Solana ${params.asset} transfer`,
+      metadata: { chain: 'SOLANA', source: 'wallet-send' },
+      blockTime: new Date(),
+    });
+  }
 }
