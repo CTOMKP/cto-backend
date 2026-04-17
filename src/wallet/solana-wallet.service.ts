@@ -106,7 +106,11 @@ export class SolanaWalletService {
     });
   }
 
-  async pollWalletTransactions(walletId: string, limit: number = 15) {
+  async pollWalletTransactions(
+    walletId: string,
+    limit: number = 15,
+    overrideAddress?: string,
+  ) {
     const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
     if (!wallet?.address) throw new BadRequestException('Wallet not found');
     if (String(wallet.blockchain).toUpperCase() !== 'SOLANA') {
@@ -114,7 +118,16 @@ export class SolanaWalletService {
     }
 
     const connection = this.getConnection();
-    const owner = new PublicKey(wallet.address);
+    const candidateAddress = (overrideAddress || wallet.address || '').trim();
+    let owner: PublicKey;
+    try {
+      owner = new PublicKey(candidateAddress);
+    } catch {
+      throw new BadRequestException(
+        'Invalid Solana wallet address for polling. Re-sync wallets or pass the current address.',
+      );
+    }
+    const ownerAddress = owner.toBase58();
     const usdcMint = this.getUsdcMint();
     const ownerUsdcAta = (await getAssociatedTokenAddress(usdcMint, owner, false)).toBase58();
     const usdcMintBase58 = usdcMint.toBase58();
@@ -137,7 +150,7 @@ export class SolanaWalletService {
       const accountKeys: string[] = (message.accountKeys || []).map((k: any) =>
         typeof k === 'string' ? k : String(k?.pubkey || ''),
       );
-      const ownerIndex = accountKeys.findIndex((k) => k === wallet.address);
+      const ownerIndex = accountKeys.findIndex((k) => k === ownerAddress);
       const preBalances: number[] = txAny.meta.preBalances || [];
       const postBalances: number[] = txAny.meta.postBalances || [];
       const preTokenBalances: any[] = txAny.meta.preTokenBalances || [];
@@ -151,7 +164,7 @@ export class SolanaWalletService {
             const ownerAddr = String(tb?.owner || '');
             const idx = typeof tb?.accountIndex === 'number' ? tb.accountIndex : -1;
             const tokenAcc = idx >= 0 && idx < accountKeys.length ? accountKeys[idx] : '';
-            return ownerAddr === wallet.address || tokenAcc === ownerUsdcAta;
+            return ownerAddr === ownerAddress || tokenAcc === ownerUsdcAta;
           })
           .reduce((acc, tb) => acc + Number(tb?.uiTokenAmount?.amount || 0), 0);
 
@@ -168,8 +181,8 @@ export class SolanaWalletService {
           amount: String(Math.abs(usdcDelta)),
           tokenAddress: 'solana-usdc',
           tokenSymbol: 'USDC',
-          fromAddress: usdcDelta < 0 ? wallet.address : undefined,
-          toAddress: usdcDelta > 0 ? wallet.address : undefined,
+          fromAddress: usdcDelta < 0 ? ownerAddress : undefined,
+          toAddress: usdcDelta > 0 ? ownerAddress : undefined,
           description: 'Solana USDC transfer',
           metadata: { chain: 'SOLANA' },
           blockTime,
@@ -184,8 +197,8 @@ export class SolanaWalletService {
             amount: String(Math.abs(solDelta)),
             tokenAddress: 'solana-native',
             tokenSymbol: 'SOL',
-            fromAddress: solDelta < 0 ? wallet.address : undefined,
-            toAddress: solDelta > 0 ? wallet.address : undefined,
+            fromAddress: solDelta < 0 ? ownerAddress : undefined,
+            toAddress: solDelta > 0 ? ownerAddress : undefined,
             description: 'Solana SOL transfer',
             metadata: { chain: 'SOLANA' },
             blockTime,

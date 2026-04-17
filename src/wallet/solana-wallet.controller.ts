@@ -49,9 +49,13 @@ export class SolanaWalletController {
   @ApiResponse({ status: 201, description: 'Polling completed' })
   async pollTransactions(
     @Param('walletId') walletId: string,
-    @Body() body: { limit?: number },
+    @Body() body: { limit?: number; address?: string },
   ) {
-    const transactions = await this.solanaWalletService.pollWalletTransactions(walletId, body?.limit || 15);
+    const transactions = await this.solanaWalletService.pollWalletTransactions(
+      walletId,
+      body?.limit || 15,
+      body?.address,
+    );
     return {
       success: true,
       transactions,
