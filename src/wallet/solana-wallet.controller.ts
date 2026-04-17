@@ -51,17 +51,29 @@ export class SolanaWalletController {
     @Param('walletId') walletId: string,
     @Body() body: { limit?: number; address?: string },
   ) {
-    const transactions = await this.solanaWalletService.pollWalletTransactions(
-      walletId,
-      body?.limit || 15,
-      body?.address,
-    );
-    return {
-      success: true,
-      transactions,
-      message: transactions.length
-        ? `Found ${transactions.length} new transaction(s)`
-        : 'No new Solana transactions found',
-    };
+    try {
+      const transactions = await this.solanaWalletService.pollWalletTransactions(
+        walletId,
+        body?.limit || 15,
+        body?.address,
+      );
+      return {
+        success: true,
+        transactions,
+        message: transactions.length
+          ? `Found ${transactions.length} new transaction(s)`
+          : 'No new Solana transactions found',
+      };
+    } catch (error: any) {
+      if (error?.status === 400 || String(error?.message || '').toLowerCase().includes('wallet')) {
+        throw error;
+      }
+      return {
+        success: true,
+        transactions: [],
+        warning: true,
+        message: `Solana polling skipped due to RPC issue: ${error?.message || 'unknown error'}`,
+      };
+    }
   }
 }

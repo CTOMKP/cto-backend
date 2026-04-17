@@ -20,6 +20,16 @@ export class SolanaWalletService {
     return new Connection(rpcUrl, 'confirmed');
   }
 
+  private getFallbackConnections(): Array<{ label: string; connection: Connection }> {
+    const configured =
+      this.configService.get('SOLANA_RPC_URL') ||
+      'https://api.devnet.solana.com';
+    const urls = [configured];
+    if (!configured.includes('api.devnet.solana.com')) urls.push('https://api.devnet.solana.com');
+    if (!configured.includes('api.mainnet-beta.solana.com')) urls.push('https://api.mainnet-beta.solana.com');
+    return urls.map((url) => ({ label: url, connection: new Connection(url, 'confirmed') }));
+  }
+
   private getUsdcMint(): PublicKey {
     const mint =
       this.configService.get('SOLANA_USDC_MINT') ||
@@ -29,32 +39,52 @@ export class SolanaWalletService {
 
   async getWalletBalance(address: string) {
     if (!address) throw new BadRequestException('Wallet address is required');
-    const connection = this.getConnection();
     const owner = new PublicKey(address);
     const usdcMint = this.getUsdcMint();
+    const candidates = this.getFallbackConnections();
 
-    const [solBalance, usdcAta] = await Promise.all([
-      connection.getBalance(owner, 'confirmed'),
-      getAssociatedTokenAddress(usdcMint, owner, false),
-    ]);
+    let best: any = null;
+    for (const { label, connection } of candidates) {
+      try {
+        const [solBalance, usdcAta] = await Promise.all([
+          connection.getBalance(owner, 'confirmed'),
+          getAssociatedTokenAddress(usdcMint, owner, false),
+        ]);
 
-    let usdcAmount = '0';
-    try {
-      const usdcAccount = await connection.getTokenAccountBalance(usdcAta, 'confirmed');
-      usdcAmount = usdcAccount?.value?.amount || '0';
-    } catch (error: any) {
-      // If ATA doesn't exist, balance is zero
-      this.logger.debug(`USDC ATA missing or unreadable for ${address}: ${error?.message}`);
+        let usdcAmount = '0';
+        try {
+          const usdcAccount = await connection.getTokenAccountBalance(usdcAta, 'confirmed');
+          usdcAmount = usdcAccount?.value?.amount || '0';
+        } catch {
+          usdcAmount = '0';
+        }
+
+        const score = solBalance + Number(usdcAmount || 0);
+        const current = {
+          address,
+          solLamports: solBalance,
+          sol: solBalance / 1e9,
+          usdcAmount,
+          usdc: parseFloat(usdcAmount) / 1e6,
+          usdcMint: usdcMint.toBase58(),
+          rpcUsed: label,
+          score,
+        };
+        if (!best || current.score > best.score) best = current;
+      } catch (error: any) {
+        this.logger.warn(`[SOLANA-BALANCE] ${label} failed for ${address}: ${error?.message}`);
+      }
     }
 
-    return {
-      address,
-      solLamports: solBalance,
-      sol: solBalance / 1e9,
-      usdcAmount,
-      usdc: parseFloat(usdcAmount) / 1e6,
-      usdcMint: usdcMint.toBase58(),
-    };
+    if (!best) {
+      throw new BadRequestException('Unable to fetch Solana balance from RPC');
+    }
+
+    this.logger.log(
+      `[SOLANA-BALANCE] ${address} => SOL=${best.sol} USDC=${best.usdc} via ${best.rpcUsed}`,
+    );
+    delete best.score;
+    return best;
   }
 
   async getWalletTransactions(walletId: string, limit: number = 20) {
