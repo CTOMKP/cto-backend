@@ -246,8 +246,19 @@ export class AuthService {
 
   // Sync Privy wallet to database
   async syncPrivyWallet(userId: number, walletData: any) {
-    // Normalize address to lowercase for consistent lookups
-    const normalizedAddress = walletData.address?.toLowerCase();
+    const normalizeByChain = (address?: string, blockchain?: string) => {
+      const raw = (address || '').trim();
+      if (!raw) return raw;
+      const chain = String(blockchain || '').toUpperCase();
+
+      // Solana base58 addresses are case-sensitive and must be stored as-is.
+      if (chain === 'SOLANA') return raw;
+
+      // EVM/Aptos-style hex addresses can be normalized to lowercase.
+      return raw.toLowerCase();
+    };
+
+    const normalizedAddress = normalizeByChain(walletData.address, walletData.blockchain);
     
     this.logger.log(`Syncing wallet for user ${userId}: ${normalizedAddress} on ${walletData.blockchain}`);
     
