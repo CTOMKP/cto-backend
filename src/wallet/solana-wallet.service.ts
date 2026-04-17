@@ -265,7 +265,7 @@ export class SolanaWalletService {
       }
     })();
 
-    return this.recordTransaction({
+    const debitTx = await this.recordTransaction({
       walletId: params.walletId,
       txHash: params.txHash,
       txType: 'DEBIT',
@@ -278,5 +278,40 @@ export class SolanaWalletService {
       metadata: { chain: 'SOLANA', source: 'wallet-send' },
       blockTime: new Date(),
     });
+
+    // Mirror into receiver history when recipient wallet exists in our DB.
+    // This makes recipient-side activity persist immediately, independent of RPC polling/indexer lag.
+    const recipientRaw = (params.toAddress || '').trim();
+    if (recipientRaw) {
+      try {
+        const recipientAddress = new PublicKey(recipientRaw).toBase58();
+        const receiverWallet = await this.prisma.wallet.findFirst({
+          where: {
+            blockchain: 'SOLANA' as any,
+            address: recipientAddress,
+          },
+        });
+
+        if (receiverWallet && receiverWallet.id !== params.walletId) {
+          await this.recordTransaction({
+            walletId: receiverWallet.id,
+            txHash: params.txHash,
+            txType: 'CREDIT',
+            amount: params.amount,
+            tokenAddress: params.asset === 'SOL' ? 'solana-native' : 'solana-usdc',
+            tokenSymbol: params.asset,
+            fromAddress: ownerAddress,
+            toAddress: recipientAddress,
+            description: `Solana ${params.asset} received`,
+            metadata: { chain: 'SOLANA', source: 'wallet-send-mirror' },
+            blockTime: new Date(),
+          });
+        }
+      } catch {
+        // If recipient is invalid/unresolvable, keep sender persistence and skip mirror.
+      }
+    }
+
+    return debitTx;
   }
 }
