@@ -107,10 +107,14 @@ export class MarketplaceController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create payment for a marketplace ad' })
-  async createPayment(@Param('id') id: string, @Req() req: any) {
+  async createPayment(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body?: { paymentChain?: 'MOVEMENT' | 'SOLANA' },
+  ) {
     const userId = req?.user?.userId || req?.user?.sub;
     const email = req?.user?.email;
-    return this.marketplaceService.createPayment(userId, id, email);
+    return this.marketplaceService.createPayment(userId, id, email, body?.paymentChain);
   }
 
   @Post('ads/payments/:paymentId/verify')

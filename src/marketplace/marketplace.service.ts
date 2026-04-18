@@ -355,7 +355,12 @@ export class MarketplaceService {
     return { success: true, data: found };
   }
 
-  async createPayment(userIdOrSub: unknown, id: string, email?: string | null) {
+  async createPayment(
+    userIdOrSub: unknown,
+    id: string,
+    email?: string | null,
+    paymentChain?: 'MOVEMENT' | 'SOLANA' | string,
+  ) {
     const userId = await this.resolveUserId(userIdOrSub, email);
     const ad = await this.prisma.marketplaceAd.findUnique({ where: { id } });
     if (!ad) throw new NotFoundException('Ad not found');
@@ -421,7 +426,11 @@ export class MarketplaceService {
       data: { totalPrice: breakdown.total },
     });
 
-    const chain = (ad.chain || 'MOVEMENT').toString().toUpperCase();
+    const requestedPaymentChain = (paymentChain || '').toString().toUpperCase();
+    const chain =
+      requestedPaymentChain === 'SOLANA' || requestedPaymentChain === 'MOVEMENT'
+        ? requestedPaymentChain
+        : (ad.chain || 'MOVEMENT').toString().toUpperCase();
     const payment =
       chain === 'SOLANA'
         ? await this.solanaPaymentService.createMarketplaceAdPayment(userId, id, breakdown.total)
