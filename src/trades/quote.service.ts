@@ -92,8 +92,14 @@ export class QuoteService {
     slippageBps: number,
   ): Promise<QuoteResponse> {
     const apiKey = this.configService.get('JUPITER_API_KEY');
-    // Jupiter V6 API - use the correct endpoint (api.jup.ag, not quote-api.jup.ag)
-    const baseUrl = this.configService.get('JUPITER_API_URL') || 'https://api.jup.ag/v6';
+    const configuredBaseUrl = this.configService.get('JUPITER_API_URL') || 'https://api.jup.ag/swap/v1';
+    const normalizedBaseUrl = configuredBaseUrl.replace(/\/+$/, '');
+    let quoteBaseUrl = normalizedBaseUrl;
+    if (/\/v6$/i.test(quoteBaseUrl)) {
+      quoteBaseUrl = quoteBaseUrl.replace(/\/v6$/i, '/swap/v1');
+    } else if (/^https:\/\/(api|lite-api)\.jup\.ag$/i.test(quoteBaseUrl)) {
+      quoteBaseUrl = `${quoteBaseUrl}/swap/v1`;
+    }
 
     try {
       const params = new URLSearchParams({
@@ -117,13 +123,14 @@ export class QuoteService {
         'Content-Type': 'application/json',
       };
       if (apiKey) {
+        headers['x-api-key'] = apiKey;
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
-      this.logger.debug(`Fetching Jupiter quote: ${baseUrl}/quote?${params.toString()}`);
+      this.logger.debug(`Fetching Jupiter quote: ${quoteBaseUrl}/quote?${params.toString()}`);
 
       const response = await firstValueFrom(
-        this.httpService.get(`${baseUrl}/quote?${params.toString()}`, { 
+        this.httpService.get(`${quoteBaseUrl}/quote?${params.toString()}`, {
           headers, 
           timeout: 15_000,
           validateStatus: (status) => status < 500,
@@ -171,15 +178,19 @@ export class QuoteService {
       };
     } catch (error: any) {
       const errorMessage = error.message || 'Unknown error';
-      const isNetworkError = errorMessage.includes('ENOTFOUND') || 
-                             errorMessage.includes('ECONNREFUSED') ||
-                             errorMessage.includes('ETIMEDOUT') ||
-                             errorMessage.includes('getaddrinfo');
-      
-      if (isNetworkError) {
-        this.logger.error(
-          `Jupiter API network error: ${errorMessage}. URL: ${baseUrl}. This may be a DNS or connectivity issue on the server.`,
-        );
+	      const isNetworkError = errorMessage.includes('ENOTFOUND') || 
+	                             errorMessage.includes('ECONNREFUSED') ||
+	                             errorMessage.includes('ETIMEDOUT') ||
+	                             errorMessage.includes('getaddrinfo');
+
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+	      
+	      if (isNetworkError) {
+	        this.logger.error(
+	          `Jupiter API network error: ${errorMessage}. URL: ${quoteBaseUrl}. This may be a DNS or connectivity issue on the server.`,
+	        );
         throw new BadRequestException({
           code: 'UPSTREAM_TIMEOUT',
           message:
