@@ -26,6 +26,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { XpModule } from './xp/xp.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { EscrowModule } from './escrow/escrow.module';
+import { SupportTicketModule } from './support-ticket/support-ticket.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { EscrowModule } from './escrow/escrow.module';
     XpModule,
     MessagingModule,
     EscrowModule,
+    SupportTicketModule,
   ],
   controllers: [HealthController],
   providers: [],

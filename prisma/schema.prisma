@@ -59,6 +59,7 @@ model User {
   escrowsAsPoster    Escrow[] @relation("PosterEscrows")
   escrowsAsApplicant Escrow[] @relation("ApplicantEscrows")
   notifications  Notification[]
+  supportTickets SupportTicket[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -635,6 +636,25 @@ model Notification {
   @@index([userId])
   @@index([createdAt])
   @@index([type])
+}
+
+model SupportTicket {
+  id         String   @id @default(cuid())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject    String
+  category   String   @default("GENERAL")
+  priority   String   @default("NORMAL")
+  message    String
+  status     String   @default("OPEN")
+  adminReply String?
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 // Movement wallet balance tracking
