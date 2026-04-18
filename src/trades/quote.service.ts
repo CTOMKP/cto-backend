@@ -131,6 +131,30 @@ export class QuoteService {
       );
 
       const data = response.data;
+      const upstreamError =
+        data?.error ||
+        data?.message ||
+        data?.msg ||
+        data?.detail ||
+        (Array.isArray(data?.errors) ? data.errors.join(', ') : undefined);
+
+      // Jupiter may return a 4xx payload with error details and no route fields.
+      if (response.status >= 400 || upstreamError) {
+        throw new BadRequestException({
+          code: 'QUOTE_FAILED',
+          message: `Failed to get Solana quote: ${upstreamError || `Jupiter returned HTTP ${response.status}`}`,
+          retryable: false,
+        });
+      }
+
+      if (!data?.inputMint || !data?.outputMint || !data?.inAmount || !data?.outAmount) {
+        throw new BadRequestException({
+          code: 'QUOTE_INVALID_RESPONSE',
+          message:
+            'Failed to get Solana quote: Jupiter returned an unexpected response (missing route fields).',
+          retryable: false,
+        });
+      }
 
       return {
         chain: 'solana',
