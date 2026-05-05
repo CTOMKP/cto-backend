@@ -13,5 +13,6 @@ export class MarketplaceCronService {
     this.logger.log('Running marketplace expiry checks');
     await this.marketplaceService.flagExpiryNotice();
     await this.marketplaceService.expireAds();
+    await this.marketplaceService.purgeExpiredAds();
   }
 }

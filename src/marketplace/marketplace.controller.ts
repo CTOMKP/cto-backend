@@ -233,6 +233,35 @@ export class MarketplaceController {
     return this.marketplaceService.extendAd(userId, id, email);
   }
 
+  @Post('ads/:id/repost')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Move expired ad back to draft for repost flow' })
+  @ApiResponse({
+    status: 200,
+    description: 'Expired ad moved to draft successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Ad moved back to draft. Complete payment to repost.',
+        data: {
+          id: 'cmo50d96i00d6hjmc7o4mwq6b',
+          status: 'DRAFT',
+          expiresAt: null,
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Ad is not expired or is older than 90 days' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - not your ad' })
+  @ApiResponse({ status: 404, description: 'Ad not found' })
+  async repostAd(@Param('id') id: string, @Req() req: any) {
+    const userId = req?.user?.userId || req?.user?.sub;
+    const email = req?.user?.email;
+    return this.marketplaceService.repostAd(userId, id, email);
+  }
+
   @Post('ads/:id/sold')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
