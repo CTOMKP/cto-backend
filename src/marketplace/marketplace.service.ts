@@ -19,6 +19,7 @@ type PricingBreakdown = {
 export class MarketplaceService {
   private readonly logger = new Logger(MarketplaceService.name);
   private readonly baseExpiryDays = 28;
+  private readonly expiredRetentionDays = 90;
   private readonly freeExtensionLimit = 3;
   private readonly adUserSelect = {
     id: true,
@@ -466,6 +467,43 @@ export class MarketplaceService {
     return { success: true, data: updated };
   }
 
+  async repostAd(userIdOrSub: unknown, id: string, email?: string | null) {
+    const userId = await this.resolveUserId(userIdOrSub, email);
+    const ad = await this.prisma.marketplaceAd.findUnique({ where: { id } });
+    if (!ad) throw new NotFoundException('Ad not found');
+    if (ad.userId !== userId) throw new ForbiddenException('Not your ad');
+    if (ad.status !== 'EXPIRED') {
+      throw new BadRequestException('Only expired ads can be reposted');
+    }
+
+    if (ad.expiresAt) {
+      const retentionCutoff = new Date();
+      retentionCutoff.setDate(retentionCutoff.getDate() - this.expiredRetentionDays);
+      if (ad.expiresAt <= retentionCutoff) {
+        throw new BadRequestException('This ad expired more than 90 days ago and cannot be reposted');
+      }
+    }
+
+    const reposted = await this.prisma.marketplaceAd.update({
+      where: { id },
+      data: {
+        status: 'DRAFT',
+        publishedAt: null,
+        expiresAt: null,
+        extendedCount: 0,
+        lastExtendedAt: null,
+        expiryNoticeSentAt: null,
+        featuredUntil: null,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Ad moved back to draft. Complete payment to repost.',
+      data: reposted,
+    };
+  }
+
   async extendAd(userIdOrSub: unknown, id: string, email?: string | null) {
     const userId = await this.resolveUserId(userIdOrSub, email);
     const ad = await this.prisma.marketplaceAd.findUnique({ where: { id } });
@@ -548,5 +586,23 @@ export class MarketplaceService {
     }
 
     return { success: true, expired: expiring.count };
+  }
+
+  async purgeExpiredAds() {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - this.expiredRetentionDays);
+
+    const result = await this.prisma.marketplaceAd.deleteMany({
+      where: {
+        status: 'EXPIRED',
+        expiresAt: { lte: cutoff },
+      },
+    });
+
+    if (result.count > 0) {
+      this.logger.log(`Permanently deleted ${result.count} expired marketplace ads older than ${this.expiredRetentionDays} days`);
+    }
+
+    return { success: true, deleted: result.count };
   }
 }
