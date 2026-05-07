@@ -161,6 +161,15 @@ export class ScanService {
           token_price: vettingData.trading.price,
           volume_24h: vettingData.trading.volume24h,
           market_cap: vettingData.trading.fdv,
+          market_data: {
+            source: tokenData.data_source ?? null,
+            market_cap_source: tokenData.market_cap_source ?? null,
+            pair_address: tokenData.pair_address ?? null,
+            pair_selected_by: tokenData.pair_selected_by ?? null,
+            txns_24h: tokenData.txns_24h ?? null,
+            data_confidence: tokenData.data_confidence ?? null,
+            dex_pair_url: tokenData.dex_pair_url ?? null,
+          },
           holder_count: vettingData.holders.count,
           scan_timestamp: new Date().toISOString(),
           vetting_results: vettingResults,
@@ -177,8 +186,9 @@ export class ScanService {
               userId,
             },
           });
-        } catch (dbError) {
-          this.logger.warn(`⚠️ Failed to persist scan result for ${contractAddress}: ${dbError.message}`);
+        } catch (dbError: unknown) {
+          const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+          this.logger.warn(`Failed to persist scan result for ${contractAddress}: ${dbErrorMessage}`);
         }
       }
 
@@ -429,14 +439,23 @@ export class ScanService {
               logo_url: logoUrl,
               chain: 'SOLANA',
               community_score: null,
-              project_age_days: tokenData.project_age_days,
-              age_display: formatTokenAge(tokenData.project_age_days),
-              age_display_short: formatTokenAgeShort(tokenData.project_age_days),
+	              project_age_days: Number.isFinite(Number(tokenData.project_age_days)) ? Number(tokenData.project_age_days) : null,
+	              age_display: Number.isFinite(Number(tokenData.project_age_days)) ? formatTokenAge(Number(tokenData.project_age_days)) : 'Age unavailable',
+	              age_display_short: Number.isFinite(Number(tokenData.project_age_days)) ? formatTokenAgeShort(Number(tokenData.project_age_days)) : 'Age unavailable',
               creation_date: tokenData.creation_date,
               lp_amount_usd: tokenData.lp_amount_usd,
-              token_price: tokenData.token_price,
-              volume_24h: tokenData.volume_24h,
-              market_cap: tokenData.market_cap,
+	              token_price: tokenData.token_price,
+	              volume_24h: tokenData.volume_24h,
+	              market_cap: tokenData.market_cap,
+	              market_data: {
+	                source: tokenData.data_source ?? null,
+	                market_cap_source: tokenData.market_cap_source ?? null,
+	                pair_address: tokenData.pair_address ?? null,
+	                pair_selected_by: tokenData.pair_selected_by ?? null,
+	                txns_24h: tokenData.txns_24h ?? null,
+	                data_confidence: tokenData.data_confidence ?? null,
+	                dex_pair_url: tokenData.dex_pair_url ?? null,
+	              },
               pool_count: tokenData.pool_count,
               lp_lock_months: tokenData.lp_lock_months,
               lp_burned: tokenData.lp_burned,
@@ -881,3 +900,6 @@ export class ScanService {
     return parts.join(' ');
   }
 }
+
+
+
