@@ -91,6 +91,12 @@ export class SolanaApiService {
         volume_24h: volume24h,
         market_cap: marketCap,
         pool_count: liquidityData.pool_count,
+        data_source: liquidityData.data_source,
+        market_cap_source: liquidityData.market_cap_source,
+        pair_selected_by: liquidityData.pair_selected_by,
+        txns_24h: liquidityData.txns_24h,
+        data_confidence: liquidityData.data_confidence,
+        dex_pair_url: liquidityData.dex_pair_url,
         
         // Holder data
         top_holders: holderData.top_holders || [],
@@ -602,8 +608,8 @@ export class SolanaApiService {
         
         const pairs = dexResponse.data.pairs || [];
         if (pairs.length > 0) {
-          // Get the pair with highest liquidity
-          const bestPair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+          // Select pair by quality score (activity + liquidity + address match), not liquidity alone.
+          const bestPair = this.selectBestDexPair(pairs, contractAddress);
           
           console.log('✅ DexScreener real data found!');
           
@@ -613,8 +619,20 @@ export class SolanaApiService {
           const lockContract = bestPair.liquidity?.lockContract ?? null;
           const lockAnalysis = 'dexscreener-real-data';
           
+          const tx24hBuys = Number(bestPair?.txns?.h24?.buys || 0);
+          const tx24hSells = Number(bestPair?.txns?.h24?.sells || 0);
+          const tx24hTotal = tx24hBuys + tx24hSells;
+          const hasFreshTrading = tx24hTotal > 0 || Number(bestPair?.volume?.h24 || 0) > 0;
+          const liquidityUsd = Number(bestPair?.liquidity?.usd || 0);
+          const volume24h = Number(bestPair?.volume?.h24 || 0);
+          const marketCap = Number(bestPair?.marketCap || 0);
+          const fdv = Number(bestPair?.fdv || 0);
+          const marketCapSource = marketCap > 0 ? 'dexscreener.marketCap' : (fdv > 0 ? 'dexscreener.fdv_proxy' : 'unavailable');
+          const effectiveMarketCap = marketCap > 0 ? marketCap : 0;
+          const dataConfidence = hasFreshTrading && liquidityUsd >= 1000 ? 'high' : (liquidityUsd > 0 ? 'medium' : 'low');
+
           return {
-            lp_amount_usd: bestPair.liquidity?.usd || 0,
+            lp_amount_usd: liquidityUsd,
             lp_lock_months: 0, // DexScreener doesn't provide lock duration
             lp_burned: lpBurned,
             lp_locked: lpLocked,
@@ -627,12 +645,17 @@ export class SolanaApiService {
             base_reserve: 0,
             quote_reserve: 0,
             price: parseFloat(bestPair.priceUsd) || 0,
-            volume_24h: bestPair.volume?.h24 || 0,
+            volume_24h: volume24h,
             data_source: 'dexscreener',
             lock_burn_success: lpBurned || lpLocked,
-            market_cap: bestPair.fdv || 0,
+            market_cap: effectiveMarketCap,
             price_change_24h: bestPair.priceChange?.h24 || 0,
             pool_count: pairs.length,
+            market_cap_source: marketCapSource,
+            pair_selected_by: 'quality_score',
+            txns_24h: { buys: tx24hBuys, sells: tx24hSells, total: tx24hTotal },
+            data_confidence: dataConfidence,
+            dex_pair_url: bestPair?.url || null,
           };
         }
       } catch (dexError) {
@@ -654,7 +677,12 @@ export class SolanaApiService {
         volume_24h: 0,
         market_cap: 0,
         pool_count: 0,
-        data_source: 'fallback'
+        data_source: 'fallback',
+        market_cap_source: 'unavailable',
+        pair_selected_by: 'none',
+        txns_24h: { buys: 0, sells: 0, total: 0 },
+        data_confidence: 'low',
+        dex_pair_url: null,
       };
       
     } catch (error) {
@@ -672,9 +700,42 @@ export class SolanaApiService {
         volume_24h: 0,
         market_cap: 0,
         pool_count: 0,
-        data_source: 'error'
+        data_source: 'error',
+        market_cap_source: 'unavailable',
+        pair_selected_by: 'none',
+        txns_24h: { buys: 0, sells: 0, total: 0 },
+        data_confidence: 'low',
+        dex_pair_url: null,
       };
     }
+  }
+
+  private selectBestDexPair(pairs: any[], contractAddress: string): any {
+    const normalizedAddress = String(contractAddress || '').toLowerCase();
+    const scored = pairs
+      .map((pair) => {
+        const liquidity = Number(pair?.liquidity?.usd || 0);
+        const volume24h = Number(pair?.volume?.h24 || 0);
+        const buys = Number(pair?.txns?.h24?.buys || 0);
+        const sells = Number(pair?.txns?.h24?.sells || 0);
+        const txCount = buys + sells;
+        const pairCreatedAt = Number(pair?.pairCreatedAt || 0);
+        const ageMs = Date.now() - pairCreatedAt;
+        const ageDays = pairCreatedAt > 0 && ageMs > 0 ? ageMs / (1000 * 60 * 60 * 24) : null;
+        const baseAddr = String(pair?.baseToken?.address || '').toLowerCase();
+        const quoteAddr = String(pair?.quoteToken?.address || '').toLowerCase();
+        const addressMatch = baseAddr === normalizedAddress || quoteAddr === normalizedAddress ? 1 : 0;
+        const score =
+          addressMatch * 1000 +
+          Math.min(liquidity, 1_000_000) / 100 +
+          Math.min(volume24h, 1_000_000) / 100 +
+          txCount * 5 +
+          (ageDays !== null && ageDays > 0.01 ? 25 : 0);
+        return { pair, score };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    return scored[0]?.pair || pairs[0];
   }
 
   /**
