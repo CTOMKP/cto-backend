@@ -386,9 +386,9 @@ export class SolanaApiService {
         }
         
         if (allSignatures.length > 0) {
-          // Find the oldest transaction (highest blockTime = oldest)
+          // Find the oldest transaction (lowest blockTime = oldest)
           const oldestTx = allSignatures.reduce((oldest, current) => {
-            return (current.blockTime > oldest.blockTime) ? current : oldest;
+            return (current.blockTime < oldest.blockTime) ? current : oldest;
           });
           
           if (oldestTx.blockTime) {
