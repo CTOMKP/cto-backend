@@ -79,15 +79,30 @@ export class ScanController {
           metadata.age_display_short = formatTokenAgeShort(metadata.project_age_days);
         }
 
-        this.logger.log(`Single token scan served from cache for: ${scanRequest.contractAddress}`);
-        return {
-          tier,
-          risk_score: riskScore,
-          risk_level: riskLevel,
-          eligible,
-          summary,
-          metadata,
-        } as any;
+        const cachedAgeDays =
+          typeof metadata?.project_age_days === 'number'
+            ? metadata.project_age_days
+            : null;
+        const shouldBypassCacheForYoungToken =
+          chain === 'SOLANA' &&
+          cachedAgeDays !== null &&
+          cachedAgeDays < 14;
+
+        if (shouldBypassCacheForYoungToken) {
+          this.logger.warn(
+            `Bypassing cached scan for ${scanRequest.contractAddress} because cached age is ${cachedAgeDays} days (<14).`,
+          );
+        } else {
+          this.logger.log(`Single token scan served from cache for: ${scanRequest.contractAddress}`);
+          return {
+            tier,
+            risk_score: riskScore,
+            risk_level: riskLevel,
+            eligible,
+            summary,
+            metadata,
+          } as any;
+        }
       }
 
       const result = await this.scanService.scanToken(scanRequest.contractAddress, userId, chain);
