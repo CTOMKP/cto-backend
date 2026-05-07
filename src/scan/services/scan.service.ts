@@ -85,10 +85,11 @@ export class ScanService {
 
       // Transform to Pillar 1 Vetting Data format (Same as RefreshWorker)
       const vettingData = this.transformToVettingData(contractAddress, tokenData, 'SOLANA');
+      const hasReliableAge = Number.isFinite(Number(tokenData.project_age_days));
       const creationDate =
         tokenData.creation_date ??
-        (Number.isFinite(vettingData.tokenAge)
-          ? new Date(Date.now() - vettingData.tokenAge * 24 * 60 * 60 * 1000)
+        (hasReliableAge
+          ? new Date(Date.now() - Number(tokenData.project_age_days) * 24 * 60 * 60 * 1000)
           : null);
       if (creationDate) {
         this.logger.debug(`ƒo. creation_date for ${contractAddress}: ${new Date(creationDate).toISOString()}`);
@@ -114,9 +115,9 @@ export class ScanService {
             metadata: {
               token_symbol: vettingData.tokenInfo.symbol,
               token_name: vettingData.tokenInfo.name,
-              project_age_days: vettingData.tokenAge,
-              age_display: formatTokenAge(vettingData.tokenAge),
-              age_display_short: formatTokenAgeShort(vettingData.tokenAge),
+              project_age_days: hasReliableAge ? Number(tokenData.project_age_days) : null,
+              age_display: hasReliableAge ? formatTokenAge(Number(tokenData.project_age_days)) : 'Age unavailable',
+              age_display_short: hasReliableAge ? formatTokenAgeShort(Number(tokenData.project_age_days)) : 'Age unavailable',
               creation_date: creationDate ?? null,
               lp_amount_usd: vettingData.trading.liquidity,
               token_price: vettingData.trading.price,
@@ -152,9 +153,9 @@ export class ScanService {
         metadata: {
           token_symbol: vettingData.tokenInfo.symbol,
           token_name: vettingData.tokenInfo.name,
-          project_age_days: vettingData.tokenAge,
-          age_display: formatTokenAge(vettingData.tokenAge),
-          age_display_short: formatTokenAgeShort(vettingData.tokenAge),
+          project_age_days: hasReliableAge ? Number(tokenData.project_age_days) : null,
+          age_display: hasReliableAge ? formatTokenAge(Number(tokenData.project_age_days)) : 'Age unavailable',
+          age_display_short: hasReliableAge ? formatTokenAgeShort(Number(tokenData.project_age_days)) : 'Age unavailable',
           creation_date: creationDate ?? null,
           lp_amount_usd: vettingData.trading.liquidity,
           token_price: vettingData.trading.price,
@@ -356,7 +357,7 @@ export class ScanService {
             };
           }
           const logoUrl = (tokenData as any).icon || (tokenData as any).image || null;
-          if (tokenData.project_age_days < 14) {
+          if (Number.isFinite(Number(tokenData.project_age_days)) && Number(tokenData.project_age_days) < 14) {
             const ageDisplay = formatTokenAge(tokenData.project_age_days);
             return {
               contractAddress,
@@ -773,7 +774,9 @@ export class ScanService {
         fdv: Number(tokenData.market_cap || 0),
         holderCount: tokenData.holder_count || tokenData.total_holders || 0,
       },
-      tokenAge: Math.max(0, Math.floor(tokenData.project_age_days || 0)),
+      tokenAge: Number.isFinite(Number(tokenData.project_age_days))
+        ? Math.max(0, Math.floor(Number(tokenData.project_age_days)))
+        : 30,
     };
   }
 
@@ -868,6 +871,11 @@ export class ScanService {
     const firstFlag = vettingResults.allFlags?.[0];
     if (firstFlag) {
       parts.push(firstFlag);
+    }
+
+    const missingData = Array.isArray(vettingResults?.missingData) ? vettingResults.missingData : [];
+    if (missingData.length > 0) {
+      parts.push(`Provisional classification due to missing data: ${missingData.join(', ')}.`);
     }
 
     return parts.join(' ');

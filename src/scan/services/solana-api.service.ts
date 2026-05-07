@@ -55,9 +55,11 @@ export class SolanaApiService {
         this.fetchMoralisMarket(contractAddress),
       ]);
 
-      // Calculate project age from creation date (preserve fractional days for hours)
-      const creationDate = tokenInfo.creation_date || new Date();
-      const projectAgeDays = (Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24);
+      // Calculate project age only when we have an authoritative creation date.
+      const creationDate = tokenInfo.creation_date || null;
+      const projectAgeDays = creationDate
+        ? (Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24)
+        : null;
 
       // Prefer Moralis market/price data when available
       const tokenPrice = moralisData?.price_usd ?? liquidityData.price;
@@ -70,7 +72,9 @@ export class SolanaApiService {
         mint_authority: tokenInfo.mint_authority,
         freeze_authority: tokenInfo.freeze_authority,
         creation_date: creationDate,
-        project_age_days: Math.max(0, projectAgeDays), // Ensure non-negative
+        project_age_days: Number.isFinite(projectAgeDays as number)
+          ? Math.max(0, projectAgeDays as number)
+          : null,
         total_supply: tokenInfo.total_supply,
         decimals: tokenInfo.decimals,
         
@@ -316,34 +320,6 @@ export class SolanaApiService {
    */
   private async fetchProjectAge(contractAddress: string) {
     try {
-      // Check known token ages first (for major tokens where we have confirmed data)
-      const knownTokenAges: { [key: string]: number } = {
-        '5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2': 90, // TROLL - 3 months as user confirmed
-        'GUy9Tu8YtvvHoL3DcXLJxXvEN8PqEus6mWQUEchcbonk': 4, // Ibiza Final Boss - 4 days as user confirmed
-        'GhqmkcpgoiqjPGFUwjrY8HaWhf5XUWmHksFf6mzopump': 0.25, // 6 hour token as user confirmed (0.25 days = 6 hours)
-        '51zudBR4NmATG35goida4dLQH5YPn9k8hVkLcizNpump': 270, // jam cat - 9 months as user confirmed (9 * 30 = 270 days)
-        '9Yt5tHLFB2Uz1yg3cyEpTN4KTSWhiGpKxXPJ8HX3hat': 45, // Kwant - set to consistent 45 days for testing (qualifies for Sprout tier)
-        '8tiZUftRmrWBfAH5m2equEewevYACAvxoohy5yo6pump': 0.5, // 12 hour token as user confirmed (0.5 days = 12 hours)
-        'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': 365, // BONK - ~1 year
-        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 1000, // USDC - very old
-        'So11111111111111111111111111111111111111112': 1500,  // SOL - very old
-        '5mbK36SZ7J19An8jFochhQS4of8g6BwUjbeCSxBSoWdp': 365  // michi - 1 year as user confirmed
-      };
-      
-      if (knownTokenAges[contractAddress]) {
-        const ageDays = knownTokenAges[contractAddress];
-        const creationDate = new Date(Date.now() - ageDays * 24 * 60 * 60 * 1000);
-        
-        console.log(`✅ Using known token age: ${ageDays} days for ${contractAddress}`);
-        
-        return {
-          source: 'known_token_data',
-          creation_date: creationDate,
-          creation_transaction: 'verified_token_data',
-          block_time: Math.floor(creationDate.getTime() / 1000),
-          success: true
-        };
-      }
 
       console.log('Fetching project age using multiple data sources...');
       
@@ -479,37 +455,10 @@ export class SolanaApiService {
             };
           }
           
-          // Fallback to estimation if no real timestamp
-          console.log('⚠️  No real timestamp from DexScreener, estimating from market patterns...');
-          
-          let estimatedAgeDays;
-          
-          // Create deterministic "randomness" based on contract address
-          const hash = contractAddress.split('').reduce((a, b) => {
-            a = ((a << 5) - a) + b.charCodeAt(0);
-            return a & a;
-          }, 0);
-          const deterministic = Math.abs(hash % 1000) / 1000; // 0-1 value, same for same address
-          
-          // Estimate age based on market maturity indicators (deterministic)
-          // Consider that new tokens can have high liquidity due to hype
-          if (marketCap > 10000000) { // >$10M = very established (6+ months)
-            estimatedAgeDays = Math.floor(180 + deterministic * 180); // 6-12 months
-          } else if (marketCap > 1000000 && liquidity > 500000) { // >$1M MC + >$500K liq = established (3-6 months)
-            estimatedAgeDays = Math.floor(90 + deterministic * 90); // 3-6 months
-          } else if (volume24h > 1000000) { // >$1M volume = very active (could be new with hype)
-            estimatedAgeDays = Math.floor(0.5 + deterministic * 3); // 12 hours to 3.5 days
-          } else if (liquidity > 100000 && volume24h > 50000) { // >$100K liq + >$50K vol = mature (1-3 months)
-            estimatedAgeDays = Math.floor(30 + deterministic * 60); // 1-3 months
-          } else if (volume24h > 10000) { // >$10K volume = active (2-8 weeks)
-            estimatedAgeDays = Math.floor(14 + deterministic * 42); // 2-8 weeks
-          } else if (liquidity > 10000) { // >$10K liquidity = recent (1-7 days)
-            estimatedAgeDays = Math.floor(1 + deterministic * 6); // 1-7 days
-          } else if (volume24h > 1000) { // >$1K volume = very recent (hours to days)
-            estimatedAgeDays = Math.floor(0.5 + deterministic * 2); // 12 hours to 2.5 days
-          } else { // New/low activity token
-            estimatedAgeDays = Math.floor(0.1 + deterministic * 0.9); // 2.4 hours to 1 day
-          }
+          // Fallback when no reliable timestamp exists from any provider.
+          // Avoid false "just created" classification from market heuristics.
+          console.log('No real timestamp from DexScreener, using conservative fallback age...');
+          const estimatedAgeDays = 60;
           
           const estimatedDate = new Date(Date.now() - estimatedAgeDays * 24 * 60 * 60 * 1000);
           
@@ -540,25 +489,13 @@ export class SolanaApiService {
     } catch (error) {
       console.error('Project age API error:', error.message);
       
-      // Log error but continue with estimated age based on market data
+      // Log and return unknown age instead of forcing a synthetic date.
       console.error('Project age API error:', error.message);
-      
-      // Estimate age based on market characteristics (better than random fallback)
-      let estimatedAgeDays = 60; // Default to 2 months for established tokens
-      
-      // If this function is called with context about market cap/liquidity, adjust estimate
-      // High liquidity usually indicates older, more established tokens
-      // For now, use a reasonable default that allows listing but isn't too permissive
-      
-      const fallbackDate = new Date(Date.now() - estimatedAgeDays * 24 * 60 * 60 * 1000);
-      
-      console.log(`Using estimated age: ${estimatedAgeDays} days (based on market indicators)`);
-      
       return {
-        source: 'estimated_age',
-        creation_date: fallbackDate,
-        creation_transaction: 'age_estimated',
-        block_time: Math.floor(fallbackDate.getTime() / 1000),
+        source: 'age_unknown',
+        creation_date: null,
+        creation_transaction: null,
+        block_time: null,
         success: false,
         error: error.message
       };

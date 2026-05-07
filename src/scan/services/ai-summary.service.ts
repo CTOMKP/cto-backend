@@ -34,6 +34,9 @@ export function generateAISummary(tokenData, tier, riskScore) {
  * Generates age-based summary
  */
 function getAgeSummary(ageDays) {
+  if (!Number.isFinite(Number(ageDays))) {
+    return "Project age is currently unavailable from data providers.";
+  }
   if (ageDays < 14) {
     return "This is a very new project that doesn't meet minimum age requirements.";
   } else if (ageDays < 30) {
