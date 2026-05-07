@@ -116,7 +116,8 @@ export class ListingRepository {
         change24h: i?.change24h ?? m?.priceChange?.h24 ?? null,
         marketCap: i?.marketCap ?? m?.fdv ?? m?.marketCap ?? null,
         holders: i?.holders ?? m?.holders ?? t?.holder_count ?? null,
-        age: i?.age ?? t?.age_display_short ?? t?.age_display ?? null,
+        // Prefer latest scan-derived age over persisted listing age to avoid stale "just created" values.
+        age: t?.age_display_short ?? t?.age_display ?? i?.age ?? null,
         // Community score is based on user votes - preserve existing value or set to null
         communityScore: i?.communityScore ?? null,
         // Tier: normalize to lowercase for frontend consistency
@@ -290,6 +291,11 @@ export class ListingRepository {
         normalizedTier === 'na'
       ) ? null : (normalizedTier ? normalizedTier : null);
 
+      const resolvedAge =
+        token?.age_display_short ??
+        token?.age_display ??
+        (typeof token?.project_age_days === 'number' ? `${Math.floor(token.project_age_days)}d` : null);
+
       const listing = await (tx as any).listing.upsert({
         where: { contractAddress },
         create: {
@@ -300,6 +306,7 @@ export class ListingRepository {
           summary: scan?.summary ?? summary ?? null,
           riskScore: riskScore ?? null,
           tier: tierValue,
+          age: resolvedAge,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : null,
           // Community score is based on user votes - preserve existing or set to null
@@ -312,6 +319,7 @@ export class ListingRepository {
           summary: scan?.summary ?? summary ?? null,
           riskScore: riskScore ?? null,
           tier: tierValue,
+          age: resolvedAge,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : (undefined as any),
           // Community score is based on user votes - preserve existing value
