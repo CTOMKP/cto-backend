@@ -268,7 +268,12 @@ export class ListingRepository {
 
       const existing = await (tx as any).listing.findUnique({ where: { contractAddress } });
       const prevMeta = (existing?.metadata ?? {}) as any;
-      const nextMeta = { ...prevMeta, token: token ?? prevMeta.token ?? null };
+      const nextMeta = {
+        market: prevMeta?.market ?? {},
+        token: token ?? prevMeta?.token ?? null,
+      };
+      const parsedHolders = Number(token?.holder_count ?? token?.total_holders);
+      const resolvedHolders = Number.isFinite(parsedHolders) ? parsedHolders : (existing?.holders ?? null);
 
       // NOTE: Community score is now based on user votes, not automatic calculation
       // Preserve existing community score from database (set by voting system) or set to null
@@ -307,6 +312,7 @@ export class ListingRepository {
           riskScore: riskScore ?? null,
           tier: tierValue,
           age: resolvedAge,
+          holders: resolvedHolders,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : null,
           // Community score is based on user votes - preserve existing or set to null
@@ -320,6 +326,7 @@ export class ListingRepository {
           riskScore: riskScore ?? null,
           tier: tierValue,
           age: resolvedAge,
+          holders: resolvedHolders,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : (undefined as any),
           // Community score is based on user votes - preserve existing value
