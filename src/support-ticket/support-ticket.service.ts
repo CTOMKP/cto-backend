@@ -27,6 +27,10 @@ import { FaucetRequestDto } from './dto/faucet-request.dto';
 
 @Injectable()
 export class SupportTicketService {
+  private publicFaucetIpWindowMs = 60 * 1000;
+  private publicFaucetIpMaxHits = 10;
+  private publicFaucetIpHits = new Map<string, number[]>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
@@ -73,6 +77,61 @@ export class SupportTicketService {
       solAmount: Number.isFinite(solAmount) && solAmount > 0 ? solAmount : 0.01,
       cooldownHours: Number.isFinite(cooldownHours) && cooldownHours > 0 ? cooldownHours : 24,
     };
+  }
+
+  getPublicFaucetKey(): string {
+    return (this.configService.get<string>('FAUCET_API_KEY') || '').trim();
+  }
+
+  private getFaucetSystemUserId(): number {
+    const configured = Number(this.configService.get<string>('FAUCET_SYSTEM_USER_ID', '1'));
+    return Number.isFinite(configured) && configured > 0 ? configured : 1;
+  }
+
+  private enforcePublicIpLimit(ip: string) {
+    const now = Date.now();
+    const cutoff = now - this.publicFaucetIpWindowMs;
+    const existing = this.publicFaucetIpHits.get(ip) || [];
+    const kept = existing.filter((ts) => ts >= cutoff);
+    if (kept.length >= this.publicFaucetIpMaxHits) {
+      throw new ForbiddenException('Too many faucet requests from this IP. Try again shortly.');
+    }
+    kept.push(now);
+    this.publicFaucetIpHits.set(ip, kept);
+  }
+
+  async createPublicFaucetRequest(dto: FaucetRequestDto, ip: string) {
+    this.enforcePublicIpLimit(ip || 'unknown');
+
+    const systemUserId = this.getFaucetSystemUserId();
+    const subject = 'USDC faucet auto-disbursement (Public)';
+    const wallet = dto.walletAddress.trim();
+    const { cooldownHours } = this.getFaucetConfig();
+    const cutoff = new Date(Date.now() - cooldownHours * 60 * 60 * 1000);
+
+    const existingOpen = await this.prisma.supportTicket.findFirst({
+      where: {
+        userId: systemUserId,
+        category: 'FAUCET',
+        subject,
+        status: { in: ['OPEN', 'IN_PROGRESS'] },
+        message: { contains: `Wallet: ${wallet}` },
+        createdAt: { gte: cutoff },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existingOpen) {
+      return {
+        blocked: true,
+        ticket: existingOpen,
+      };
+    }
+
+    return this.createFaucetRequest(systemUserId, {
+      walletAddress: wallet,
+      reason: dto.reason ? `${dto.reason.trim()} | IP: ${ip}` : `IP: ${ip}`,
+    });
   }
 
   async create(userId: number, dto: CreateSupportTicketDto) {
