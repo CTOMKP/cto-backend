@@ -795,7 +795,7 @@ export class ScanService {
       },
       tokenAge: Number.isFinite(Number(tokenData.project_age_days))
         ? Math.max(0, Math.floor(Number(tokenData.project_age_days)))
-        : 0,
+        : -1,
     };
   }
 

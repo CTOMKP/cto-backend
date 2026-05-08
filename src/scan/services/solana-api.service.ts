@@ -334,36 +334,7 @@ export class SolanaApiService {
 
       console.log('Fetching project age using multiple data sources...');
       
-      // Method 1: Solscan token metadata created timestamp (authoritative when available)
-      try {
-        const isV2 = this.configService.get('SOLSCAN_API_KEY')?.startsWith('eyJ');
-        const metaUrl = isV2 ? `token/meta?address=${contractAddress}` : `token/meta?token=${contractAddress}`;
-        const meta = await this.solscan.get(metaUrl);
-        const rawCreated =
-          meta.data?.data?.created_time ??
-          meta.data?.data?.createdAt ??
-          meta.data?.created_time ??
-          meta.data?.createdAt ??
-          null;
-        const createdNumber = rawCreated != null ? Number(rawCreated) : NaN;
-        const createdDate = Number.isFinite(createdNumber)
-          ? new Date(createdNumber > 1e12 ? createdNumber : createdNumber * 1000)
-          : null;
-
-        if (createdDate && !Number.isNaN(createdDate.getTime())) {
-          return {
-            source: 'solscan_token_meta',
-            creation_date: createdDate,
-            creation_transaction: null,
-            block_time: Math.floor(createdDate.getTime() / 1000),
-            success: true
-          };
-        }
-      } catch (metaErr) {
-        console.log(`Solscan token meta age failed: ${metaErr.message}`);
-      }
-
-      // Method 2: Try Solana RPC with pagination to get the actual first transaction
+      // Method 1: Try Solana RPC with pagination to get the actual first transaction
       try {
         console.log('Trying Solana RPC with pagination for first transaction...');
         

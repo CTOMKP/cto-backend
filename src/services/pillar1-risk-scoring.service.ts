@@ -552,6 +552,11 @@ export class Pillar1RiskScoringService {
     // Check LP lock requirements (use months if available, otherwise use percentage as proxy)
     // If we have lock months, use that; otherwise estimate from percentage
     // High percentage (>90%) likely means longer lock, low percentage likely means shorter/no lock
+    if (!Number.isFinite(age) || age < 0) {
+      this.logger.debug('Tier: none (token age unavailable)');
+      return 'none';
+    }
+
     const effectiveLockMonths = lpLockMonths > 0 ? lpLockMonths : (lpLockPercentage >= 90 ? 12 : lpLockPercentage >= 50 ? 6 : 0);
     const hasBurnedLP = lpLockMonths >= 999; // Burned LP = permanent lock
     
