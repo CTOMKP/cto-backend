@@ -7,7 +7,7 @@ import { createSafeFetcher } from '../../utils/safe-fetcher';
 export class SolanaApiService {
   // API Configuration - Using Solana Mainnet for production-ready token analysis
   private readonly HELIUS_RPC_URL: string;
-  private readonly SOLANA_RPC_URL: string;
+  private readonly SOLANA_SCAN_RPC_URL: string;
   private readonly SOLSCAN_API_URL = 'https://public-api.solscan.io';
   private readonly RAYDIUM_API_URL = 'https://api.raydium.io/v2/sdk/liquidity/mainnet.json';
   private readonly RUGCHECK_API_URL = 'https://api.rugcheck.xyz/v1/tokens';
@@ -24,7 +24,11 @@ export class SolanaApiService {
     const solscanApiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0');
 
     this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
-    this.SOLANA_RPC_URL = this.configService.get('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com');
+    // Scanner must always read Solana mainnet token history, independent of faucet/runtime RPC.
+    this.SOLANA_SCAN_RPC_URL = this.configService.get(
+      'SOLANA_SCAN_RPC_URL',
+      this.HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com',
+    );
     
     // Helius free/low tiers work best with key in URL, not header
     this.helius = axios.create({
@@ -349,7 +353,7 @@ export class SolanaApiService {
             [contractAddress, { limit: 1000, before }] : 
             [contractAddress, { limit: 1000 }];
           
-          const rpcResponse = await axios.post(this.SOLANA_RPC_URL, {
+          const rpcResponse = await axios.post(this.SOLANA_SCAN_RPC_URL, {
             jsonrpc: '2.0',
             id: 1,
             method: 'getSignaturesForAddress',
