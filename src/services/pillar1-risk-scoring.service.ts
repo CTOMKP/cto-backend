@@ -73,6 +73,12 @@ export interface VettingResults {
   riskLevel: 'low' | 'medium' | 'high' | 'insufficient_data';
   eligibleTier: 'stellar' | 'bloom' | 'sprout' | 'seed' | 'new' | 'none';
   reasonCode?: string | null;
+  verificationCoverage?: number;
+  riskFlags?: Array<{
+    code: string;
+    severity: 'low' | 'medium' | 'high';
+    message: string;
+  }>;
   allFlags: string[];
   dataSufficient: boolean;
   missingData: string[];
@@ -130,12 +136,26 @@ export class Pillar1RiskScoringService {
     const devAbandonmentScore = devAbandonment.score ?? 0;
 
     // Distribution: 25%, Liquidity: 35%, Dev: 20%, Technical: 20%
-    const overallScore = Math.round(
+    let overallScore = Math.round(
       (distributionScore * 0.25) +
       (liquidityScore * 0.35) +
       (devAbandonmentScore * 0.20) +
       (technicalScore * 0.20)
     );
+
+    const hasTopHolderDistribution = !!(holders?.topHolders && holders.topHolders.length > 0);
+    const hasCreatorVerification = !!developer?.creatorAddress;
+    const hasLpLockVerification = (security?.lpLockPercentage || 0) > 0;
+    const unknownCriticalCount = [
+      !hasLpLockVerification,
+      !hasCreatorVerification,
+      !hasTopHolderDistribution,
+    ].filter(Boolean).length;
+
+    // Prevent optimistic drift when critical verification inputs are missing.
+    if (!hasLpLockVerification && overallScore > 85) {
+      overallScore = 85;
+    }
 
     // Determine risk level
     let riskLevel: 'low' | 'medium' | 'high' | 'insufficient_data' = 'insufficient_data';
@@ -146,6 +166,38 @@ export class Pillar1RiskScoringService {
     } else {
       riskLevel = 'high';
     }
+
+    if (riskLevel === 'low' && unknownCriticalCount >= 2) {
+      riskLevel = 'medium';
+    }
+
+    const riskFlags: VettingResults['riskFlags'] = [];
+    if (!hasLpLockVerification) {
+      riskFlags.push({
+        code: 'LP_LOCK_UNKNOWN',
+        severity: 'medium',
+        message: 'LP lock duration could not be verified.',
+      });
+    }
+    if (!hasCreatorVerification) {
+      riskFlags.push({
+        code: 'CREATOR_UNVERIFIED',
+        severity: 'medium',
+        message: 'Creator wallet could not be analyzed.',
+      });
+    }
+    if (!hasTopHolderDistribution) {
+      riskFlags.push({
+        code: 'HOLDER_DISTRIBUTION_PARTIAL',
+        severity: 'medium',
+        message: 'Top holder distribution data is incomplete.',
+      });
+    }
+
+    const verificationSignals = [hasLpLockVerification, hasCreatorVerification, hasTopHolderDistribution];
+    const verificationCoverage = Math.round(
+      (verificationSignals.filter(Boolean).length / verificationSignals.length) * 100
+    );
 
     // Add warning flags for missing data
     if (missingCriticalData.length > 0) {
@@ -176,6 +228,8 @@ export class Pillar1RiskScoringService {
       riskLevel,
       eligibleTier,
       allFlags,
+      verificationCoverage,
+      riskFlags,
       dataSufficient: missingCriticalData.length === 0,
       missingData: missingCriticalData,
       calculatedAt: new Date().toISOString(),
