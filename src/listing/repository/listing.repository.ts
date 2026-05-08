@@ -379,7 +379,10 @@ export class ListingRepository {
     const prevMeta = (existing?.metadata ?? {}) as any;
 
     // Use explicit unclassified tier to avoid null/none ambiguity for clients.
-    const tierValue = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
+    let tierValue = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
+    if (tierValue === 'unclassified' && Number(vettingResults.overallScore ?? 0) >= 70) {
+      tierValue = 'seed';
+    }
 
     // Build metadata matching n8n workflow format
     const metadata = {

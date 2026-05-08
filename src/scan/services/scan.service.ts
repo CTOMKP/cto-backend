@@ -146,7 +146,8 @@ export class ScanService {
       const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
       
       // Generate AI summary
-      const normalizedTier = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
+      const tierResolution = this.resolveDisplayTier(vettingResults);
+      const normalizedTier = tierResolution.tier;
       const summary = generateAISummary(tokenData, { name: normalizedTier }, vettingResults.overallScore);
 
       const result = {
@@ -177,9 +178,11 @@ export class ScanService {
           },
           holder_count: vettingData.holders.count,
           scan_timestamp: new Date().toISOString(),
+          tier_note: tierResolution.note,
           vetting_results: {
             ...vettingResults,
             eligibleTier: normalizedTier,
+            tierNote: tierResolution.note,
           },
         },
       };
@@ -434,7 +437,8 @@ export class ScanService {
             insufficient_data: 'HIGH',
           };
           const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
-          const normalizedTier = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
+          const tierResolution = this.resolveDisplayTier(vettingResults);
+          const normalizedTier = tierResolution.tier;
           const summary = generateAISummary(tokenData, { name: normalizedTier }, riskScore);
           return {
             contractAddress,
@@ -477,6 +481,7 @@ export class ScanService {
               largest_lp_holder: tokenData.largest_lp_holder,
               pair_address: tokenData.pair_address,
               scan_timestamp: new Date().toISOString(),
+              tier_note: tierResolution.note,
               verified: tokenData.verified,
               holder_count: tokenData.holder_count,
               creation_transaction: tokenData.creation_transaction,
@@ -910,6 +915,20 @@ export class ScanService {
     }
 
     return parts.join(' ');
+  }
+
+  private resolveDisplayTier(vettingResults: { eligibleTier: string; overallScore: number | null }): { tier: string; note: string | null } {
+    const normalizedTier = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
+    const score = Number(vettingResults.overallScore ?? 0);
+
+    if (normalizedTier === 'unclassified' && score >= 70) {
+      return {
+        tier: 'seed',
+        note: 'Provisional Seed tier due to incomplete verification data (LP lock / creator / holder distribution).',
+      };
+    }
+
+    return { tier: normalizedTier, note: null };
   }
 }
 
