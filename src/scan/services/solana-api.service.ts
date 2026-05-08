@@ -7,6 +7,7 @@ import { createSafeFetcher } from '../../utils/safe-fetcher';
 export class SolanaApiService {
   // API Configuration - Using Solana Mainnet for production-ready token analysis
   private readonly HELIUS_RPC_URL: string;
+  private readonly SOLANA_RPC_URL: string;
   private readonly SOLSCAN_API_URL = 'https://public-api.solscan.io';
   private readonly RAYDIUM_API_URL = 'https://api.raydium.io/v2/sdk/liquidity/mainnet.json';
   private readonly RUGCHECK_API_URL = 'https://api.rugcheck.xyz/v1/tokens';
@@ -23,6 +24,7 @@ export class SolanaApiService {
     const solscanApiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0');
 
     this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+    this.SOLANA_RPC_URL = this.configService.get('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com');
     
     // Helius free/low tiers work best with key in URL, not header
     this.helius = axios.create({
@@ -256,7 +258,8 @@ export class SolanaApiService {
         verified: true, // Jupiter tokens are verified
         holder: holderCount,
         supply: null,
-        decimals: tokenMeta.decimals || 6
+        decimals: tokenMeta.decimals || 6,
+        creation_date: null
       };
 
     } catch (error) {
@@ -301,21 +304,23 @@ export class SolanaApiService {
             verified: true,
             holder: holderCount,
             supply: null,
-            decimals: 6
+            decimals: 6,
+            creation_date: null
           };
         }
       } catch (dexError) {
         console.error('DexScreener backup failed:', dexError.message);
       }
       
-      // Return mock data if all APIs fail (for demo purposes)
-      console.log('Using mock data due to Solscan API failure');
+      // Never hallucinate metadata when upstreams fail.
       return {
-        source: 'solscan_mock',
-        symbol: `TKN${Math.floor(Math.random() * 1000)}`,
-        name: `Demo Token ${Math.floor(Math.random() * 1000)}`,
-        verified: Math.random() > 0.5,
-        holder: Math.floor(Math.random() * 10000),
+        source: 'metadata_unavailable',
+        symbol: 'UNKNOWN',
+        name: 'Unknown Token',
+        verified: false,
+        holder: 0,
+        decimals: 6,
+        creation_date: null,
         error: error.message
       };
     }
@@ -329,7 +334,36 @@ export class SolanaApiService {
 
       console.log('Fetching project age using multiple data sources...');
       
-      // Method 1: Try Solana RPC with pagination to get the actual first transaction
+      // Method 1: Solscan token metadata created timestamp (authoritative when available)
+      try {
+        const isV2 = this.configService.get('SOLSCAN_API_KEY')?.startsWith('eyJ');
+        const metaUrl = isV2 ? `token/meta?address=${contractAddress}` : `token/meta?token=${contractAddress}`;
+        const meta = await this.solscan.get(metaUrl);
+        const rawCreated =
+          meta.data?.data?.created_time ??
+          meta.data?.data?.createdAt ??
+          meta.data?.created_time ??
+          meta.data?.createdAt ??
+          null;
+        const createdNumber = rawCreated != null ? Number(rawCreated) : NaN;
+        const createdDate = Number.isFinite(createdNumber)
+          ? new Date(createdNumber > 1e12 ? createdNumber : createdNumber * 1000)
+          : null;
+
+        if (createdDate && !Number.isNaN(createdDate.getTime())) {
+          return {
+            source: 'solscan_token_meta',
+            creation_date: createdDate,
+            creation_transaction: null,
+            block_time: Math.floor(createdDate.getTime() / 1000),
+            success: true
+          };
+        }
+      } catch (metaErr) {
+        console.log(`Solscan token meta age failed: ${metaErr.message}`);
+      }
+
+      // Method 2: Try Solana RPC with pagination to get the actual first transaction
       try {
         console.log('Trying Solana RPC with pagination for first transaction...');
         
@@ -337,13 +371,14 @@ export class SolanaApiService {
         let allSignatures: any[] = [];
         let before: string | null = null;
         const maxPages = 5; // Limit to avoid rate limits
+        let exhaustedHistory = false;
         
         for (let page = 0; page < maxPages; page++) {
           const params = before ? 
             [contractAddress, { limit: 1000, before }] : 
             [contractAddress, { limit: 1000 }];
           
-          const rpcResponse = await axios.post('https://api.mainnet-beta.solana.com', {
+          const rpcResponse = await axios.post(this.SOLANA_RPC_URL, {
             jsonrpc: '2.0',
             id: 1,
             method: 'getSignaturesForAddress',
@@ -358,8 +393,12 @@ export class SolanaApiService {
             before = rpcResponse.data.result[rpcResponse.data.result.length - 1].signature;
             
             // If we got less than 1000, we've reached the end
-            if (rpcResponse.data.result.length < 1000) break;
+            if (rpcResponse.data.result.length < 1000) {
+              exhaustedHistory = true;
+              break;
+            }
           } else {
+            exhaustedHistory = true;
             break;
           }
           
@@ -376,6 +415,10 @@ export class SolanaApiService {
           if (oldestTx.blockTime) {
             const creationDate = new Date(oldestTx.blockTime * 1000);
             const ageHours = (Date.now() - creationDate.getTime()) / (1000 * 60 * 60);
+            const likelyTruncated = !exhaustedHistory && allSignatures.length >= maxPages * 1000;
+            if (likelyTruncated && ageHours < 24 * 30) {
+              throw new Error('RPC signature window truncated; refusing potentially false young token age');
+            }
             
             console.log(`✅ Real age from Solana RPC: ${ageHours.toFixed(1)} hours (from ${allSignatures.length} transactions)`);
             
@@ -392,7 +435,7 @@ export class SolanaApiService {
         console.log(`Solana RPC pagination failed: ${rpcError.message}`);
       }
 
-      // Method 2: Try Solscan as backup
+      // Method 3: Try Solscan transactions as backup
       try {
         console.log('Trying Solscan API as backup...');
         
@@ -434,8 +477,6 @@ export class SolanaApiService {
     } catch (error) {
       console.error('Project age API error:', error.message);
       
-      // Log and return unknown age instead of forcing a synthetic date.
-      console.error('Project age API error:', error.message);
       return {
         source: 'age_unknown',
         creation_date: null,
@@ -452,7 +493,7 @@ export class SolanaApiService {
    */
   private mergeTokenMetadata(heliusData: any, solscanData: any, projectAgeData: any, contractAddress: string) {
     // Use project age data if available, otherwise fallback
-    const creationDate = projectAgeData.creation_date;
+    const creationDate = projectAgeData.creation_date || solscanData.creation_date || null;
     
     return {
       symbol: solscanData.symbol || 'UNKNOWN',
