@@ -474,11 +474,22 @@ export class MovementPaymentService {
       }
 
       if (payment.paymentType === 'MARKETPLACE_AD' && payment.marketplaceAdId) {
-        await this.prisma.marketplaceAd.update({
+        const updatedAd = await this.prisma.marketplaceAd.update({
           where: { id: payment.marketplaceAdId },
           data: { status: 'PENDING_APPROVAL' },
+          include: {
+            user: { select: { email: true, name: true } },
+          },
         });
-        this.logger.log(`✅ Marketplace ad ${payment.marketplaceAdId} status updated to PENDING_APPROVAL`);
+        this.logger.log(`Marketplace ad ${payment.marketplaceAdId} status updated to PENDING_APPROVAL`);
+        if (updatedAd.user?.email) {
+          await this.emailService.sendMarketplaceAdPendingEmail({
+            to: updatedAd.user.email,
+            userName: updatedAd.user.name,
+            adId: updatedAd.id,
+            adTitle: updatedAd.title,
+          });
+        }
       }
 
       if (payment.paymentType === 'ESCROW' && payment.escrowId) {

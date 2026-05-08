@@ -17,6 +17,13 @@ type ListingApprovedEmailParams = {
   projectTitle: string;
 };
 
+type MarketplaceAdPendingEmailParams = {
+  to: string;
+  userName?: string | null;
+  adId: string;
+  adTitle: string;
+};
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -387,6 +394,41 @@ export class EmailService {
       });
     } catch (error: any) {
       this.logger.error(`Failed to send approved listing email to ${params.to}: ${error?.message ?? error}`);
+    }
+  }
+
+  async sendMarketplaceAdPendingEmail(params: MarketplaceAdPendingEmailParams): Promise<void> {
+    const baseUrl = this.getFrontendBaseUrl().replace(/\/+$/, '');
+    const adsUrl = `${baseUrl}/profile?tab=ads`;
+    const adUrl = `${baseUrl}/market/${params.adId}`;
+    const name = this.displayName(params.userName);
+
+    const subject = 'Your ad is pending review';
+    const text =
+      `Hi ${name},\n\n` +
+      `Your ad "${params.adTitle}" has been submitted and is now pending admin approval.\n` +
+      `View your ads: ${adsUrl}\n` +
+      `Ad details: ${adUrl}\n\n` +
+      `- CTO Marketplace`;
+    const html = this.buildEmailHtml({
+      title: 'Your Ad Is Pending Review',
+      intro: `Hi ${name}, your ad has been submitted and is now awaiting admin approval.`,
+      projectTitle: params.adTitle,
+      primaryCtaText: 'View My Ads',
+      primaryCtaUrl: adsUrl,
+      secondaryCtaText: 'Open Ad Details',
+      secondaryCtaUrl: adUrl,
+    });
+
+    try {
+      await this.sendEmail({
+        to: params.to,
+        subject,
+        html,
+        text,
+      });
+    } catch (error: any) {
+      this.logger.error(`Failed to send pending marketplace ad email to ${params.to}: ${error?.message ?? error}`);
     }
   }
 }
