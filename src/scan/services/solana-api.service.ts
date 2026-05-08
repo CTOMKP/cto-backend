@@ -428,70 +428,9 @@ export class SolanaApiService {
         console.log(`Solscan backup failed: ${solscanError.message}`);
       }
 
-      // Method 3: Get real age from DexScreener or estimate if not available
-      console.log('Getting age from DexScreener...');
-      
-      try {
-        const dexResponse = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${contractAddress}`, {
-          timeout: 10000
-        });
-        
-        if (dexResponse.data.pairs && dexResponse.data.pairs.length > 0) {
-          const pair = dexResponse.data.pairs[0];
-          const volume24h = pair.volume?.h24 || 0;
-          const liquidity = pair.liquidity?.usd || 0;
-          const marketCap = pair.fdv || 0;
-          const priceChange24h = pair.priceChange?.h24 || 0;
-          
-          // Check if DexScreener has the real creation timestamp
-          if (pair.pairCreatedAt) {
-            const creationDate = new Date(pair.pairCreatedAt);
-            const ageMs = Date.now() - creationDate.getTime();
-            const ageDays = ageMs / (1000 * 60 * 60 * 24);
-            
-            console.log(`✅ Real age from DexScreener: ${ageDays.toFixed(1)} days (from pairCreatedAt)`);
-            
-            return {
-              source: 'dexscreener_real',
-              creation_date: creationDate,
-              creation_transaction: 'dexscreener_pair_creation',
-              block_time: Math.floor(creationDate.getTime() / 1000),
-              success: true,
-              real_age: true
-            };
-          }
-          
-          // Fallback when no reliable timestamp exists from any provider.
-          // Avoid false "just created" classification from market heuristics.
-          console.log('No real timestamp from DexScreener, using conservative fallback age...');
-          const estimatedAgeDays = 60;
-          
-          const estimatedDate = new Date(Date.now() - estimatedAgeDays * 24 * 60 * 60 * 1000);
-          
-          console.log(`✅ Age estimated from DexScreener: ${estimatedAgeDays} days (MC: $${marketCap.toLocaleString()}, Liq: $${liquidity.toLocaleString()})`);
-          
-          return {
-            source: 'dexscreener_estimated',
-            creation_date: estimatedDate,
-            creation_transaction: 'estimated_from_market_data',
-            block_time: Math.floor(estimatedDate.getTime() / 1000),
-            success: true,
-            estimation_method: 'market_cap_liquidity_analysis',
-            market_indicators: {
-              market_cap: marketCap,
-              liquidity: liquidity,
-              volume_24h: volume24h,
-              price_change_24h: priceChange24h
-            }
-          };
-        }
-      } catch (dexError) {
-        console.log(`DexScreener estimation failed: ${dexError.message}`);
-      }
-      
-      // Final fallback if even DexScreener fails
-      throw new Error('Unable to determine token age from any source');
-
+      // Do NOT use DexScreener pairCreatedAt for token age.
+      // Pair age can be newer than mint age and causes false "just created" outputs.
+      throw new Error('Unable to determine token mint age from authoritative sources');
     } catch (error) {
       console.error('Project age API error:', error.message);
       

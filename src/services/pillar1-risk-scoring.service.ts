@@ -311,8 +311,8 @@ export class Pillar1RiskScoringService {
       flags.push(`Only ${lpLockPercentage}% LP locked - CRITICAL RISK`);
     } else {
       // Missing LP lock data - apply penalty but still calculate based on liquidity amount
-      score -= 5; // Base penalty for missing LP lock data
-      flags.push('⚠️ Missing LP lock data - penalized -5 points');
+      score -= 35; // Missing LP lock data is a major risk for memecoins
+      flags.push('Missing LP lock data - penalized -35 points');
     }
 
     // Bonus for burned LP
@@ -569,16 +569,6 @@ export class Pillar1RiskScoringService {
       return 'stellar';
     }
 
-    // Stellar Tier - Score-based fallback: Trust high scores even without LP lock data
-    // If score >=70 and meets age/liquidity, trust the score (it already penalized missing LP lock)
-    // Allow tokens with any liquidity above minimum
-    if (age >= 60 && 
-        liquidityUSD >= 100000 && 
-        score >= 70 && effectiveLockMonths === 0) {
-      this.logger.debug(`✅ Tier: stellar (score-based: score ${score} >= 70, age ${age} >= 60 days, liquidity $${liquidityUSD} >= $100k, LP lock waived)`);
-      return 'stellar';
-    }
-
     // Bloom Tier: Premium tier for mature CTO projects
     // Age: >=30 days, LP: >=$50k (no max - allow high liquidity tokens), Lock: 24-36 months, Score: >=50
     // Allow tokens with liquidity >= $50k (no upper limit - high liquidity tokens can still be Bloom if they don't meet Stellar)
@@ -587,15 +577,6 @@ export class Pillar1RiskScoringService {
         effectiveLockMonths >= 24 && effectiveLockMonths <= 36 && 
         score >= 50) {
       this.logger.debug(`✅ Tier: bloom (age ${age} >= 30 days, liquidity $${liquidityUSD} >= $50k, LP lock ${effectiveLockMonths} months [24-36], score ${score} >= 50)`);
-      return 'bloom';
-    }
-
-    // Bloom Tier - Score-based fallback: Trust scores >=60 even without LP lock data
-    // Allow tokens with liquidity >= $50k (no upper limit)
-    if (age >= 30 && 
-        liquidityUSD >= 50000 && 
-        score >= 60 && effectiveLockMonths === 0) {
-      this.logger.debug(`✅ Tier: bloom (score-based: score ${score} >= 60, age ${age} >= 30 days, liquidity $${liquidityUSD} >= $50k, LP lock waived)`);
       return 'bloom';
     }
 
@@ -610,15 +591,6 @@ export class Pillar1RiskScoringService {
       return 'sprout';
     }
 
-    // Sprout Tier - Score-based fallback: Trust scores >=55 even without LP lock data
-    // Allow tokens with liquidity >= $20k (no upper limit)
-    if (age >= 21 && 
-        liquidityUSD >= 20000 && 
-        score >= 55 && effectiveLockMonths === 0) {
-      this.logger.debug(`✅ Tier: sprout (score-based: score ${score} >= 55, age ${age} >= 21 days, liquidity $${liquidityUSD} >= $20k, LP lock waived)`);
-      return 'sprout';
-    }
-
     // Seed Tier: Entry-level tier for new CTO projects
     // Age: >=14 days, LP: >=$10k (no max), Lock: 6-12 months, Score: >=30
     // Allow tokens with liquidity >= $10k (no upper limit - high liquidity tokens can still be Seed if they don't meet higher tiers)
@@ -627,17 +599,6 @@ export class Pillar1RiskScoringService {
         effectiveLockMonths >= 6 && effectiveLockMonths <= 12 && 
         score >= 30) {
       this.logger.debug(`✅ Tier: seed (age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock ${effectiveLockMonths} months [6-12], score ${score} >= 30)`);
-      return 'seed';
-    }
-
-    // Seed Tier - Score-based fallback: Trust the risk score for tokens with high scores
-    // If score >=50, the token is relatively safe despite missing LP lock data
-    // The risk score calculation already penalized missing LP lock (-5 points), so trust the score
-    // Allow tokens with liquidity >= $10k (no upper limit)
-    if (age >= 14 && 
-        liquidityUSD >= 10000 && 
-        score >= 50 && effectiveLockMonths === 0) {
-      this.logger.debug(`✅ Tier: seed (score-based: score ${score} >= 50, age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock waived)`);
       return 'seed';
     }
 
@@ -654,11 +615,13 @@ export class Pillar1RiskScoringService {
     if (age > 21 && age < 30) missingReqs.push(`age ${age} days (outside Seed range 14-21, but below Sprout minimum 21)`);
     if (liquidityUSD < 10000) missingReqs.push(`liquidity $${liquidityUSD} < $10k (minimum for Seed)`);
     if (liquidityUSD > 20000 && liquidityUSD < 50000) missingReqs.push(`liquidity $${liquidityUSD} (outside Seed range $10k-$20k, but below Sprout minimum $20k)`);
-    // LP lock requirement is waived for high scores (>=50) since risk score already penalizes missing data
-    if (effectiveLockMonths < 6 && score < 50) missingReqs.push(`LP lock ${effectiveLockMonths} months < 6 months (waived if score >=50)`);
+    // LP lock requirement is mandatory for tier assignment
+    if (effectiveLockMonths < 6) missingReqs.push(`LP lock ${effectiveLockMonths} months < 6 months`);
     if (score < 30) missingReqs.push(`score ${score} < 30 (minimum for Seed tier, risk score <70)`);
     
     this.logger.debug(`❌ Tier: none (missing requirements: ${missingReqs.join(', ')})`);
     return 'none';
   }
 }
+
+
