@@ -126,7 +126,10 @@ export class ScanService {
               market_cap: vettingData.trading.fdv,
               holder_count: vettingData.holders.count,
               scan_timestamp: new Date().toISOString(),
-              vetting_results: vettingResults,
+              vetting_results: {
+                ...vettingResults,
+                eligibleTier: normalizedTier,
+              },
             },
           },
           HttpStatus.BAD_REQUEST,
@@ -174,7 +177,10 @@ export class ScanService {
           },
           holder_count: vettingData.holders.count,
           scan_timestamp: new Date().toISOString(),
-          vetting_results: vettingResults,
+          vetting_results: {
+            ...vettingResults,
+            eligibleTier: normalizedTier,
+          },
         },
       };
 
@@ -291,7 +297,10 @@ export class ScanService {
         websites: tokenData.websites || [],
         socials: tokenData.socials || [],
         scan_timestamp: new Date().toISOString(),
-        vetting_results: vettingResults,
+        vetting_results: {
+          ...vettingResults,
+          eligibleTier: tier ?? 'unclassified',
+        },
         source: tokenData.source ?? null,
         reason_code: reasonCode,
       },

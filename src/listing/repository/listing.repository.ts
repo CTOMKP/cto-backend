@@ -378,6 +378,9 @@ export class ListingRepository {
     const existing = await client.listing.findUnique({ where: { contractAddress } });
     const prevMeta = (existing?.metadata ?? {}) as any;
 
+    // Use explicit unclassified tier to avoid null/none ambiguity for clients.
+    const tierValue = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
+
     // Build metadata matching n8n workflow format
     const metadata = {
       ...prevMeta,
@@ -386,7 +389,7 @@ export class ListingRepository {
       vettingResults: {
         overallScore: vettingResults.overallScore,
         riskLevel: vettingResults.riskLevel,
-        eligibleTier: vettingResults.eligibleTier,
+        eligibleTier: tierValue,
         componentScores: {
           distribution: vettingResults.componentScores.distribution.score,
           liquidity: vettingResults.componentScores.liquidity.score,
@@ -399,9 +402,6 @@ export class ListingRepository {
       lpData,
       topHolders,
     };
-
-    // Use explicit unclassified tier to avoid null/none ambiguity for clients.
-    const tierValue = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
 
     return client.listing.upsert({
       where: { contractAddress },

@@ -105,7 +105,7 @@ function getTierSummary(tierName) {
 function getRiskSummary(riskLevel, riskScore) {
   switch (riskLevel) {
     case 'Low Risk':
-      return `Risk assessment shows low concern (${riskScore}/100) with solid fundamentals.`;
+      return `Signal quality is favorable (${riskScore}/100), but verification coverage may still be incomplete.`;
     case 'Medium Risk':
       return `Risk assessment indicates moderate caution needed (${riskScore}/100).`;
     case 'High Risk':
