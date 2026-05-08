@@ -61,8 +61,14 @@ export class SolanaApiService {
         this.fetchMoralisMarket(contractAddress),
       ]);
 
-      // Calculate project age only when we have an authoritative creation date.
-      const creationDate = tokenInfo.creation_date || null;
+      // Calculate project age using the oldest trustworthy timestamp we have.
+      // RPC mint-history can miss older events; Dex pair creation is a safer lower bound than "now".
+      const rpcCreationDate = tokenInfo.creation_date || null;
+      const dexPairCreationDate = liquidityData.pair_created_at || null;
+      const creationDate =
+        rpcCreationDate && dexPairCreationDate
+          ? new Date(Math.min(rpcCreationDate.getTime(), dexPairCreationDate.getTime()))
+          : (rpcCreationDate || dexPairCreationDate || null);
       const projectAgeDays = creationDate
         ? (Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24)
         : null;
@@ -576,6 +582,7 @@ export class SolanaApiService {
             txns_24h: { buys: tx24hBuys, sells: tx24hSells, total: tx24hTotal },
             data_confidence: dataConfidence,
             dex_pair_url: bestPair?.url || null,
+            pair_created_at: bestPair?.pairCreatedAt ? new Date(Number(bestPair.pairCreatedAt)) : null,
           };
         }
       } catch (dexError) {
@@ -603,6 +610,7 @@ export class SolanaApiService {
         txns_24h: { buys: 0, sells: 0, total: 0 },
         data_confidence: 'low',
         dex_pair_url: null,
+        pair_created_at: null,
       };
       
     } catch (error) {
@@ -626,6 +634,7 @@ export class SolanaApiService {
         txns_24h: { buys: 0, sells: 0, total: 0 },
         data_confidence: 'low',
         dex_pair_url: null,
+        pair_created_at: null,
       };
     }
   }
