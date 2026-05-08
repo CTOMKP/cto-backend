@@ -131,7 +131,7 @@ export class SupportTicketService {
     return this.createFaucetRequest(systemUserId, {
       walletAddress: wallet,
       reason: dto.reason ? `${dto.reason.trim()} | IP: ${ip}` : `IP: ${ip}`,
-    });
+    }, { walletScopedCooldown: true });
   }
 
   async create(userId: number, dto: CreateSupportTicketDto) {
@@ -146,9 +146,10 @@ export class SupportTicketService {
     });
   }
 
-  async createFaucetRequest(userId: number, dto: FaucetRequestDto) {
+  async createFaucetRequest(userId: number, dto: FaucetRequestDto, options?: { walletScopedCooldown?: boolean }) {
     const { cooldownHours, solAmount, usdcAmount } = this.getFaucetConfig();
     const cutoff = new Date(Date.now() - cooldownHours * 60 * 60 * 1000);
+    const walletAddress = dto.walletAddress.trim();
 
     const existingOpen = await this.prisma.supportTicket.findFirst({
       where: {
@@ -156,6 +157,7 @@ export class SupportTicketService {
         category: 'FAUCET',
         status: { in: ['OPEN', 'IN_PROGRESS'] },
         createdAt: { gte: cutoff },
+        ...(options?.walletScopedCooldown ? { message: { contains: `Wallet: ${walletAddress}` } } : {}),
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -167,7 +169,7 @@ export class SupportTicketService {
       };
     }
 
-    const recipient = new PublicKey(dto.walletAddress.trim());
+    const recipient = new PublicKey(walletAddress);
     const treasury = this.getFaucetTreasury();
     const connection = this.getSolanaConnection();
     const usdcMint = this.getFaucetUsdcMint();
@@ -252,7 +254,7 @@ export class SupportTicketService {
 
     const subject = 'USDC faucet auto-disbursement (Solana test token)';
     const message = [
-      `Wallet: ${dto.walletAddress}`,
+      `Wallet: ${walletAddress}`,
       `USDC sent: ${usdcAmount}`,
       `SOL sent: ${solAmount}`,
       `USDC tx: ${usdcTxHash}`,
@@ -276,7 +278,7 @@ export class SupportTicketService {
       blocked: false,
       ticket,
       disbursement: {
-        walletAddress: dto.walletAddress,
+        walletAddress,
         usdcAmount,
         solAmount,
         usdcTxHash,
