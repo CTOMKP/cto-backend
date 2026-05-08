@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/comm
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateSupportTicketDto } from './dto/create-support-ticket.dto';
+import { FaucetRequestDto } from './dto/faucet-request.dto';
 import { SupportTicketService } from './support-ticket.service';
 
 @ApiTags('support')
@@ -40,6 +41,40 @@ export class SupportTicketController {
       success: true,
       message: 'Support ticket submitted successfully',
       data: ticket,
+    };
+  }
+
+  @Post('faucet/solana-usdc')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Apply for custom Solana USDC faucet' })
+  @ApiResponse({
+    status: 201,
+    description: 'Faucet disbursed',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Duplicate open request blocked',
+  })
+  async applyFaucet(@Req() req: any, @Body() dto: FaucetRequestDto) {
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    const result = await this.supportTicketService.createFaucetRequest(userId, dto);
+
+    if (result.blocked) {
+      return {
+        success: false,
+        message: 'You already have an open faucet request in the last 24 hours.',
+        data: result.ticket,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Faucet disbursed successfully.',
+      data: {
+        ticket: result.ticket,
+        disbursement: result.disbursement,
+      },
     };
   }
 

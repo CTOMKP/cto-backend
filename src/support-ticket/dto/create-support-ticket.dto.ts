@@ -11,7 +11,7 @@ export class CreateSupportTicketDto {
   @ApiProperty({ example: 'SWAP', required: false })
   @IsString()
   @IsOptional()
-  @IsIn(['GENERAL', 'SWAP', 'WALLET', 'PAYMENT', 'LISTING', 'ADS', 'ACCOUNT', 'OTHER'])
+  @IsIn(['GENERAL', 'SWAP', 'WALLET', 'PAYMENT', 'LISTING', 'ADS', 'ACCOUNT', 'FAUCET', 'OTHER'])
   category?: string;
 
   @ApiProperty({ example: 'HIGH', required: false })
@@ -29,4 +29,3 @@ export class CreateSupportTicketDto {
   @MaxLength(4000)
   message: string;
 }
-
