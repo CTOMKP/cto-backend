@@ -410,41 +410,6 @@ export class SolanaApiService {
         console.log(`Solana RPC pagination failed: ${rpcError.message}`);
       }
 
-      // Method 3: Try Solscan transactions as backup
-      try {
-        console.log('Trying Solscan API as backup...');
-        
-        const response = await axios.get(`${this.SOLSCAN_API_URL}/account/transactions`, {
-          params: {
-            account: contractAddress,
-            limit: 1
-          },
-          timeout: 15000,
-          headers: {
-            'User-Agent': 'CTO-Vetting-System/1.0'
-          }
-        });
-        
-        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-          const earliestTransaction = response.data[0];
-          
-          if (earliestTransaction.blockTime) {
-            const creationDate = new Date(earliestTransaction.blockTime * 1000);
-            
-            console.log(`✅ Real age from Solscan backup`);
-            
-            return {
-              source: 'solscan_transactions',
-              creation_date: creationDate,
-              creation_transaction: earliestTransaction.txHash,
-              block_time: earliestTransaction.blockTime,
-              success: true
-            };
-          }
-        }
-      } catch (solscanError) {
-        console.log(`Solscan backup failed: ${solscanError.message}`);
-      }
 
       // Do NOT use DexScreener pairCreatedAt for token age.
       // Pair age can be newer than mint age and causes false "just created" outputs.
