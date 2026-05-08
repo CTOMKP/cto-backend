@@ -44,7 +44,7 @@ function getAgeSummary(ageDays) {
   } else if (ageDays < 90) {
     return "This project has been active for several weeks and shows growth potential.";
   } else {
-    return "This is an established project with a proven track record.";
+    return "This is an established project with meaningful operating history.";
   }
 }
 
@@ -64,8 +64,11 @@ function getLiquiditySummary(lpAmount, lockMonths) {
     liquidityDesc = 'excellent liquidity';
   }
   
+  const hasLockData = Number.isFinite(Number(lockMonths)) && Number(lockMonths) > 0;
   let lockDesc = '';
-  if (lockMonths < 6) {
+  if (!hasLockData) {
+    lockDesc = 'unverified LP lock duration';
+  } else if (lockMonths < 6) {
     lockDesc = 'short-term LP commitment';
   } else if (lockMonths < 12) {
     lockDesc = 'medium-term LP lock';

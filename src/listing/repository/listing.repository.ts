@@ -400,8 +400,8 @@ export class ListingRepository {
       topHolders,
     };
 
-    // Convert 'none' tier to null for database consistency
-    const tierValue = vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier;
+    // Use explicit unclassified tier to avoid null/none ambiguity for clients.
+    const tierValue = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
 
     return client.listing.upsert({
       where: { contractAddress },

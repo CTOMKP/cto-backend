@@ -104,11 +104,12 @@ export class ScanService {
           ? `Insufficient data to calculate risk score. Missing: ${vettingResults.missingData.join(', ')}`
           : `Risk score ${vettingResults.overallScore} is below minimum threshold of 50`;
         
+        const normalizedTier = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
         throw new HttpException(
           {
             message: reason,
             eligible: false,
-            tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
+            tier: normalizedTier,
             risk_score: vettingResults.overallScore || 0,
             risk_level: vettingResults.riskLevel.toUpperCase(),
             summary: reason,
@@ -142,10 +143,11 @@ export class ScanService {
       const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
       
       // Generate AI summary
-      const summary = generateAISummary(tokenData, { name: vettingResults.eligibleTier }, vettingResults.overallScore);
+      const normalizedTier = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
+      const summary = generateAISummary(tokenData, { name: normalizedTier }, vettingResults.overallScore);
 
       const result = {
-        tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
+        tier: normalizedTier,
         risk_score: vettingResults.overallScore,
         risk_level: riskLevel,
         eligible: true,
@@ -423,12 +425,13 @@ export class ScanService {
             insufficient_data: 'HIGH',
           };
           const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
-          const summary = generateAISummary(tokenData, { name: vettingResults.eligibleTier }, riskScore);
+          const normalizedTier = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
+          const summary = generateAISummary(tokenData, { name: normalizedTier }, riskScore);
           return {
             contractAddress,
             chain: 'SOLANA',
             success: true,
-            tier: vettingResults.eligibleTier === 'none' ? null : vettingResults.eligibleTier,
+            tier: normalizedTier,
             risk_score: riskScore,
             risk_level: riskLevel,
             eligible: true,
