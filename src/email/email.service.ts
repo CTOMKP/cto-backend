@@ -24,6 +24,13 @@ type MarketplaceAdPendingEmailParams = {
   adTitle: string;
 };
 
+type MarketplaceAdApprovedEmailParams = {
+  to: string;
+  userName?: string | null;
+  adId: string;
+  adTitle: string;
+};
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -429,6 +436,41 @@ export class EmailService {
       });
     } catch (error: any) {
       this.logger.error(`Failed to send pending marketplace ad email to ${params.to}: ${error?.message ?? error}`);
+    }
+  }
+
+  async sendMarketplaceAdApprovedEmail(params: MarketplaceAdApprovedEmailParams): Promise<void> {
+    const baseUrl = this.getFrontendBaseUrl().replace(/\/+$/, '');
+    const adsUrl = `${baseUrl}/profile?tab=ads`;
+    const adUrl = `${baseUrl}/marketplace/ads/${params.adId}`;
+    const name = this.displayName(params.userName);
+
+    const subject = 'Your ad has been approved';
+    const text =
+      `Hi ${name},\n\n` +
+      `Great news: your ad "${params.adTitle}" has been approved and published.\n` +
+      `View your ads: ${adsUrl}\n` +
+      `Open ad details: ${adUrl}\n\n` +
+      `- CTO Marketplace`;
+    const html = this.buildEmailHtml({
+      title: 'Your Ad Has Been Approved',
+      intro: `Hi ${name}, great news: your ad has been approved and is now live.`,
+      projectTitle: params.adTitle,
+      primaryCtaText: 'View My Ads',
+      primaryCtaUrl: adsUrl,
+      secondaryCtaText: 'Open Ad Details',
+      secondaryCtaUrl: adUrl,
+    });
+
+    try {
+      await this.sendEmail({
+        to: params.to,
+        subject,
+        html,
+        text,
+      });
+    } catch (error: any) {
+      this.logger.error(`Failed to send approved marketplace ad email to ${params.to}: ${error?.message ?? error}`);
     }
   }
 }

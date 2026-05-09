@@ -531,6 +531,15 @@ export class AdminService {
         data: { adId: updated.id },
       });
 
+      if (updated.user?.email) {
+        await this.emailService.sendMarketplaceAdApprovedEmail({
+          to: updated.user.email,
+          userName: updated.user.name,
+          adId: updated.id,
+          adTitle: updated.title,
+        });
+      }
+
       await this.xpService.awardApprovedAd(updated.userId, updated.id);
 
       return {
