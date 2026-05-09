@@ -413,6 +413,36 @@ export class MovementPaymentService {
       }
 
       if (payment.status === 'COMPLETED') {
+        // Recovery path: if client retries verify for an already completed payment,
+        // ensure pending-review email still exists for listing/ad flows.
+        if (payment.paymentType === 'LISTING' && payment.listingId) {
+          const listing = await this.prisma.userListing.findUnique({
+            where: { id: payment.listingId },
+            include: { user: { select: { email: true, name: true } } },
+          });
+          if (listing?.status === 'PENDING_APPROVAL' && listing.user?.email) {
+            await this.emailService.sendListingPendingEmail({
+              to: listing.user.email,
+              userName: listing.user.name,
+              listingId: listing.id,
+              projectTitle: listing.title,
+            });
+          }
+        }
+        if (payment.paymentType === 'MARKETPLACE_AD' && payment.marketplaceAdId) {
+          const ad = await this.prisma.marketplaceAd.findUnique({
+            where: { id: payment.marketplaceAdId },
+            include: { user: { select: { email: true, name: true } } },
+          });
+          if (ad?.status === 'PENDING_APPROVAL' && ad.user?.email) {
+            await this.emailService.sendMarketplaceAdPendingEmail({
+              to: ad.user.email,
+              userName: ad.user.name,
+              adId: ad.id,
+              adTitle: ad.title,
+            });
+          }
+        }
         return {
           success: true,
           payment,

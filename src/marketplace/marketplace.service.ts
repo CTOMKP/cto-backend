@@ -4,6 +4,7 @@ import { MovementPaymentService } from '../payment/movement-payment.service';
 import { SolanaPaymentService } from '../payment/solana-payment.service';
 import { MarketplacePricingService } from './marketplace-pricing.service';
 import { XpService } from '../xp/xp.service';
+import { EmailService } from '../email/email.service';
 import { CreateMarketplaceAdDto } from './dto/create-marketplace-ad.dto';
 import { UpdateMarketplaceAdDto } from './dto/update-marketplace-ad.dto';
 
@@ -34,6 +35,7 @@ export class MarketplaceService {
     private readonly solanaPaymentService: SolanaPaymentService,
     private readonly pricingService: MarketplacePricingService,
     private readonly xpService: XpService,
+    private readonly emailService: EmailService,
   ) {}
 
   private async resolveUserId(userIdOrSub: unknown, email?: string | null) {
@@ -441,7 +443,18 @@ export class MarketplaceService {
           status: 'PENDING_APPROVAL',
           totalPrice: 0,
         },
+        include: {
+          user: { select: { email: true, name: true } },
+        },
       });
+      if (updated.user?.email) {
+        await this.emailService.sendMarketplaceAdPendingEmail({
+          to: updated.user.email,
+          userName: updated.user.name,
+          adId: updated.id,
+          adTitle: updated.title,
+        });
+      }
       return {
         success: true,
         data: updated,
