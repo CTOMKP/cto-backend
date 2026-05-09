@@ -386,6 +386,34 @@ export class MarketplaceService {
     }
 
     if (existingPayment) {
+      const metadata = (existingPayment.metadata || {}) as any;
+      const chain = String(metadata?.chain || '').toUpperCase();
+      if (chain === 'MOVEMENT') {
+        const amountInNativeUnits =
+          String(metadata?.amountInNativeUnits || Math.round(Number(existingPayment.amount || 0) * 1e6));
+        const tokenAddress = String(metadata?.tokenAddress || '');
+        const toWallet = String(metadata?.toWallet || existingPayment.toAddress || '');
+
+        return {
+          success: true,
+          message: 'Payment already initiated. Please complete the pending transaction.',
+          paymentId: existingPayment.id,
+          payment: {
+            id: existingPayment.id,
+            paymentId: existingPayment.id,
+            chain: 'movement',
+            amountDisplay: Number(existingPayment.amount || 0),
+            tokenSymbol: 'USDC.e',
+            transactionData: {
+              type: 'entry_function_payload',
+              function: '0x1::primary_fungible_store::transfer',
+              type_arguments: ['0x1::fungible_asset::Metadata'],
+              arguments: [tokenAddress, toWallet, amountInNativeUnits],
+            },
+          },
+        };
+      }
+
       return {
         success: true,
         message: 'Payment already initiated. Please complete the pending transaction.',
