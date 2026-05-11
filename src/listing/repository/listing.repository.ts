@@ -10,7 +10,7 @@ export class ListingRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async findListings(query: ListingQueryDto) {
-    const { q, chain, category, tier, minRisk, maxRisk, minLpBurned, maxTop10Holders, mintAuthDisabled, noRaiding, sort = 'updatedAt:desc', page = 1, limit = 20 } = query as any;
+    const { q, chain, category, tier, approved, minRisk, maxRisk, minLpBurned, maxTop10Holders, mintAuthDisabled, noRaiding, sort = 'updatedAt:desc', page = 1, limit = 20 } = query as any;
 
     const where: any = {};
     if (q) {
@@ -23,6 +23,14 @@ export class ListingRepository {
     if (chain) where.chain = chain;
     if (category) where.category = category;
     if (tier) where.tier = tier;
+    if (approved === true) {
+      where.AND = [
+        ...(where.AND ?? []),
+        { vetted: true },
+        { tier: { not: null } },
+        { tier: { not: 'unclassified' } },
+      ];
+    }
     if (minRisk !== undefined || maxRisk !== undefined) {
       where.riskScore = {};
       if (minRisk !== undefined) where.riskScore.gte = Number(minRisk);
@@ -122,6 +130,8 @@ export class ListingRepository {
         communityScore: i?.communityScore ?? null,
         // Tier: normalize to lowercase for frontend consistency
         tier: normalizedTier,
+        // Explicit approved flag for frontend logic (watchlist/filter badges, etc.)
+        approved: Boolean(i?.vetted) && Boolean(normalizedTier) && normalizedTier !== 'unclassified',
         logoUrl: (i as any)?.logoUrl ?? m?.logoUrl ?? null,
       };
       // No automatic calculation - community score comes from user votes

@@ -44,6 +44,12 @@ export class ListingQueryDto {
   @IsString()
   tier?: string;
 
+  @ApiProperty({ required: false, description: 'Filter approved listings only (vetted + classified)' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  approved?: boolean;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @Type(() => Number)
