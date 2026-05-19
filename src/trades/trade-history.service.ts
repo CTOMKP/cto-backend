@@ -21,7 +21,7 @@ export class TradeHistoryService {
   private readonly logger = new Logger(TradeHistoryService.name);
   private readonly minTradeUsd = Number(process.env.MIN_TRADE_USD || 0.1);
   private readonly tradeCacheTtlSeconds = Number(process.env.TRADES_CACHE_TTL_SECONDS || 2592000);
-  private readonly emptyCacheTtlSeconds = Number(process.env.TRADES_CACHE_EMPTY_TTL_SECONDS || 900);
+  private readonly emptyCacheTtlSeconds = Number(process.env.TRADES_CACHE_EMPTY_TTL_SECONDS || 120);
 
   constructor(
     private readonly configService: ConfigService,
@@ -835,7 +835,84 @@ export class TradeHistoryService {
     this.logger.log(
       `No ${chain} trades found via Bitquery/Birdeye, DexScreener fallback for ${tokenAddress}`,
     );
+    const geckoTerminalTrades = await this.getGeckoTerminalEvmTrades(tokenAddress, limit, chain);
+    if (geckoTerminalTrades.length > 0) {
+      this.logger.log(
+        `Found ${geckoTerminalTrades.length} ${chain} trades from GeckoTerminal for ${tokenAddress}`,
+      );
+      return geckoTerminalTrades;
+    }
+
     return await this.getDexScreenerEvmTrades(tokenAddress, limit, chain);
+  }
+
+  /**
+   * GeckoTerminal fallback for EVM chains.
+   * This is useful when free-tier providers return sparse trade rows.
+   */
+  private async getGeckoTerminalEvmTrades(
+    tokenAddress: string,
+    limit: number,
+    chain: 'base' | 'ethereum' | 'bsc',
+  ): Promise<UnifiedTrade[]> {
+    const network =
+      chain === 'base' ? 'base' : chain === 'bsc' ? 'bsc' : 'eth';
+
+    try {
+      const poolsResponse = await axios.get(
+        `https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${tokenAddress}/pools`,
+        { timeout: 12_000 },
+      );
+      const pools = poolsResponse.data?.data || [];
+      if (!Array.isArray(pools) || pools.length === 0) {
+        return [];
+      }
+
+      const pool = pools[0];
+      const poolIdRaw = String(pool?.id || '');
+      const poolId = poolIdRaw.includes('_') ? poolIdRaw.split('_').pop() : poolIdRaw;
+      if (!poolId) return [];
+
+      const tradesResponse = await axios.get(
+        `https://api.geckoterminal.com/api/v2/networks/${network}/pools/${poolId}/trades`,
+        {
+          params: { page: 1, limit: Math.min(Math.max(limit, 1), 100) },
+          timeout: 12_000,
+        },
+      );
+
+      const rows = tradesResponse.data?.data || [];
+      if (!Array.isArray(rows)) return [];
+
+      return rows
+        .map((row: any) => {
+          const attrs = row?.attributes || {};
+          const txHash = attrs?.tx_hash || attrs?.transaction_hash || '';
+          const sideRaw = String(attrs?.kind || attrs?.side || '').toLowerCase();
+          const type: UnifiedTradeType = sideRaw.includes('sell') ? 'SELL' : 'BUY';
+          const amount = Number(attrs?.base_token_amount || attrs?.amount_in_base_token || 0);
+          const totalValue = Number(attrs?.volume_in_usd || attrs?.value_usd || 0);
+          const price =
+            Number(attrs?.price_in_usd || 0) ||
+            (amount > 0 && totalValue > 0 ? totalValue / amount : 0);
+
+          return {
+            txHash,
+            timestamp: attrs?.block_timestamp || attrs?.block_time || attrs?.created_at || '',
+            type,
+            price,
+            amount: Math.abs(amount),
+            totalValue: Math.abs(totalValue),
+            makerAddress: attrs?.maker || attrs?.from_address || '',
+          } as UnifiedTrade;
+        })
+        .filter((t) => t.txHash && t.amount > 0 && t.totalValue > 0);
+    } catch (error: any) {
+      this.logger.debug(
+        `GeckoTerminal ${chain} trades fetch failed for ${tokenAddress}: ${error.message}`,
+      );
+      return [];
+    }
   }
 
   private async getBitqueryEvmTrades(
