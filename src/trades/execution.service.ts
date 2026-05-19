@@ -500,6 +500,14 @@ export class ExecutionService {
    * Broadcast Solana transaction
    */
   private async broadcastSolanaTransaction(signedTransactionBase64: string): Promise<string> {
+    if (!signedTransactionBase64 || typeof signedTransactionBase64 !== 'string') {
+      throw new BadRequestException({
+        code: 'SIGNED_TX_INVALID',
+        message: 'signedTransaction must be a base64 string for Solana.',
+        retryable: false,
+      });
+    }
+
     const rpcUrl = this.configService.get('SOLANA_RPC_URL') || 'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcUrl, 'confirmed');
 

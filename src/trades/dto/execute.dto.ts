@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsEnum, IsObject, IsOptional } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsObject } from 'class-validator';
 
 export class BuildTransactionRequestDto {
   @ApiProperty({
@@ -43,10 +43,10 @@ export class ExecuteTradeRequestDto {
   chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
 
   @ApiProperty({
-    description: 'Signed transaction from frontend',
-    type: 'object',
+    description: 'Signed transaction from frontend. Solana sends base64 string; EVM can send object/tx-hash.',
+    oneOf: [{ type: 'string' }, { type: 'object' }],
+    required: false,
   })
-  @IsObject()
   @IsOptional()
   signedTransaction?: any;
 

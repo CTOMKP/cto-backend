@@ -166,6 +166,16 @@ export class TradesController {
       throw new Error('User not authenticated');
     }
 
+    if (executeRequest.chain === 'solana') {
+      if (!executeRequest.signedTransaction || typeof executeRequest.signedTransaction !== 'string') {
+        throw new BadRequestException({
+          code: 'SIGNED_TX_REQUIRED',
+          message: 'Solana trades require signedTransaction as a base64 string.',
+          retryable: false,
+        });
+      }
+    }
+
     // Find user's wallet for the chain
     const wallet = await this.prisma.wallet.findFirst({
       where: {
