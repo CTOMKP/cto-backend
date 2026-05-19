@@ -74,6 +74,20 @@ export class UserListingsService {
     };
   }
 
+  private normalizeChain(chain?: string): string {
+    return (chain || '').trim().toUpperCase();
+  }
+
+  private normalizeContractAddressForMatch(contractAddr: string, chain?: string): string {
+    const raw = (contractAddr || '').trim();
+    const normalizedChain = this.normalizeChain(chain);
+    // EVM-style chains are case-insensitive. Keep Solana/Base58 casing unchanged.
+    if (['ETHEREUM', 'BASE', 'BSC', 'MOVEMENT', 'APTOS'].includes(normalizedChain)) {
+      return raw.toLowerCase();
+    }
+    return raw;
+  }
+
   async scan(userId: number | undefined, dto: ScanDto) {
     const chain = dto.chain || 'SOLANA';
     const minQualifyingScore = this.getMinQualifyingScore(chain);
@@ -184,8 +198,32 @@ export class UserListingsService {
 
   async create(userId: number, dto: CreateUserListingDto) {
     if (!userId) throw new ForbiddenException('Authentication required');
+    const normalizedChain = this.normalizeChain(dto.chain);
+    const normalizedContractAddr = this.normalizeContractAddressForMatch(dto.contractAddr, normalizedChain);
+
+    // Opportunistic cleanup so stale drafts don't block valid new submissions.
+    await this.prisma.userListing.deleteMany({
+      where: {
+        status: 'DRAFT',
+        createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+    });
+
+    // Prevent re-listing of the same token (platform-wide).
+    const existing = await this.prisma.userListing.findFirst({
+      where: {
+        chain: normalizedChain,
+        contractAddr: normalizedContractAddr,
+      },
+      select: { id: true, status: true, userId: true },
+    });
+
+    if (existing) {
+      throw new BadRequestException('This token has already been listed and cannot be re-listed.');
+    }
+
     // Validate that vetting score meets minimum requirement (>= 50)
-    const minQualifyingScore = this.getMinQualifyingScore(dto.chain);
+    const minQualifyingScore = this.getMinQualifyingScore(normalizedChain);
     const vettingScore = dto.vettingScore ?? 0;
     if (vettingScore < minQualifyingScore) {
       throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${minQualifyingScore}`);
@@ -194,8 +232,8 @@ export class UserListingsService {
     const created = await this.prisma.userListing.create({
       data: {
         userId,
-        contractAddr: dto.contractAddr,
-        chain: dto.chain,
+        contractAddr: normalizedContractAddr,
+        chain: normalizedChain,
         title: dto.title,
         description: dto.description,
         bio: dto.bio,

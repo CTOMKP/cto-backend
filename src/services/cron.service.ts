@@ -118,6 +118,32 @@ export class CronService implements OnModuleInit {
   }
 
   /**
+   * Cleanup stale draft user listings.
+   * Runs hourly and removes DRAFT listings older than 24 hours.
+   */
+  @Cron('0 * * * *', {
+    name: 'cleanup-stale-user-listing-drafts',
+    timeZone: 'UTC',
+  })
+  async cleanupStaleUserListingDrafts() {
+    try {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const result = await this.prisma.userListing.deleteMany({
+        where: {
+          status: 'DRAFT',
+          createdAt: { lt: cutoff },
+        },
+      });
+
+      if (result.count > 0) {
+        this.logger.log(`🧹 Removed ${result.count} stale user listing drafts older than 24h`);
+      }
+    } catch (error) {
+      this.logger.error('Failed to cleanup stale user listing drafts', error);
+    }
+  }
+
+  /**
    * Discover tokens for a specific chain
    */
   private async discoverTokensForChain(chain: string, batchSize: number) {
