@@ -4,6 +4,7 @@ import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { firstValueFrom } from 'rxjs';
 import { Aptos, AptosConfig, Network } from '@aptos-labs/ts-sdk';
+import { PublicKey } from '@solana/web3.js';
 
 export interface QuoteRequest {
   chain: 'solana' | 'movement' | 'base' | 'ethereum' | 'bsc';
@@ -91,6 +92,17 @@ export class QuoteService {
     swapMode: 'ExactIn' | 'ExactOut',
     slippageBps: number,
   ): Promise<QuoteResponse> {
+    try {
+      new PublicKey(inputMint);
+      new PublicKey(outputMint);
+    } catch {
+      throw new BadRequestException({
+        code: 'INVALID_SOLANA_MINT',
+        message: 'Invalid Solana mint address. Ensure input/output token addresses are valid mint pubkeys.',
+        retryable: false,
+      });
+    }
+
     const apiKey = this.configService.get('JUPITER_API_KEY');
     const configuredBaseUrl = this.configService.get('JUPITER_API_URL') || 'https://api.jup.ag/swap/v1';
     const normalizedBaseUrl = configuredBaseUrl.replace(/\/+$/, '');
@@ -565,7 +577,8 @@ export class QuoteService {
     // 0x API works without API key for basic quotes (free tier)
     const zeroXApiKey = this.configService.get('0X_API_KEY');
     const chainId = chain === 'ethereum' ? 1 : 8453;
-    const quoteUrl = 'https://api.0x.org/swap/v1/quote';
+    // v2 endpoint (v1 is deprecated and returns 404 in many environments)
+    const quoteUrl = 'https://api.0x.org/swap/allowance-holder/quote';
 
     // Ensure token addresses are lowercase (EVM addresses should be lowercase)
     const sellToken = inputToken.toLowerCase();
@@ -581,6 +594,7 @@ export class QuoteService {
 
     const headers: Record<string, string> = {
       'Accept': 'application/json',
+      '0x-version': 'v2',
     };
 
     // 0x API key is optional - free tier works without it
