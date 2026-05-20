@@ -104,6 +104,17 @@ export class ExecutionService {
       );
 
       const data = response.data;
+      if (!data?.swapTransaction) {
+        const upstreamError =
+          data?.error ||
+          data?.message ||
+          data?.msg ||
+          data?.detail ||
+          'Jupiter did not return swapTransaction';
+        throw new BadRequestException(
+          `Failed to build Solana transaction: ${upstreamError}`,
+        );
+      }
 
       return {
         chain: 'solana',

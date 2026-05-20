@@ -434,10 +434,16 @@ export class QuoteService {
     // Note: Jupiter does NOT support EVM chains
     const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
     
+    let oneInchFailureMessage: string | null = null;
     if (oneInchApiKey) {
       try {
         return await this.getEvmQuoteFrom1inch(chain, inputToken, outputToken, amount, slippageBps);
       } catch (oneInchError: any) {
+        oneInchFailureMessage =
+          oneInchError?.response?.data?.description ||
+          oneInchError?.response?.data?.message ||
+          oneInchError?.message ||
+          null;
         this.logger.warn(
           `1inch quote failed for ${chain}: ${oneInchError.message}. Trying 0x fallback...`,
         );
@@ -454,6 +460,23 @@ export class QuoteService {
       }
       return await this.getEvmQuoteFrom0x(chain, inputToken, outputToken, amount, slippageBps);
     } catch (error: any) {
+      const zeroXStatus = error?.response?.status;
+      const zeroXMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.description ||
+        error?.message ||
+        'Unknown 0x error';
+
+      // Preserve the more meaningful 1inch error (e.g. insufficient liquidity)
+      // when 0x fallback fails due auth/config limitations.
+      if (oneInchFailureMessage && (zeroXStatus === 401 || /api key/i.test(zeroXMessage))) {
+        throw new BadRequestException({
+          code: 'QUOTE_FAILED',
+          message: `Failed to get ${chain} quote: ${oneInchFailureMessage}`,
+          retryable: true,
+        });
+      }
+
       this.logger.error(`All ${chain} quote sources failed: ${error.message}`);
       throw new BadRequestException({
         code: 'QUOTE_FAILED',
