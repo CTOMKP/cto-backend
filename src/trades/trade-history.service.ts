@@ -16,6 +16,17 @@ export interface UnifiedTrade {
   makerAddress: string;
 }
 
+export type TradeWindow = '24h' | '7d' | '14d' | 'all';
+
+export interface TradeQueryResult {
+  data: UnifiedTrade[];
+  dataWindowUsed: TradeWindow;
+  isFallbackData: boolean;
+  lastTradeAt: string | null;
+  sourceUsed: string;
+  dataConfidence: 'high' | 'medium' | 'low';
+}
+
 @Injectable()
 export class TradeHistoryService {
   private readonly logger = new Logger(TradeHistoryService.name);
@@ -28,6 +39,18 @@ export class TradeHistoryService {
     private readonly prisma: PrismaService,
     private readonly tradeCache: TradeCacheService,
   ) {}
+
+  private windowToMs(window: TradeWindow): number {
+    if (window === 'all') return Number.MAX_SAFE_INTEGER;
+    if (window === '24h') return 24 * 60 * 60 * 1000;
+    if (window === '14d') return 14 * 24 * 60 * 60 * 1000;
+    return 7 * 24 * 60 * 60 * 1000;
+  }
+
+  private toTimestampMs(value: string | number | Date): number {
+    const ts = new Date(value as any).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  }
 
   async getTrades(address: string, limit = 50, chainHint?: string, noCache = false): Promise<UnifiedTrade[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 200);
@@ -70,6 +93,79 @@ export class TradeHistoryService {
       );
     }
     return normalizedTrades;
+  }
+
+  async getTradesWithWindow(
+    address: string,
+    limit = 50,
+    chainHint?: string,
+    noCache = false,
+    window: TradeWindow = 'all',
+    fallbackToOlder = true,
+  ): Promise<TradeQueryResult> {
+    const safeLimit = Math.min(Math.max(limit, 1), 200);
+    const fetchLimit = Math.min(Math.max(safeLimit * 4, 100), 200);
+    const allTrades = await this.getTrades(address, fetchLimit, chainHint, noCache);
+    const now = Date.now();
+    const primaryWindowMs = this.windowToMs(window);
+    const fallbackWindowMs = this.windowToMs('14d');
+
+    const sortedTrades = [...allTrades].sort(
+      (a, b) => this.toTimestampMs(b.timestamp) - this.toTimestampMs(a.timestamp),
+    );
+
+    if (window === 'all') {
+      const allWindowTrades = sortedTrades.slice(0, safeLimit);
+      return {
+        data: allWindowTrades,
+        dataWindowUsed: 'all',
+        isFallbackData: false,
+        lastTradeAt: allWindowTrades[0]?.timestamp ? new Date(allWindowTrades[0].timestamp as any).toISOString() : null,
+        sourceUsed: 'aggregated',
+        dataConfidence: allWindowTrades.length > 0 ? 'high' : 'low',
+      };
+    }
+
+    const recentTrades = sortedTrades
+      .filter((t) => now - this.toTimestampMs(t.timestamp) <= primaryWindowMs)
+      .slice(0, safeLimit);
+
+    if (recentTrades.length > 0) {
+      return {
+        data: recentTrades,
+        dataWindowUsed: window,
+        isFallbackData: false,
+        lastTradeAt: recentTrades[0]?.timestamp ? new Date(recentTrades[0].timestamp as any).toISOString() : null,
+        sourceUsed: 'aggregated',
+        dataConfidence: 'high',
+      };
+    }
+
+    if (fallbackToOlder) {
+      const olderTrades = sortedTrades
+        .filter((t) => now - this.toTimestampMs(t.timestamp) <= fallbackWindowMs)
+        .slice(0, safeLimit);
+
+      if (olderTrades.length > 0) {
+        return {
+          data: olderTrades,
+          dataWindowUsed: '14d',
+          isFallbackData: true,
+          lastTradeAt: olderTrades[0]?.timestamp ? new Date(olderTrades[0].timestamp as any).toISOString() : null,
+          sourceUsed: 'aggregated',
+          dataConfidence: 'medium',
+        };
+      }
+    }
+
+    return {
+      data: [],
+      dataWindowUsed: window,
+      isFallbackData: false,
+      lastTradeAt: null,
+      sourceUsed: 'aggregated',
+      dataConfidence: 'low',
+    };
   }
 
   /**

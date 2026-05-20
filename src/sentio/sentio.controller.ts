@@ -35,6 +35,18 @@ export class SentioController {
     description: 'Bypass in-memory cache (1 to bypass)',
     example: '1',
   })
+  @ApiQuery({
+    name: 'window',
+    required: false,
+    description: 'Preferred recency window (all | 24h | 7d | 14d). Default all.',
+    example: 'all',
+  })
+  @ApiQuery({
+    name: 'fallbackToOlder',
+    required: false,
+    description: 'If no trades in preferred window, fallback to older data (default true).',
+    example: 'true',
+  })
   @ApiResponse({
     status: 200,
     description: 'Trades retrieved successfully',
@@ -64,6 +76,8 @@ export class SentioController {
     @Query('limit') limit?: string,
     @Query('chain') chain?: string,
     @Query('nocache') nocache?: string,
+    @Query('window') window?: string,
+    @Query('fallbackToOlder') fallbackToOlder?: string,
   ) {
     const parsedLimit = Number(limit);
     const safeLimit = Number.isFinite(parsedLimit)
@@ -71,12 +85,29 @@ export class SentioController {
       : 50;
 
     const noCache = nocache === '1' || nocache === 'true';
-    const trades = await this.tradeHistoryService.getTrades(address, safeLimit, chain, noCache);
+    const safeWindow =
+      window === 'all' || window === '24h' || window === '7d' || window === '14d'
+        ? window
+        : 'all';
+    const allowFallbackToOlder = fallbackToOlder !== '0' && fallbackToOlder !== 'false';
+    const result = await this.tradeHistoryService.getTradesWithWindow(
+      address,
+      safeLimit,
+      chain,
+      noCache,
+      safeWindow,
+      allowFallbackToOlder,
+    );
 
     // Return in format expected by frontend: { data: [...] }
     return {
-      data: trades,
-      count: trades.length,
+      data: result.data,
+      count: result.data.length,
+      dataWindowUsed: result.dataWindowUsed,
+      isFallbackData: result.isFallbackData,
+      lastTradeAt: result.lastTradeAt,
+      sourceUsed: result.sourceUsed,
+      dataConfidence: result.dataConfidence,
     };
   }
 }
