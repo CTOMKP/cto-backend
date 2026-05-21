@@ -13,6 +13,7 @@ import { TokenValidatorUtil } from '../utils/token-validator.util';
 import { Chain, Listing } from '@prisma/client';
 import { ListingRepository } from '../listing/repository/listing.repository';
 import { AnalyticsService } from '../listing/services/analytics.service';
+import { PublicKey } from '@solana/web3.js';
 
 @Injectable()
 export class CronService implements OnModuleInit {
@@ -140,6 +141,117 @@ export class CronService implements OnModuleInit {
       }
     } catch (error) {
       this.logger.error('Failed to cleanup stale user listing drafts', error);
+    }
+  }
+
+  /**
+   * Lightweight Solana tradability validator.
+   * Marks listings in metadata as: TRADABLE / NOT_TRADABLE / INVALID.
+   * Designed to be cheap: small batches + skip recently checked listings.
+   */
+  @Cron('10,40 * * * *', {
+    name: 'solana-tradability-validation',
+    timeZone: 'UTC',
+  })
+  async validateSolanaTradability() {
+    const enabled = this.configService.get('SOLANA_TRADABILITY_VALIDATION_ENABLED', 'true') === 'true';
+    if (!enabled) return;
+
+    const batchSize = parseInt(this.configService.get('SOLANA_TRADABILITY_BATCH_SIZE', '20'), 10);
+    const minRecheckMinutes = parseInt(this.configService.get('SOLANA_TRADABILITY_RECHECK_MINUTES', '360'), 10); // 6h
+    const quoteAmount = this.configService.get('SOLANA_TRADABILITY_QUOTE_AMOUNT', '1000000'); // 0.001 SOL
+    const now = Date.now();
+    const minRecheckMs = minRecheckMinutes * 60 * 1000;
+
+    const listings = await this.prisma.listing.findMany({
+      where: { chain: Chain.SOLANA },
+      select: {
+        contractAddress: true,
+        metadata: true,
+        symbol: true,
+      },
+      take: Math.max(batchSize * 3, batchSize), // fetch extra because some are skipped
+      orderBy: { updatedAt: 'asc' },
+    });
+
+    let processed = 0;
+    for (const listing of listings) {
+      if (processed >= batchSize) break;
+
+      const metadata = ((listing.metadata || {}) as Record<string, any>) || {};
+      const tradeability = (metadata.tradeability || {}) as Record<string, any>;
+      const lastCheckedAt = tradeability.checkedAt ? new Date(tradeability.checkedAt).getTime() : 0;
+      if (lastCheckedAt && now - lastCheckedAt < minRecheckMs) {
+        continue;
+      }
+
+      const result = await this.checkSolanaListingTradability(listing.contractAddress, quoteAmount);
+      const nextMetadata = {
+        ...metadata,
+        tradeability: {
+          ...tradeability,
+          status: result.status,
+          reason: result.reason,
+          source: 'jupiter',
+          checkedAt: new Date().toISOString(),
+        },
+      };
+
+      await this.prisma.listing.update({
+        where: { contractAddress: listing.contractAddress },
+        data: { metadata: nextMetadata as any },
+      });
+
+      processed += 1;
+      await this.delay(150); // avoid API burst
+    }
+
+    if (processed > 0) {
+      this.logger.log(`✅ Solana tradability validation processed ${processed} listings`);
+    }
+  }
+
+  private async checkSolanaListingTradability(
+    mintAddress: string,
+    amountLamports: string,
+  ): Promise<{ status: 'TRADABLE' | 'NOT_TRADABLE' | 'INVALID'; reason: string }> {
+    try {
+      new PublicKey(mintAddress);
+    } catch {
+      return { status: 'INVALID', reason: 'Invalid Solana mint address format' };
+    }
+
+    const quoteUrl = 'https://api.jup.ag/swap/v1/quote';
+    const inputMint = 'So11111111111111111111111111111111111111112'; // SOL
+    const params = {
+      inputMint,
+      outputMint: mintAddress,
+      amount: amountLamports,
+      slippageBps: '50',
+      swapMode: 'ExactIn',
+      onlyDirectRoutes: 'false',
+    };
+
+    try {
+      const resp = await firstValueFrom(this.httpService.get(quoteUrl, { params, timeout: 12_000 }));
+      const data = resp.data || {};
+      const routePlan = Array.isArray(data?.routePlan) ? data.routePlan : [];
+      if (!data?.outAmount || routePlan.length === 0) {
+        return { status: 'NOT_TRADABLE', reason: 'No Jupiter route/liquidity' };
+      }
+      return { status: 'TRADABLE', reason: 'Jupiter route available' };
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.response?.data?.detail ||
+        error?.message ||
+        'Quote check failed';
+      const lowered = String(message).toLowerCase();
+      if (lowered.includes('not tradable') || lowered.includes('no route') || lowered.includes('liquidity')) {
+        return { status: 'NOT_TRADABLE', reason: String(message) };
+      }
+      return { status: 'NOT_TRADABLE', reason: `Quote error: ${String(message)}` };
     }
   }
 

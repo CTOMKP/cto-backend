@@ -14,6 +14,7 @@
     "backfill:signup-xp:dev": "ts-node src/scripts/backfill-signup-xp.ts",
     "backfill:reward-system": "node dist/scripts/backfill-reward-system.js",
     "backfill:reward-system:dev": "ts-node src/scripts/backfill-reward-system.ts",
+    "audit:solana-listings:dev": "ts-node src/scripts/audit-solana-listings.ts",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
