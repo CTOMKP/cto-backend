@@ -94,10 +94,14 @@ export class ExecutionService {
     for (let attempt = 0; attempt < ladder.length; attempt++) {
       const currentSlippage = ladder[attempt];
       try {
-        let quoteResponse = normalizedQuote?.rawQuote;
-        if (attempt > 0 || !quoteResponse) {
-          quoteResponse = await this.fetchJupiterQuote(inputMint, outputMint, inAmount, currentSlippage, swapMode);
-        }
+        // Always re-quote at build time to avoid stale client-provided route plans.
+        const quoteResponse = await this.fetchJupiterQuote(
+          inputMint,
+          outputMint,
+          inAmount,
+          currentSlippage,
+          swapMode,
+        );
 
         const routeDepth = Array.isArray(quoteResponse?.routePlan) ? quoteResponse.routePlan.length : 0;
         this.logger.debug(
