@@ -75,59 +75,137 @@ export class ExecutionService {
     walletAddress: string,
     slippageBps: number,
   ): Promise<UnsignedTransaction> {
+    const inputMint = quote?.inputMint;
+    const outputMint = quote?.outputMint;
+    const inAmount = quote?.inAmount;
+    const swapMode = quote?.swapMode || 'ExactIn';
+
+    if (!inputMint || !outputMint || !inAmount) {
+      throw new BadRequestException('Failed to build Solana transaction: quote payload is incomplete');
+    }
+
+    const ladder = Array.from(new Set([slippageBps, 100, 200])).slice(0, 3);
+    let lastError = 'Unknown Solana build error';
+
+    for (let attempt = 0; attempt < ladder.length; attempt++) {
+      const currentSlippage = ladder[attempt];
+      try {
+        let quoteResponse = quote?.rawQuote;
+        if (attempt > 0 || !quoteResponse) {
+          quoteResponse = await this.fetchJupiterQuote(inputMint, outputMint, inAmount, currentSlippage, swapMode);
+        }
+
+        const routeDepth = Array.isArray(quoteResponse?.routePlan) ? quoteResponse.routePlan.length : 0;
+        this.logger.debug(
+          `Solana build attempt=${attempt + 1} slippageBps=${currentSlippage} routeDepth=${routeDepth} input=${inputMint} output=${outputMint}`,
+        );
+
+        const data = await this.requestJupiterSwapBuild(quoteResponse, walletAddress);
+        if (!data?.swapTransaction) {
+          throw new Error('Jupiter did not return swapTransaction');
+        }
+
+        return {
+          chain: 'solana',
+          transaction: data.swapTransaction,
+          lastValidBlockHeight: data.lastValidBlockHeight,
+          prioritizationFeeLamports: data.prioritizationFeeLamports,
+        };
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Unknown Solana build error';
+        lastError = message;
+        const lowered = String(message).toLowerCase();
+
+        this.logger.warn(
+          `Solana build failed attempt=${attempt + 1} slippageBps=${currentSlippage} error=${message}`,
+        );
+
+        if (
+          lowered.includes('not tradable') ||
+          lowered.includes('invalid') ||
+          lowered.includes('insufficient liquidity') ||
+          lowered.includes('no route')
+        ) {
+          break;
+        }
+
+        if (attempt < ladder.length - 1) {
+          await this.delay(75);
+        }
+      }
+    }
+
+    throw new BadRequestException(`Failed to build Solana transaction: ${lastError}`);
+  }
+
+  private async fetchJupiterQuote(
+    inputMint: string,
+    outputMint: string,
+    amount: string,
+    slippageBps: number,
+    swapMode: 'ExactIn' | 'ExactOut',
+  ): Promise<any> {
+    const configuredBaseUrl = this.configService.get('JUPITER_API_URL') || 'https://api.jup.ag/swap/v1';
+    const normalizedBaseUrl = configuredBaseUrl.replace(/\/+$/, '');
+    let quoteBaseUrl = normalizedBaseUrl;
+    if (/\/v6$/i.test(quoteBaseUrl)) {
+      quoteBaseUrl = quoteBaseUrl.replace(/\/v6$/i, '/swap/v1');
+    } else if (/^https:\/\/(api|lite-api)\.jup\.ag$/i.test(quoteBaseUrl)) {
+      quoteBaseUrl = `${quoteBaseUrl}/swap/v1`;
+    }
+
+    const params = new URLSearchParams({
+      inputMint,
+      outputMint,
+      amount,
+      slippageBps: String(slippageBps),
+      swapMode,
+      onlyDirectRoutes: 'false',
+    });
+    const maxAccounts = this.configService.get('SOLANA_SWAP_MAX_ACCOUNTS');
+    if (maxAccounts && /^\d+$/.test(String(maxAccounts))) {
+      params.set('maxAccounts', String(maxAccounts));
+    }
+    const apiKey = this.configService.get('JUPITER_API_KEY');
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const quoteUrl = `${quoteBaseUrl}/quote?${params.toString()}`;
+    const response = await firstValueFrom(this.httpService.get(quoteUrl, { headers, timeout: 12_000 }));
+    return response.data;
+  }
+
+  private async requestJupiterSwapBuild(quoteResponse: any, walletAddress: string): Promise<any> {
     const apiKey = this.configService.get('JUPITER_API_KEY');
     const swapUrl = 'https://api.jup.ag/swap/v1/swap';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-    try {
-      const swapRequest = {
-        userPublicKey: walletAddress,
-        quoteResponse: quote.rawQuote,
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: {
-          priorityLevelWithMaxLamports: {
-            priorityLevel: 'veryHigh' as const,
-            maxLamports: 1000000,
-          },
+    const swapRequest = {
+      userPublicKey: walletAddress,
+      quoteResponse,
+      wrapAndUnwrapSol: true,
+      dynamicComputeUnitLimit: true,
+      prioritizationFeeLamports: {
+        priorityLevelWithMaxLamports: {
+          priorityLevel: 'veryHigh' as const,
+          maxLamports: 1000000,
         },
-      };
+      },
+    };
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      }
+    const response = await firstValueFrom(
+      this.httpService.post(swapUrl, swapRequest, { headers, timeout: 15_000 }),
+    );
+    return response.data;
+  }
 
-      const response = await firstValueFrom(
-        this.httpService.post(swapUrl, swapRequest, { headers, timeout: 15_000 }),
-      );
-
-      const data = response.data;
-      if (!data?.swapTransaction) {
-        const upstreamError =
-          data?.error ||
-          data?.message ||
-          data?.msg ||
-          data?.detail ||
-          'Jupiter did not return swapTransaction';
-        throw new BadRequestException(
-          `Failed to build Solana transaction: ${upstreamError}`,
-        );
-      }
-
-      return {
-        chain: 'solana',
-        transaction: data.swapTransaction, // Base64-encoded VersionedTransaction
-        lastValidBlockHeight: data.lastValidBlockHeight,
-        prioritizationFeeLamports: data.prioritizationFeeLamports,
-      };
-    } catch (error: any) {
-      this.logger.error(`Failed to build Solana transaction: ${error.message}`, error.stack);
-      throw new BadRequestException(
-        `Failed to build Solana transaction: ${error.response?.data?.message || error.message}`,
-      );
-    }
+  private async delay(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
