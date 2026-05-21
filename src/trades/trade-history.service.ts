@@ -782,7 +782,8 @@ export class TradeHistoryService {
     }
 
     try {
-      this.logger.debug(`Fetching Birdeye trades for ${mintAddress} (limit: ${limit})`);
+      const safeLimit = Math.min(Math.max(limit, 1), 100);
+      this.logger.debug(`Fetching Birdeye trades for ${mintAddress} (limit: ${safeLimit})`);
       
       const response = await axios.get(
         'https://public-api.birdeye.so/defi/v3/token/txs',
@@ -790,7 +791,7 @@ export class TradeHistoryService {
           params: {
             address: mintAddress,
             offset: 0,
-            limit,
+            limit: safeLimit,
             ...(noCache ? { _ts: Date.now() } : {}),
           },
           headers: {

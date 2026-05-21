@@ -419,8 +419,9 @@ export class QuoteService {
   }
 
   /**
-   * Get Base quote from 1inch API (primary) or 0x API (fallback)
-   * Note: Jupiter does NOT support Base chain - it's Solana-only
+   * Get EVM quote.
+   * Primary source is 1inch. Optional 0x fallback can be enabled with USE_0X_FALLBACK=true.
+   * Note: Jupiter does NOT support EVM chains - it's Solana-only.
    */
   private async getEvmQuote(
     chain: 'base' | 'ethereum' | 'bsc',
@@ -430,9 +431,8 @@ export class QuoteService {
     swapMode: 'ExactIn' | 'ExactOut',
     slippageBps: number,
   ): Promise<QuoteResponse> {
-    // Try 1inch API first (primary for EVM chains)
-    // Note: Jupiter does NOT support EVM chains
     const oneInchApiKey = this.configService.get('ONEINCH_API_KEY');
+    const use0xFallback = String(this.configService.get('USE_0X_FALLBACK') || '').toLowerCase() === 'true';
     
     let oneInchFailureMessage: string | null = null;
     if (oneInchApiKey) {
@@ -444,16 +444,27 @@ export class QuoteService {
           oneInchError?.response?.data?.message ||
           oneInchError?.message ||
           null;
-        this.logger.warn(
-          `1inch quote failed for ${chain}: ${oneInchError.message}. Trying 0x fallback...`,
-        );
-        // Fall through to 0x fallback
+        if (!use0xFallback) {
+          throw new BadRequestException({
+            code: 'QUOTE_FAILED',
+            message: `Failed to get ${chain} quote: ${oneInchFailureMessage || oneInchError.message}`,
+            retryable: true,
+          });
+        }
+        this.logger.warn(`1inch quote failed for ${chain}: ${oneInchError.message}. Trying 0x fallback...`);
       }
     } else {
+      if (!use0xFallback) {
+        throw new BadRequestException({
+          code: 'QUOTE_FAILED',
+          message: `Failed to get ${chain} quote: ONEINCH_API_KEY not configured`,
+          retryable: true,
+        });
+      }
       this.logger.warn('ONEINCH_API_KEY not configured, trying 0x API for EVM quote...');
     }
 
-    // Fallback to 0x API
+    // Optional fallback to 0x API
     try {
       if (chain === 'bsc') {
         throw new Error('0x API not enabled for BSC');
