@@ -75,10 +75,14 @@ export class ExecutionService {
     walletAddress: string,
     slippageBps: number,
   ): Promise<UnsignedTransaction> {
-    const inputMint = quote?.inputMint;
-    const outputMint = quote?.outputMint;
-    const inAmount = quote?.inAmount;
-    const swapMode = quote?.swapMode || 'ExactIn';
+    // Frontend retries may accidentally pass wrapped payloads ({ data: quote }).
+    const normalizedQuote =
+      quote?.inputMint ? quote : quote?.data?.inputMint ? quote.data : quote?.quote?.inputMint ? quote.quote : quote;
+
+    const inputMint = normalizedQuote?.inputMint;
+    const outputMint = normalizedQuote?.outputMint;
+    const inAmount = normalizedQuote?.inAmount;
+    const swapMode = normalizedQuote?.swapMode || 'ExactIn';
 
     if (!inputMint || !outputMint || !inAmount) {
       throw new BadRequestException('Failed to build Solana transaction: quote payload is incomplete');
@@ -90,7 +94,7 @@ export class ExecutionService {
     for (let attempt = 0; attempt < ladder.length; attempt++) {
       const currentSlippage = ladder[attempt];
       try {
-        let quoteResponse = quote?.rawQuote;
+        let quoteResponse = normalizedQuote?.rawQuote;
         if (attempt > 0 || !quoteResponse) {
           quoteResponse = await this.fetchJupiterQuote(inputMint, outputMint, inAmount, currentSlippage, swapMode);
         }
