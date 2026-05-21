@@ -34,6 +34,14 @@ function extractQuote(payload: QuoteResponse | any): any {
   return quote;
 }
 
+function extractBuiltTx(payload: any): any {
+  let built = payload?.data ?? payload;
+  if (built?.data && !built?.transaction) {
+    built = built.data;
+  }
+  return built;
+}
+
 function errMessage(error: unknown): string {
   const e = error as AxiosError<any>;
   return (
@@ -77,7 +85,7 @@ async function testSolanaTradableBuild(): Promise<SmokeResult> {
       walletAddress: solanaWallet,
     });
 
-    const built = buildRes.data?.data ?? buildRes.data;
+    const built = extractBuiltTx(buildRes.data);
     if (!built?.transaction) {
       return {
         name,
