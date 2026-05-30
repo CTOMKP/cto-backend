@@ -93,14 +93,29 @@ export class CreatorProgramService {
     const referralCode = await this.generateUniqueReferralCode(tx, userId);
     const referralLink = this.getReferralLink(referralCode);
 
-    return tx.creatorProgramAccount.create({
-      data: {
-        userId,
-        referralCode,
-        referralLink,
-        tier: 'STARTER',
-      },
-    });
+    try {
+      return await tx.creatorProgramAccount.create({
+        data: {
+          userId,
+          referralCode,
+          referralLink,
+          tier: 'STARTER',
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const raceWinner = await tx.creatorProgramAccount.findUnique({
+          where: { userId },
+        });
+        if (raceWinner) {
+          return raceWinner;
+        }
+      }
+      throw error;
+    }
   }
 
   private async ensureCreatorAccount(userId: number) {
