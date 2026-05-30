@@ -60,6 +60,12 @@ model User {
   escrowsAsApplicant Escrow[] @relation("ApplicantEscrows")
   notifications  Notification[]
   supportTickets SupportTicket[]
+  creatorProgramAccount CreatorProgramAccount?
+  creatorReferrals CreatorReferral[] @relation("CreatorReferrals")
+  creatorReferral CreatorReferral? @relation("ReferredUser")
+  creatorEarnings CreatorEarning[] @relation("CreatorEarningCreatorUser")
+  creatorEarningsAsReferredUser CreatorEarning[] @relation("CreatorEarningReferredUser")
+  creatorPayouts CreatorPayout[] @relation("CreatorPayoutCreatorUser")
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -299,6 +305,7 @@ model Payment {
   
   // Relations
   walletTransactions WalletTransaction[]
+  creatorEarnings CreatorEarning[]
   
   @@index([userId])
   @@index([paymentType])
@@ -385,6 +392,42 @@ enum NotificationType {
   LISTING_APPROVAL
   AD_APPROVAL
   SYSTEM
+}
+
+enum CreatorTier {
+  STARTER
+  BUILDER
+  PARTNER
+}
+
+enum CreatorReferralStatus {
+  SIGNED_UP
+  ACTIVE
+  FRAUD_HOLD
+}
+
+enum CreatorEarningType {
+  LISTING_FEE
+  MARKETPLACE_AD
+  ESCROW_FEE
+  REVENUE_SHARE
+}
+
+enum CreatorEarningStatus {
+  PENDING
+  AVAILABLE
+  HELD
+  PAID
+  REVERSED
+}
+
+enum CreatorPayoutStatus {
+  REQUESTED
+  APPROVED
+  PROCESSING
+  PAID
+  REJECTED
+  ON_HOLD
 }
 
 model MarketplaceAd {
@@ -567,6 +610,7 @@ model Escrow {
   cancelledAt    DateTime?
 
   payment        Payment?
+  creatorEarnings CreatorEarning[]
   milestones     EscrowMilestone[]
 
   createdAt      DateTime      @default(now())
@@ -653,6 +697,118 @@ model SupportTicket {
   updatedAt  DateTime @updatedAt
 
   @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CreatorProgramAccount {
+  id                  String         @id @default(cuid())
+  userId              Int            @unique
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referralCode        String         @unique
+  referralLink        String
+  tier                CreatorTier    @default(STARTER)
+  activeReferralsCount Int           @default(0)
+  totalReferralsCount  Int           @default(0)
+  totalEarned         Float          @default(0)
+  pendingBalance      Float          @default(0)
+  reservedBalance     Float          @default(0)
+  paidBalance         Float          @default(0)
+  heldBalance         Float          @default(0)
+  payoutWalletAddress String?
+  fraudStatus         String         @default("CLEAR")
+  fraudReason         String?
+  lastReviewedAt      DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  earnings            CreatorEarning[]
+  payouts             CreatorPayout[]
+
+  @@index([tier])
+  @@index([fraudStatus])
+}
+
+model CreatorReferral {
+  id                    String                  @id @default(cuid())
+  creatorUserId         Int?
+  creatorUser           User?                   @relation("CreatorReferrals", fields: [creatorUserId], references: [id], onDelete: SetNull)
+  referredUserId        Int                     @unique
+  referredUser          User                    @relation("ReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
+  referralCode          String
+  referralSource        String?
+  ipAddress             String?
+  userAgent             String?
+  status                CreatorReferralStatus   @default(SIGNED_UP)
+  isActive              Boolean                 @default(false)
+  isFraudFlagged        Boolean                 @default(false)
+  fraudReason           String?
+  signedUpAt            DateTime                @default(now())
+  activatedAt           DateTime?
+  firstQualifyingActionType String?
+  firstQualifyingActionId   String?
+  totalEarned           Float                   @default(0)
+  metadata              Json?
+  updatedAt             DateTime                @updatedAt
+
+  @@index([creatorUserId])
+  @@index([status])
+  @@index([isActive])
+}
+
+model CreatorEarning {
+  id                    String                @id @default(cuid())
+  creatorAccountId      String
+  creatorAccount        CreatorProgramAccount @relation(fields: [creatorAccountId], references: [id], onDelete: Cascade)
+  creatorUserId         Int
+  creatorUser           User                  @relation("CreatorEarningCreatorUser", fields: [creatorUserId], references: [id], onDelete: Cascade)
+  referredUserId        Int
+  referredUser          User                  @relation("CreatorEarningReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
+  sourceType            CreatorEarningType
+  sourceId              String
+  paymentId             String?
+  payment               Payment?              @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  escrowId              String?
+  escrow                Escrow?               @relation(fields: [escrowId], references: [id], onDelete: SetNull)
+  amountGross           Float
+  platformFeeAmount     Float
+  creatorCutPercent     Float
+  amountEarned          Float
+  status                CreatorEarningStatus  @default(PENDING)
+  eventKey              String                @unique
+  metadata              Json?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@index([creatorUserId])
+  @@index([referredUserId])
+  @@index([sourceType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CreatorPayout {
+  id                    String               @id @default(cuid())
+  creatorAccountId      String
+  creatorAccount        CreatorProgramAccount @relation(fields: [creatorAccountId], references: [id], onDelete: Cascade)
+  creatorUserId         Int
+  creatorUser           User                 @relation("CreatorPayoutCreatorUser", fields: [creatorUserId], references: [id], onDelete: Cascade)
+  walletAddress         String
+  amountRequested       Float
+  amountApproved        Float?
+  status                CreatorPayoutStatus  @default(REQUESTED)
+  txHash                String?
+  requestNote           String?
+  reviewedBy            Int?
+  reviewedAt            DateTime?
+  processedAt           DateTime?
+  rejectedAt            DateTime?
+  failureReason         String?
+  metadata              Json?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([creatorUserId])
   @@index([status])
   @@index([createdAt])
 }

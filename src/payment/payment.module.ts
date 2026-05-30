@@ -7,9 +7,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { MovementWalletModule } from '../wallet/movement-wallet.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { EmailModule } from '../email/email.module';
+import { CreatorProgramModule } from '../creator-program/creator-program.module';
 
 @Module({
-  imports: [PrismaModule, MovementWalletModule, NotificationsModule, EmailModule],
+  imports: [PrismaModule, MovementWalletModule, NotificationsModule, EmailModule, CreatorProgramModule],
   controllers: [MovementPaymentController, SolanaPaymentController],
   providers: [MovementPaymentService, SolanaPaymentService],
   exports: [MovementPaymentService, SolanaPaymentService],

@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MovementPaymentService } from '../payment/movement-payment.service';
 import { XpService } from '../xp/xp.service';
+import { CreatorProgramService } from '../creator-program/creator-program.service';
 
 @Injectable()
 export class EscrowService {
@@ -13,6 +14,7 @@ export class EscrowService {
     private readonly notifications: NotificationsService,
     private readonly movementPaymentService: MovementPaymentService,
     private readonly xpService: XpService,
+    private readonly creatorProgramService: CreatorProgramService,
   ) {}
 
   private ensurePoster(escrow: any, userId: number) {
@@ -260,6 +262,22 @@ export class EscrowService {
       this.xpService.awardEscrowCompletion(updated.posterId, updated.id, 'poster'),
       this.xpService.awardEscrowCompletion(updated.applicantId, updated.id, 'applicant'),
     ]);
+
+    try {
+      await this.creatorProgramService.recordEscrowRevenue({
+        escrowId: updated.id,
+        posterUserId: updated.posterId,
+        applicantUserId: updated.applicantId,
+        amountGross: Number(updated.totalAmount || 0),
+        metadata: {
+          conversationId: updated.conversationId,
+          adId: updated.adId,
+        },
+      });
+    } catch (creatorError: any) {
+      this.logger.warn(`Creator escrow revenue recording failed for escrow ${updated.id}: ${creatorError?.message || creatorError}`);
+    }
+
     return updated;
   }
 

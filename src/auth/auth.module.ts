@@ -10,12 +10,14 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { PrivyAuthService } from './privy-auth.service';
 import { AptosWalletService } from './aptos-wallet.service';
 import { XpModule } from '../xp/xp.module';
+import { CreatorProgramModule } from '../creator-program/creator-program.module';
 
 @Module({
   imports: [
     ConfigModule,
     PassportModule,
     XpModule,
+    CreatorProgramModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

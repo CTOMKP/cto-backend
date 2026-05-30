@@ -27,6 +27,7 @@ import { XpModule } from './xp/xp.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { EscrowModule } from './escrow/escrow.module';
 import { SupportTicketModule } from './support-ticket/support-ticket.module';
+import { CreatorProgramModule } from './creator-program/creator-program.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { SupportTicketModule } from './support-ticket/support-ticket.module';
     MessagingModule,
     EscrowModule,
     SupportTicketModule,
+    CreatorProgramModule,
   ],
   controllers: [HealthController],
   providers: [],

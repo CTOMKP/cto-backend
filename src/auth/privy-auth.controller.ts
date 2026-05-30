@@ -6,6 +6,7 @@ import { AptosWalletService } from './aptos-wallet.service';
 import { PrivyAuthGuard } from './guards/privy-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { XpService } from '../xp/xp.service';
+import { CreatorProgramService } from '../creator-program/creator-program.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -29,6 +30,7 @@ export class PrivyAuthController {
     private authService: AuthService,
     private aptosWalletService: AptosWalletService,
     private xpService: XpService,
+    private creatorProgramService: CreatorProgramService,
   ) {}
 
   private async retryWithBackoff<T>(
@@ -91,6 +93,11 @@ export class PrivyAuthController {
           type: 'string',
           description: 'Privy access token from frontend authentication',
           example: 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjEyMzQifQ...'
+        },
+        referralCode: {
+          type: 'string',
+          nullable: true,
+          description: 'Optional creator referral code captured from the referral link'
         }
       },
       required: ['privyToken']
@@ -146,7 +153,11 @@ export class PrivyAuthController {
   })
   @ApiResponse({ status: 500, description: 'Privy sync failed' })
   @Post('sync')
-  async syncUser(@Body('privyToken') privyToken: string) {
+  async syncUser(
+    @Body('privyToken') privyToken: string,
+    @Body('referralCode') referralCode?: string,
+    @Request() req?: any,
+  ) {
     try {
       this.logger.log('=== PRIVY SYNC START ===');
       this.logToFile('=== PRIVY SYNC START ===');
@@ -335,6 +346,29 @@ export class PrivyAuthController {
         // as it caused misclassification and duplicates.
         this.logger.warn(`⚠️ User ${email} has no Privy wallets returned from getUserWallets`);
         this.logToFile(`⚠️ User ${email} has no Privy wallets returned from getUserWallets`);
+      }
+
+      // Capture creator referral attribution once the user exists and wallet state is known.
+      if (referralCode) {
+        try {
+          const walletAddresses = Array.isArray(userWallets)
+            ? (userWallets as any[]).map((wallet) => wallet.address).filter(Boolean)
+            : [];
+          await this.creatorProgramService.captureReferral({
+            referredUserId: user.id,
+            referralCode,
+            referralSource: 'privy_sync',
+            ipAddress: req?.ip || req?.headers?.['x-forwarded-for'] || null,
+            userAgent: req?.headers?.['user-agent'] || null,
+            walletAddresses,
+            metadata: {
+              privyUserId: (privyUser as any).userId,
+              userEmail: email,
+            },
+          });
+        } catch (referralError: any) {
+          this.logger.warn(`Referral capture failed for ${email}: ${referralError?.message || referralError}`);
+        }
       }
 
       // Note: Aptos wallet creation is now manual via dashboard button

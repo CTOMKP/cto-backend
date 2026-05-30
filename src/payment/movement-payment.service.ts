@@ -4,6 +4,7 @@ import { MovementWalletService } from '../wallet/movement-wallet.service';
 import { ConfigService } from '@nestjs/config';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService } from '../email/email.service';
+import { CreatorProgramService } from '../creator-program/creator-program.service';
 
 /**
  * Movement Payment Service
@@ -19,6 +20,7 @@ export class MovementPaymentService {
     private readonly configService: ConfigService,
     private readonly notifications: NotificationsService,
     private readonly emailService: EmailService,
+    private readonly creatorProgramService: CreatorProgramService,
   ) {}
 
   /**
@@ -552,6 +554,25 @@ export class MovementPaymentService {
         body: payment.paymentType,
         data: { paymentId: payment.id, paymentType: payment.paymentType },
       });
+
+      if (payment.paymentType === 'LISTING' || payment.paymentType === 'MARKETPLACE_AD') {
+        try {
+          await this.creatorProgramService.recordPaymentRevenue({
+            paymentId,
+            sourceType: payment.paymentType === 'LISTING' ? 'LISTING_FEE' : 'MARKETPLACE_AD',
+            payerUserId: payment.userId,
+            amountGross: Number(payment.amount || 0),
+            platformFeeAmount: Number(payment.amount || 0),
+            metadata: {
+              paymentId,
+              paymentType: payment.paymentType,
+              txHash,
+            },
+          });
+        } catch (creatorError: any) {
+          this.logger.warn(`Creator revenue recording failed for payment ${paymentId}: ${creatorError?.message || creatorError}`);
+        }
+      }
 
       this.logger.log(`✅ Payment verified: ${paymentId}`);
 
