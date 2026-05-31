@@ -37,9 +37,10 @@ export class CreatorProgramService {
 
   private get frontendBaseUrl() {
     return (
+      this.configService.get<string>('APP_FRONTEND_URL') ||
       this.configService.get<string>('FRONTEND_URL') ||
       this.configService.get<string>('NEXT_PUBLIC_FRONTEND_URL') ||
-      'https://ctomarketplace.com'
+      'https://app.ctomarketplace.com'
     ).replace(/\/$/, '');
   }
 
