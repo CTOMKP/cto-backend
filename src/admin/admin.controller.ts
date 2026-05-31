@@ -198,6 +198,43 @@ export class AdminController {
     return this.adminService.rejectMarketplaceAd(dto);
   }
 
+  @Get('creator-payouts')
+  @ApiOperation({ summary: 'Get creator payout requests (admin only)' })
+  @ApiQuery({ name: 'status', required: false, description: 'Filter by payout status' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Max results (default 50)' })
+  @ApiQuery({ name: 'offset', required: false, description: 'Pagination offset (default 0)' })
+  async getCreatorPayouts(
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.adminService.getCreatorPayouts(status, limit, offset);
+  }
+
+  @Post('creator-payouts/approve')
+  @ApiOperation({ summary: 'Approve a creator payout request (admin only)' })
+  async approveCreatorPayout(
+    @Body() body: { payoutId: string; adminUserId: string; note?: string },
+  ) {
+    return this.adminService.approveCreatorPayout(body);
+  }
+
+  @Post('creator-payouts/reject')
+  @ApiOperation({ summary: 'Reject a creator payout request (admin only)' })
+  async rejectCreatorPayout(
+    @Body() body: { payoutId: string; adminUserId: string; reason: string },
+  ) {
+    return this.adminService.rejectCreatorPayout(body);
+  }
+
+  @Post('creator-payouts/paid')
+  @ApiOperation({ summary: 'Mark a creator payout as paid (admin only)' })
+  async markCreatorPayoutPaid(
+    @Body() body: { payoutId: string; adminUserId: string; txHash: string; note?: string },
+  ) {
+    return this.adminService.markCreatorPayoutPaid(body);
+  }
+
   @Get('payments')
   @ApiOperation({ summary: 'Get all payments (admin only)' })
   @ApiResponse({ status: 200, description: 'Payments retrieved successfully' })

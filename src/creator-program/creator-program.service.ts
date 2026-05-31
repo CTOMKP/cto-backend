@@ -674,7 +674,7 @@ export class CreatorProgramService {
       throw new BadRequestException('Wallet address is required for payout requests');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const payout = await this.prisma.$transaction(async (tx) => {
       const payout = await tx.creatorPayout.create({
         data: {
           creatorAccountId: account.id,
@@ -697,6 +697,54 @@ export class CreatorProgramService {
 
       return payout;
     });
+
+    const [creatorUser, adminUsers] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, name: true },
+      }),
+      this.prisma.user.findMany({
+        where: {
+          role: {
+            in: ['ADMIN', 'MODERATOR'],
+          },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    const creatorLabel = creatorUser?.name?.trim() || creatorUser?.email?.trim() || `User ${userId}`;
+    const amountLabel = `$${amount.toFixed(2)}`;
+
+    const notificationResults = await Promise.allSettled(
+      adminUsers.map((admin) =>
+        this.notifications.createNotification({
+          userId: admin.id,
+          type: 'SYSTEM',
+          title: 'Creator payout request',
+          body: `${creatorLabel} requested ${amountLabel} for referral payout.`,
+          data: {
+            route: '/admin/creator-payouts',
+            creatorUserId: userId,
+            creatorEmail: creatorUser?.email ?? null,
+            creatorName: creatorUser?.name ?? null,
+            referralCode: account.referralCode,
+            payoutId: payout.id,
+            amountRequested: amount,
+            walletAddress,
+          },
+        }),
+      ),
+    );
+
+    const failedNotifications = notificationResults.filter((result) => result.status === 'rejected');
+    if (failedNotifications.length > 0) {
+      this.logger.warn(
+        `Creator payout ${payout.id} created but ${failedNotifications.length} admin notification(s) failed`,
+      );
+    }
+
+    return payout;
   }
 
   async settlePayout(params: {

@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApproveListingDto, RejectListingDto, ApproveMarketplaceAdDto, RejectMarketplaceAdDto, AdminEscrowActionDto, AdminEscrowExtendDto } from './dto/admin.dto';
-import { Prisma } from '@prisma/client';
+import { CreatorPayoutStatus, Prisma } from '@prisma/client';
 import { EscrowService } from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { XpService } from '../xp/xp.service';
@@ -600,6 +600,279 @@ export class AdminService {
         throw error;
       }
       throw new BadRequestException(`Failed to reject marketplace ad: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getCreatorPayouts(status?: string, limit?: string, offset?: string) {
+    try {
+      const take = Math.min(Math.max(Number(limit) || 50, 1), 200);
+      const skip = Math.max(Number(offset) || 0, 0);
+      const normalizedStatus = (status || '').trim().toUpperCase();
+
+      const where: Prisma.CreatorPayoutWhereInput | undefined = normalizedStatus
+        ? {
+            status: normalizedStatus as CreatorPayoutStatus,
+          }
+        : undefined;
+
+      const [payouts, total] = await Promise.all([
+        this.prisma.creatorPayout.findMany({
+          where,
+          include: {
+            creatorUser: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                createdAt: true,
+              },
+            },
+            creatorAccount: {
+              select: {
+                id: true,
+                referralCode: true,
+                tier: true,
+                pendingBalance: true,
+                reservedBalance: true,
+                paidBalance: true,
+                payoutWalletAddress: true,
+                fraudStatus: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        }),
+        this.prisma.creatorPayout.count({ where }),
+      ]);
+
+      return {
+        success: true,
+        payouts,
+        total,
+        limit: take,
+        offset: skip,
+        message: 'Creator payouts retrieved successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to get creator payouts:', error instanceof Error ? error.message : 'Unknown error');
+      throw new BadRequestException(`Failed to get creator payouts: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async approveCreatorPayout(dto: { payoutId: string; adminUserId: string; note?: string }) {
+    try {
+      const adminUser = await this.verifyAdmin(dto.adminUserId);
+      const payout = await this.prisma.creatorPayout.findUnique({
+        where: { id: dto.payoutId },
+        include: {
+          creatorUser: { select: { id: true, email: true, name: true } },
+          creatorAccount: { select: { id: true, referralCode: true, pendingBalance: true, reservedBalance: true } },
+        },
+      });
+
+      if (!payout) {
+        throw new BadRequestException('Creator payout not found');
+      }
+      if (payout.status === 'REJECTED') {
+        throw new BadRequestException('Rejected payouts cannot be approved');
+      }
+      if (payout.status === 'PAID') {
+        return { success: true, payout, message: 'Creator payout is already paid' };
+      }
+
+      const updated = await this.prisma.creatorPayout.update({
+        where: { id: payout.id },
+        data: {
+          status: 'APPROVED',
+          reviewedBy: adminUser.id,
+          reviewedAt: new Date(),
+          failureReason: dto.note?.trim() || null,
+        },
+        include: {
+          creatorUser: { select: { id: true, email: true, name: true } },
+          creatorAccount: { select: { id: true, referralCode: true, pendingBalance: true, reservedBalance: true } },
+        },
+      });
+
+      await this.notifications.createNotification({
+        userId: updated.creatorUserId,
+        type: 'SYSTEM',
+        title: 'Creator payout approved',
+        body: `Your payout request for $${updated.amountRequested.toFixed(2)} was approved.`,
+        data: {
+          route: '/profile',
+          payoutId: updated.id,
+          status: updated.status,
+          amountRequested: updated.amountRequested,
+          note: dto.note?.trim() || null,
+        },
+      });
+
+      this.logger.log(`Creator payout ${updated.id} approved by ${adminUser.email}`);
+
+      return {
+        success: true,
+        payout: updated,
+        message: 'Creator payout approved successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to approve creator payout:', error instanceof Error ? error.message : 'Unknown error');
+      if (error instanceof BadRequestException || error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to approve creator payout: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async rejectCreatorPayout(dto: { payoutId: string; adminUserId: string; reason: string }) {
+    try {
+      const adminUser = await this.verifyAdmin(dto.adminUserId);
+      const payout = await this.prisma.creatorPayout.findUnique({
+        where: { id: dto.payoutId },
+        include: {
+          creatorUser: { select: { id: true, email: true, name: true } },
+          creatorAccount: { select: { id: true, referralCode: true, pendingBalance: true, reservedBalance: true } },
+        },
+      });
+
+      if (!payout) {
+        throw new BadRequestException('Creator payout not found');
+      }
+      if (payout.status === 'PAID') {
+        throw new BadRequestException('Paid payouts cannot be rejected');
+      }
+      if (!dto.reason.trim()) {
+        throw new BadRequestException('Rejection reason is required');
+      }
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const payoutUpdate = await tx.creatorPayout.update({
+          where: { id: payout.id },
+          data: {
+            status: 'REJECTED',
+            reviewedBy: adminUser.id,
+            reviewedAt: new Date(),
+            rejectedAt: new Date(),
+            failureReason: dto.reason.trim(),
+          },
+        });
+
+        await tx.creatorProgramAccount.update({
+          where: { id: payout.creatorAccountId },
+          data: {
+            reservedBalance: { decrement: payout.amountRequested },
+            pendingBalance: { increment: payout.amountRequested },
+          },
+        });
+
+        return payoutUpdate;
+      });
+
+      await this.notifications.createNotification({
+        userId: updated.creatorUserId,
+        type: 'SYSTEM',
+        title: 'Creator payout rejected',
+        body: `Your payout request for $${updated.amountRequested.toFixed(2)} was rejected.`,
+        data: {
+          route: '/profile',
+          payoutId: updated.id,
+          status: updated.status,
+          amountRequested: updated.amountRequested,
+          reason: dto.reason.trim(),
+        },
+      });
+
+      this.logger.log(`Creator payout ${updated.id} rejected by ${adminUser.email}. Reason: ${dto.reason}`);
+
+      return {
+        success: true,
+        payout: updated,
+        message: 'Creator payout rejected successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to reject creator payout:', error instanceof Error ? error.message : 'Unknown error');
+      if (error instanceof BadRequestException || error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to reject creator payout: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async markCreatorPayoutPaid(dto: { payoutId: string; adminUserId: string; txHash: string; note?: string }) {
+    try {
+      const adminUser = await this.verifyAdmin(dto.adminUserId);
+      const payout = await this.prisma.creatorPayout.findUnique({
+        where: { id: dto.payoutId },
+        include: {
+          creatorUser: { select: { id: true, email: true, name: true } },
+          creatorAccount: { select: { id: true, referralCode: true, pendingBalance: true, reservedBalance: true, paidBalance: true } },
+        },
+      });
+
+      if (!payout) {
+        throw new BadRequestException('Creator payout not found');
+      }
+      if (!dto.txHash.trim()) {
+        throw new BadRequestException('Transaction hash is required');
+      }
+      if (payout.status === 'PAID') {
+        return { success: true, payout, message: 'Creator payout is already marked paid' };
+      }
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const payoutUpdate = await tx.creatorPayout.update({
+          where: { id: payout.id },
+          data: {
+            status: 'PAID',
+            txHash: dto.txHash.trim(),
+            processedAt: new Date(),
+            reviewedBy: adminUser.id,
+            reviewedAt: new Date(),
+            failureReason: dto.note?.trim() || null,
+          },
+        });
+
+        await tx.creatorProgramAccount.update({
+          where: { id: payout.creatorAccountId },
+          data: {
+            reservedBalance: { decrement: payout.amountRequested },
+            paidBalance: { increment: payout.amountRequested },
+          },
+        });
+
+        return payoutUpdate;
+      });
+
+      await this.notifications.createNotification({
+        userId: updated.creatorUserId,
+        type: 'SYSTEM',
+        title: 'Creator payout paid',
+        body: `Your payout of $${updated.amountRequested.toFixed(2)} has been marked paid.`,
+        data: {
+          route: '/profile',
+          payoutId: updated.id,
+          status: updated.status,
+          amountRequested: updated.amountRequested,
+          txHash: updated.txHash,
+        },
+      });
+
+      this.logger.log(`Creator payout ${updated.id} marked paid by ${adminUser.email}`);
+
+      return {
+        success: true,
+        payout: updated,
+        message: 'Creator payout marked as paid successfully',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Failed to mark creator payout paid:', error instanceof Error ? error.message : 'Unknown error');
+      if (error instanceof BadRequestException || error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to mark creator payout paid: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
