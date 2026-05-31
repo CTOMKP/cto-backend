@@ -81,7 +81,16 @@ export class CreatorProgramService {
     const existing = await tx.creatorProgramAccount.findUnique({
       where: { userId },
     });
-    if (existing) return existing;
+    if (existing) {
+      const currentReferralLink = this.getReferralLink(existing.referralCode);
+      if (existing.referralLink !== currentReferralLink) {
+        return tx.creatorProgramAccount.update({
+          where: { userId },
+          data: { referralLink: currentReferralLink },
+        });
+      }
+      return existing;
+    }
 
     const user = await tx.user.findUnique({
       where: { id: userId },
@@ -133,7 +142,7 @@ export class CreatorProgramService {
     const account = await this.ensureCreatorAccount(userId);
     return {
       referralCode: account.referralCode,
-      referralLink: account.referralLink,
+      referralLink: this.getReferralLink(account.referralCode),
     };
   }
 
@@ -207,7 +216,7 @@ export class CreatorProgramService {
         id: account.id,
         userId: account.userId,
         referralCode: account.referralCode,
-        referralLink: account.referralLink,
+        referralLink: this.getReferralLink(account.referralCode),
         tier: account.tier,
         activeReferralsCount: account.activeReferralsCount,
         totalReferralsCount: account.totalReferralsCount,
