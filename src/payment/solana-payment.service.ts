@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService } from '../email/email.service';
+import { CreatorProgramService } from '../creator-program/creator-program.service';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -21,6 +22,7 @@ export class SolanaPaymentService {
     private readonly configService: ConfigService,
     private readonly notifications: NotificationsService,
     private readonly emailService: EmailService,
+    private readonly creatorProgramService: CreatorProgramService,
   ) {}
 
   private getConnection(): Connection {
@@ -67,6 +69,48 @@ export class SolanaPaymentService {
 
   private getListingPaymentAmount(): string {
     return this.configService.get('SOLANA_LISTING_PAYMENT_AMOUNT', '1000000'); // 1.0 USDC (6 decimals)
+  }
+
+  private async recordCreatorRevenueForPayment(payment: {
+    id: string;
+    paymentType: string;
+    userId: number;
+    amount: number;
+    listingId?: string | null;
+    marketplaceAdId?: string | null;
+    metadata?: any;
+  }) {
+    if (payment.paymentType !== 'LISTING' && payment.paymentType !== 'MARKETPLACE_AD') {
+      return;
+    }
+
+    const sourceType = payment.paymentType === 'LISTING' ? 'LISTING_FEE' : 'MARKETPLACE_AD';
+    const amountGross = Number(payment.amount || 0);
+    if (!Number.isFinite(amountGross) || amountGross <= 0) {
+      return;
+    }
+
+    try {
+      await this.creatorProgramService.recordPaymentRevenue({
+        paymentId: payment.id,
+        sourceType: sourceType as any,
+        payerUserId: payment.userId,
+        amountGross,
+        platformFeeAmount: amountGross,
+        metadata: {
+          paymentId: payment.id,
+          paymentType: payment.paymentType,
+          listingId: payment.listingId || null,
+          marketplaceAdId: payment.marketplaceAdId || null,
+          chain: 'SOLANA',
+          ...(payment.metadata || {}),
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to record creator revenue for Solana payment ${payment.id}: ${error?.message || error}`,
+      );
+    }
   }
 
   private async buildUsdcTransfer(
@@ -256,6 +300,7 @@ export class SolanaPaymentService {
     });
     if (!payment) throw new NotFoundException('Payment not found');
     if (payment.status === 'COMPLETED') {
+      await this.recordCreatorRevenueForPayment(payment as any);
       return { success: true, payment, message: 'Payment already verified' };
     }
 
@@ -271,6 +316,8 @@ export class SolanaPaymentService {
         completedAt: new Date(),
       },
     });
+
+    await this.recordCreatorRevenueForPayment(updated as any);
 
     if (payment.paymentType === 'LISTING' && payment.listingId) {
       const updatedListing = await this.prisma.userListing.update({
