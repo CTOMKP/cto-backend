@@ -1,7 +1,18 @@
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
-import { ApproveListingDto, RejectListingDto, UpdateUserRoleDto, ApproveMarketplaceAdDto, RejectMarketplaceAdDto, AdminEscrowActionDto, AdminEscrowExtendDto } from './dto/admin.dto';
+import {
+  ApproveListingDto,
+  RejectListingDto,
+  UpdateUserRoleDto,
+  ApproveMarketplaceAdDto,
+  RejectMarketplaceAdDto,
+  AdminEscrowActionDto,
+  AdminEscrowExtendDto,
+  ApproveCreatorPayoutDto,
+  RejectCreatorPayoutDto,
+  MarkCreatorPayoutPaidDto,
+} from './dto/admin.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 
@@ -203,6 +214,8 @@ export class AdminController {
   @ApiQuery({ name: 'status', required: false, description: 'Filter by payout status' })
   @ApiQuery({ name: 'limit', required: false, description: 'Max results (default 50)' })
   @ApiQuery({ name: 'offset', required: false, description: 'Pagination offset (default 0)' })
+  @ApiResponse({ status: 200, description: 'Creator payout requests retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
   async getCreatorPayouts(
     @Query('status') status?: string,
     @Query('limit') limit?: string,
@@ -213,25 +226,34 @@ export class AdminController {
 
   @Post('creator-payouts/approve')
   @ApiOperation({ summary: 'Approve a creator payout request (admin only)' })
-  async approveCreatorPayout(
-    @Body() body: { payoutId: string; adminUserId: string; note?: string },
-  ) {
+  @ApiBody({ type: ApproveCreatorPayoutDto })
+  @ApiResponse({ status: 200, description: 'Creator payout approved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid request or payout not in REQUESTED status' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Payout not found' })
+  async approveCreatorPayout(@Body() body: ApproveCreatorPayoutDto) {
     return this.adminService.approveCreatorPayout(body);
   }
 
   @Post('creator-payouts/reject')
   @ApiOperation({ summary: 'Reject a creator payout request (admin only)' })
-  async rejectCreatorPayout(
-    @Body() body: { payoutId: string; adminUserId: string; reason: string },
-  ) {
+  @ApiBody({ type: RejectCreatorPayoutDto })
+  @ApiResponse({ status: 200, description: 'Creator payout rejected successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid request or payout not in REQUESTED status' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Payout not found' })
+  async rejectCreatorPayout(@Body() body: RejectCreatorPayoutDto) {
     return this.adminService.rejectCreatorPayout(body);
   }
 
   @Post('creator-payouts/paid')
   @ApiOperation({ summary: 'Mark a creator payout as paid (admin only)' })
-  async markCreatorPayoutPaid(
-    @Body() body: { payoutId: string; adminUserId: string; txHash: string; note?: string },
-  ) {
+  @ApiBody({ type: MarkCreatorPayoutPaidDto })
+  @ApiResponse({ status: 200, description: 'Creator payout marked as paid successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid request or payout not in an approvable state' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Payout not found' })
+  async markCreatorPayoutPaid(@Body() body: MarkCreatorPayoutPaidDto) {
     return this.adminService.markCreatorPayoutPaid(body);
   }
 

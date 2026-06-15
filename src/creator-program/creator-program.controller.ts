@@ -1,7 +1,8 @@
 import { BadRequestException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreatorProgramService } from './creator-program.service';
+import { CreatorPayoutRequestDto } from './dto/creator-program.dto';
 
 @ApiTags('creator-program')
 @Controller('creator')
@@ -20,6 +21,10 @@ export class CreatorProgramController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get creator dashboard summary' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Number of recent items to return', example: 20 })
+  @ApiResponse({ status: 200, description: 'Creator dashboard summary retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid authenticated user or query value' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async me(@Req() req: any, @Query('limit') limit?: string) {
     const userId = this.getUserId(req);
     return this.creatorProgramService.getDashboard(userId, Number(limit) || 20);
@@ -29,6 +34,9 @@ export class CreatorProgramController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get creator referrals' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Number of referral rows to return', example: 50 })
+  @ApiResponse({ status: 200, description: 'Creator referrals retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async referrals(@Req() req: any, @Query('limit') limit?: string) {
     const userId = this.getUserId(req);
     return this.creatorProgramService.getReferrals(userId, Number(limit) || 50);
@@ -38,6 +46,9 @@ export class CreatorProgramController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get creator earnings' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Number of earning rows to return', example: 50 })
+  @ApiResponse({ status: 200, description: 'Creator earnings retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async earnings(@Req() req: any, @Query('limit') limit?: string) {
     const userId = this.getUserId(req);
     return this.creatorProgramService.getEarnings(userId, Number(limit) || 50);
@@ -47,6 +58,9 @@ export class CreatorProgramController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get creator payouts' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Number of payout rows to return', example: 20 })
+  @ApiResponse({ status: 200, description: 'Creator payouts retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async payouts(@Req() req: any, @Query('limit') limit?: string) {
     const userId = this.getUserId(req);
     return this.creatorProgramService.getPayouts(userId, Number(limit) || 20);
@@ -56,10 +70,13 @@ export class CreatorProgramController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Request a creator payout' })
+  @ApiBody({ type: CreatorPayoutRequestDto })
   @ApiResponse({ status: 200, description: 'Payout request created' })
+  @ApiResponse({ status: 400, description: 'Invalid request, insufficient balance, or minimum payout not met' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async requestPayout(
     @Req() req: any,
-    @Body() body: { walletAddress?: string; amount?: number; note?: string },
+    @Body() body: CreatorPayoutRequestDto,
   ) {
     const userId = this.getUserId(req);
     return this.creatorProgramService.requestPayout(userId, {
