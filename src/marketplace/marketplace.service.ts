@@ -16,6 +16,8 @@ type PricingBreakdown = {
   missingCategoryPrice: boolean;
 };
 
+type MarketplaceAdDurationMode = 'SINGULAR' | 'RECURRING';
+
 @Injectable()
 export class MarketplaceService {
   private readonly logger = new Logger(MarketplaceService.name);
@@ -55,6 +57,14 @@ export class MarketplaceService {
   private normalizeImages(images?: string[]) {
     if (!images) return [];
     return images.filter(Boolean);
+  }
+
+  private normalizeDurationMode(mode?: string | null): MarketplaceAdDurationMode {
+    return String(mode || 'SINGULAR').toUpperCase() === 'RECURRING' ? 'RECURRING' : 'SINGULAR';
+  }
+
+  private isRecurringAd(ad: { durationMode?: string | null }) {
+    return this.normalizeDurationMode(ad.durationMode) === 'RECURRING';
   }
 
   private maxImagesForTier(tier: string) {
@@ -103,6 +113,7 @@ export class MarketplaceService {
     const userId = await this.resolveUserId(userIdOrSub, email);
 
     const tier = dto.tier || 'FREE';
+    const durationMode = this.normalizeDurationMode(dto.durationMode);
     const images = this.normalizeImages(dto.images);
     this.validateImages(tier, images);
 
@@ -123,6 +134,7 @@ export class MarketplaceService {
         images,
         imageCount: images.length,
         tier: tier as any,
+        durationMode: durationMode as any,
         featuredPlacement: dto.featuredPlacement ?? false,
         homepageSpotlight: dto.homepageSpotlight ?? false,
         topOfDayDays: dto.topOfDayDays ?? null,
@@ -150,6 +162,7 @@ export class MarketplaceService {
     }
 
     const tier = (dto.tier ?? found.tier) as string;
+    const durationMode = this.normalizeDurationMode((dto.durationMode ?? (found as any).durationMode) as string);
     const images = this.normalizeImages(dto.images ?? (found.images as string[] | undefined));
     this.validateImages(tier, images);
 
@@ -170,6 +183,7 @@ export class MarketplaceService {
         images,
         imageCount: images.length,
         tier: tier as any,
+        durationMode: durationMode as any,
         featuredPlacement: dto.featuredPlacement ?? found.featuredPlacement,
         homepageSpotlight: dto.homepageSpotlight ?? found.homepageSpotlight,
         topOfDayDays: dto.topOfDayDays ?? found.topOfDayDays,
@@ -508,6 +522,10 @@ export class MarketplaceService {
     return { success: true, data: updated };
   }
 
+  async closeAd(userIdOrSub: unknown, id: string, email?: string | null) {
+    return this.markSold(userIdOrSub, id, email);
+  }
+
   async repostAd(userIdOrSub: unknown, id: string, email?: string | null) {
     const userId = await this.resolveUserId(userIdOrSub, email);
     const ad = await this.prisma.marketplaceAd.findUnique({ where: { id } });
@@ -550,6 +568,14 @@ export class MarketplaceService {
     const ad = await this.prisma.marketplaceAd.findUnique({ where: { id } });
     if (!ad) throw new NotFoundException('Ad not found');
     if (ad.userId !== userId) throw new ForbiddenException('Not your ad');
+
+    if (this.isRecurringAd(ad)) {
+      return {
+        success: true,
+        data: ad,
+        message: 'Recurring ads stay open until you close them manually.',
+      };
+    }
 
     if (ad.status !== 'PUBLISHED') {
       throw new BadRequestException('Only published ads can be extended');
@@ -594,6 +620,7 @@ export class MarketplaceService {
     const candidates = await this.prisma.marketplaceAd.findMany({
       where: {
         status: 'PUBLISHED',
+        durationMode: 'SINGULAR',
         expiresAt: { lte: noticeDate },
         expiryNoticeSentAt: null,
       },
@@ -617,6 +644,7 @@ export class MarketplaceService {
     const expiring = await this.prisma.marketplaceAd.updateMany({
       where: {
         status: 'PUBLISHED',
+        durationMode: 'SINGULAR',
         expiresAt: { lte: now },
       },
       data: { status: 'EXPIRED' },

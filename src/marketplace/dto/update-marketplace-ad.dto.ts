@@ -1,8 +1,10 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Allow, IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateMarketplaceAdDto {
   @IsOptional()
   @IsEnum(['LOOKING_FOR', 'OFFERING'])
+  @ApiProperty({ required: false, enum: ['LOOKING_FOR', 'OFFERING'], example: 'LOOKING_FOR' })
   postType?: string;
 
   @IsOptional()
@@ -92,4 +94,14 @@ export class UpdateMarketplaceAdDto {
   @IsOptional()
   @IsBoolean()
   multiChainTag?: boolean;
+
+  @IsOptional()
+  @IsEnum(['SINGULAR', 'RECURRING'])
+  @ApiProperty({
+    required: false,
+    enum: ['SINGULAR', 'RECURRING'],
+    example: 'SINGULAR',
+    description: 'Singular ads expire after 28 days; recurring ads remain open after successful payment until the user closes them.',
+  })
+  durationMode?: string;
 }

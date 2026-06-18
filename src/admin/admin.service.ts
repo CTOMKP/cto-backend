@@ -486,8 +486,14 @@ export class AdminService {
       if (ad.status === 'PUBLISHED') throw new BadRequestException('Marketplace ad is already published');
 
       const publishedAt = new Date();
-      const expiresAt = new Date(publishedAt);
-      expiresAt.setDate(expiresAt.getDate() + 28);
+      const durationMode = String((ad as any).durationMode || 'SINGULAR').toUpperCase();
+      const expiresAt = durationMode === 'RECURRING'
+        ? null
+        : (() => {
+            const next = new Date(publishedAt);
+            next.setDate(next.getDate() + 28);
+            return next;
+          })();
 
       let featuredUntil: Date | null = null;
       if (ad.tier === 'PLUS') {

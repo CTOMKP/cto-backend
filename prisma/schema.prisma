@@ -344,6 +344,11 @@ enum MarketplaceAdStatus {
   SOLD
 }
 
+enum MarketplaceAdDurationMode {
+  SINGULAR
+  RECURRING
+}
+
 enum MarketplacePostType {
   LOOKING_FOR
   OFFERING
@@ -452,6 +457,7 @@ model MarketplaceAd {
   imageCount         Int                 @default(0)
 
   tier               MarketplaceTier     @default(FREE)
+  durationMode       MarketplaceAdDurationMode @default(SINGULAR)
   featuredPlacement  Boolean             @default(false)
   homepageSpotlight  Boolean             @default(false)
   topOfDayDays       Int?

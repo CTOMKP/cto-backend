@@ -274,6 +274,18 @@ export class MarketplaceController {
     return this.marketplaceService.markSold(userId, id, email);
   }
 
+  @Post('ads/:id/close')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Close a marketplace ad manually' })
+  @ApiResponse({ status: 200, description: 'Marketplace ad closed successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async closeAd(@Param('id') id: string, @Req() req: any) {
+    const userId = req?.user?.userId || req?.user?.sub;
+    const email = req?.user?.email;
+    return this.marketplaceService.closeAd(userId, id, email);
+  }
+
   @Post('ads/:id/share')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
