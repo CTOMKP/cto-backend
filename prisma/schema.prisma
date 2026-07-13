@@ -722,12 +722,6 @@ model CreatorProgramAccount {
   paidBalance         Float          @default(0)
   heldBalance         Float          @default(0)
   payoutWalletAddress String?
-  payoutWalletChangePendingAddress String?
-  payoutWalletLastChangedAt DateTime?
-  payoutWalletChangePendingUntil DateTime?
-  nextPayoutWalletChangeAllowedAt DateTime?
-  isDeactivated       Boolean        @default(false)
-  deactivatedAt       DateTime?
   fraudStatus         String         @default("CLEAR")
   fraudReason         String?
   lastReviewedAt      DateTime?
