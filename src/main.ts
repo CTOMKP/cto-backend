@@ -37,13 +37,13 @@ async function bootstrap() {
 
   // CORS configuration
   // Support both CORS_ORIGIN and CORS_ORIGINS for compatibility
-  const corsOrigin = configService.get('CORS_ORIGIN') || configService.get('CORS_ORIGINS') || 'http://localhost:3000,http://localhost:3001,http://localhost:3003';
+  const corsOrigin = configService.get('CORS_ORIGIN') || configService.get('CORS_ORIGINS') || 'http://localhost:3000,http://localhost:3001';
   const corsOrigins = corsOrigin.split(',').map(origin => origin.trim());
   
-  // Always include common local dev ports for testing
-  const devPorts = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003'];
-  for (const port of devPorts) {
-    if (!corsOrigins.includes(port)) corsOrigins.push(port);
+  // Ensure development ports are always included in development mode
+  if (process.env.NODE_ENV !== 'production') {
+    if (!corsOrigins.includes('http://localhost:3001')) corsOrigins.push('http://localhost:3001');
+    if (!corsOrigins.includes('http://localhost:3000')) corsOrigins.push('http://localhost:3000');
   }
   app.enableCors({
     origin: corsOrigins,
