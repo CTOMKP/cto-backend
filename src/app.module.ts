@@ -19,6 +19,7 @@ import { PfpModule } from './pfp/pfp.module';
 import { TokenVettingModule } from './services/token-vetting.module';
 import { MovementWalletModule } from './wallet/movement-wallet.module';
 import { SolanaWalletModule } from './wallet/solana-wallet.module';
+import { WalletSummaryModule } from './wallet/wallet-summary.module';
 import { SentioModule } from './sentio/sentio.module';
 import { TradesModule } from './trades/trades.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
@@ -58,6 +59,7 @@ import { CreatorProgramModule } from './creator-program/creator-program.module';
     TokenVettingModule,
     MovementWalletModule,
     SolanaWalletModule,
+    WalletSummaryModule,
     SentioModule,
     TradesModule,
     MarketplaceModule,
