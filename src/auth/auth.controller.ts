@@ -154,7 +154,9 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async refreshToken(@Request() req) {
     try {
-      const user = await this.authService.getUserById(req.user.sub);
+      const userId = req.user.userId || req.user.sub;
+      if (!userId) throw new UnauthorizedException('User ID not found in token');
+      const user = await this.authService.getUserById(Number(userId));
       if (!user) throw new UnauthorizedException('User not found');
       return this.authService.refreshToken(user);
     } catch (error) {

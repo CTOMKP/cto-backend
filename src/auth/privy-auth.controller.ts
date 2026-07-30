@@ -7,23 +7,12 @@ import { PrivyAuthGuard } from './guards/privy-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { XpService } from '../xp/xp.service';
 import { CreatorProgramService } from '../creator-program/creator-program.service';
-import * as fs from 'fs';
-import * as path from 'path';
 
 @ApiTags('PrivyAuth')
 @Controller('auth/privy')
 export class PrivyAuthController {
   private readonly logger = new Logger(PrivyAuthController.name);
-  private logToFile(message: string): void {
-    const logFile = path.join(process.cwd(), 'privy-sync-logs.txt');
-    const timestamp = new Date().toISOString();
-    try {
-      fs.appendFileSync(logFile, `[${timestamp}] ${message}\n`);
-    } catch (error) {
-      // If file write fails, just log to console
-      console.log(`[${timestamp}] ${message}`);
-    }
-  }
+  private logToFile(_message: string): void {}
 
   constructor(
     private privyAuthService: PrivyAuthService,
@@ -161,14 +150,10 @@ export class PrivyAuthController {
     try {
       this.logger.log('=== PRIVY SYNC START ===');
       this.logToFile('=== PRIVY SYNC START ===');
-      this.logger.log(`Received token: ${privyToken?.substring(0, 50)}...`);
-      this.logToFile(`Received token: ${privyToken?.substring(0, 50)}...`);
       
       // Verify Privy token
       this.logger.log('Step 1: Verifying token...');
       this.logToFile('Step 1: Verifying token...');
-      this.logger.log(`Token length: ${privyToken?.length}, starts with: ${privyToken?.substring(0, 20)}...`);
-      this.logToFile(`Token length: ${privyToken?.length}, starts with: ${privyToken?.substring(0, 20)}...`);
       
       const privyUser = await Promise.race([
         this.privyAuthService.verifyToken(privyToken),
@@ -242,7 +227,10 @@ export class PrivyAuthController {
       // Check if user exists in our DB
       this.logger.log(`Step 4: Checking if user exists in DB: ${email}`);
       this.logToFile(`Step 4: Checking if user exists in DB: ${email}`);
-      let user = await this.authService.findByEmail(email);
+      let user = await this.authService.findByPrivyUserId((privyUser as any).userId);
+      if (!user) {
+        user = await this.authService.findByEmail(email);
+      }
       this.logger.log(`User found in DB: ${!!user}`);
       this.logToFile(`User found in DB: ${!!user}`);
 
@@ -349,7 +337,7 @@ export class PrivyAuthController {
       }
 
       // Capture creator referral attribution once the user exists and wallet state is known.
-      if (referralCode) {
+      if (referralCode && isNewUser) {
         try {
           const walletAddresses = Array.isArray(userWallets)
             ? (userWallets as any[]).map((wallet) => wallet.address).filter(Boolean)
@@ -370,6 +358,8 @@ export class PrivyAuthController {
           this.logger.warn(`Referral capture failed for ${email}: ${referralError?.message || referralError}`);
         }
       }
+
+      await this.creatorProgramService.getReferralLinkForUser(user.id);
 
       // Note: Aptos wallet creation is now manual via dashboard button
       this.logger.log('Step 6: Skipping automatic Aptos wallet creation (now manual)');

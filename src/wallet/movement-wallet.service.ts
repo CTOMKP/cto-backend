@@ -16,6 +16,14 @@ import { XpService } from '../xp/xp.service';
 @Injectable()
 export class MovementWalletService {
   private readonly logger = new Logger(MovementWalletService.name);
+
+  async assertWalletOwnedByUser(walletId: string, userId: number): Promise<void> {
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { id: walletId, userId },
+      select: { id: true },
+    });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+  }
   
   private readonly SERVICE_VERSION = '1.0.4-BARDOCK-FINAL';
   

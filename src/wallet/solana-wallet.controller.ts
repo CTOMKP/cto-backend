@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SolanaWalletService } from './solana-wallet.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -28,9 +28,11 @@ export class SolanaWalletController {
   })
   @ApiResponse({ status: 200, description: 'Transactions retrieved successfully' })
   async getTransactions(
+    @Request() req: any,
     @Param('walletId') walletId: string,
     @Query('limit') limit?: string,
   ) {
+    await this.solanaWalletService.assertWalletOwnedByUser(walletId, Number(req.user.userId));
     const transactions = await this.solanaWalletService.getWalletTransactions(
       walletId,
       limit ? parseInt(limit, 10) : 20,
@@ -48,10 +50,12 @@ export class SolanaWalletController {
   })
   @ApiResponse({ status: 201, description: 'Polling completed' })
   async pollTransactions(
+    @Request() req: any,
     @Param('walletId') walletId: string,
     @Body() body: { limit?: number; address?: string },
   ) {
     try {
+      await this.solanaWalletService.assertWalletOwnedByUser(walletId, Number(req.user.userId));
       const transactions = await this.solanaWalletService.pollWalletTransactions(
         walletId,
         body?.limit || 15,
@@ -87,6 +91,7 @@ export class SolanaWalletController {
   })
   @ApiResponse({ status: 201, description: 'Transaction recorded' })
   async recordTransaction(
+    @Request() req: any,
     @Param('walletId') walletId: string,
     @Body()
     body: {
@@ -97,6 +102,7 @@ export class SolanaWalletController {
       toAddress?: string;
     },
   ) {
+    await this.solanaWalletService.assertWalletOwnedByUser(walletId, Number(req.user.userId));
     const transaction = await this.solanaWalletService.recordSentTransaction({
       walletId,
       txHash: body.txHash,

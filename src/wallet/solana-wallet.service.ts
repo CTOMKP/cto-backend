@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
@@ -12,6 +12,14 @@ export class SolanaWalletService {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
   ) {}
+
+  async assertWalletOwnedByUser(walletId: string, userId: number): Promise<void> {
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { id: walletId, userId },
+      select: { id: true },
+    });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+  }
 
   private getConnection(): Connection {
     const rpcUrl =

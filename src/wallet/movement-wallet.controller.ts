@@ -45,10 +45,12 @@ export class MovementWalletController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Wallet not found' })
   async getBalance(
+    @Request() req: any,
     @Param('walletId') walletId: string,
     @Query('tokenAddress') tokenAddress?: string,
     @Query('testnet') testnet?: string,
   ) {
+    await this.movementWalletService.assertWalletOwnedByUser(walletId, Number(req.user.userId));
     const balances = await this.movementWalletService.getWalletBalances(walletId);
     return {
       success: true,
@@ -85,9 +87,11 @@ export class MovementWalletController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Wallet not found' })
   async syncBalance(
+    @Request() req: any,
     @Param('walletId') walletId: string,
     @Body() body: { tokenAddress?: string; testnet?: boolean },
   ) {
+    await this.movementWalletService.assertWalletOwnedByUser(walletId, Number(req.user.userId));
     const balance = await this.movementWalletService.syncWalletBalance(
       walletId,
       body.tokenAddress,
@@ -134,9 +138,11 @@ export class MovementWalletController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Wallet not found' })
   async getTransactions(
+    @Request() req: any,
     @Param('walletId') walletId: string,
     @Query('limit') limit?: string,
   ) {
+    await this.movementWalletService.assertWalletOwnedByUser(walletId, Number(req.user.userId));
     const transactions = await this.movementWalletService.getWalletTransactions(
       walletId,
       limit ? parseInt(limit, 10) : 50,
@@ -180,10 +186,12 @@ export class MovementWalletController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Wallet not found' })
   async pollTransactions(
+    @Request() req: any,
     @Param('walletId') walletId: string,
     @Body() body: { testnet?: boolean },
   ) {
     try {
+      await this.movementWalletService.assertWalletOwnedByUser(walletId, Number(req.user.userId));
       const transactions = await this.movementWalletService.pollForTransactions(
         walletId,
         body.testnet ?? true,
@@ -213,7 +221,6 @@ export class MovementWalletController {
     }
   }
 }
-
 
 
 
