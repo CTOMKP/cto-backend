@@ -36,9 +36,27 @@ async function bootstrap() {
   app.use(compression());
 
   // CORS configuration
-  // Support both CORS_ORIGIN and CORS_ORIGINS for compatibility
-  const corsOrigin = configService.get('CORS_ORIGIN') || configService.get('CORS_ORIGINS') || 'http://localhost:3000,http://localhost:3001';
-  const corsOrigins = corsOrigin.split(',').map(origin => origin.trim());
+  // Support both CORS_ORIGIN and CORS_ORIGINS for compatibility.
+  const configuredCorsOrigins = [
+    configService.get<string>('CORS_ORIGIN'),
+    configService.get<string>('CORS_ORIGINS'),
+    configService.get<string>('CREATOR_PROGRAM_URL'),
+  ].filter((value): value is string => Boolean(value));
+  const corsOrigins = Array.from(
+    new Set(
+      configuredCorsOrigins
+        .flatMap(value => value.split(','))
+        .map(origin => origin.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (!corsOrigins.length) {
+    corsOrigins.push('http://localhost:3000', 'http://localhost:3001');
+  }
+  if (!corsOrigins.includes('https://earn.ctomarketplace.com')) {
+    corsOrigins.push('https://earn.ctomarketplace.com');
+  }
   
   // Ensure development ports are always included in development mode
   if (process.env.NODE_ENV !== 'production') {
