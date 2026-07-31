@@ -5,6 +5,9 @@
   "author": "CTO Marketplace Team",
   "private": true,
   "license": "MIT",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "build": "prisma generate && nest build",
     "postinstall": "prisma generate",
