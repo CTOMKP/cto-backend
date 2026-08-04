@@ -35,6 +35,28 @@ export class CreatorProgramService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  private createCreatorNotification(params: {
+    userId: number;
+    title: string;
+    body: string;
+    creatorType: string;
+    data?: Prisma.InputJsonObject;
+  }) {
+    return this.prisma.notification.create({
+      data: {
+        userId: params.userId,
+        type: 'SYSTEM',
+        title: params.title,
+        body: params.body,
+        data: {
+          scope: 'creator',
+          creatorType: params.creatorType,
+          ...(params.data ?? {}),
+        },
+      },
+    });
+  }
+
   private get frontendBaseUrl() {
     return (
       this.configService.get<string>('CREATOR_PROGRAM_URL') ||
@@ -139,12 +161,71 @@ export class CreatorProgramService {
     });
   }
 
-  async getReferralLinkForUser(userId: number) {
+  async getReferralLinkForUser(
+    userId: number,
+    options?: { sendWelcomeNotification?: boolean },
+  ) {
     const account = await this.ensureCreatorAccount(userId);
+    if (options?.sendWelcomeNotification) {
+      const existingWelcome = await this.prisma.notification.findFirst({
+        where: {
+          userId,
+          data: { path: ['creatorType'], equals: 'welcome' },
+        },
+      });
+      if (!existingWelcome) {
+        await this.createCreatorNotification({
+          userId,
+          title: 'Welcome to the Creator Program',
+          body: 'Your Creator Program account is ready. Start sharing your referral link to earn rewards.',
+          creatorType: 'welcome',
+        });
+      }
+    }
     return {
       referralCode: account.referralCode,
       referralLink: this.getReferralLink(account.referralCode),
     };
+  }
+
+  async getNotifications(userId: number) {
+    const notifications = await this.prisma.notification.findMany({
+      where: { userId, data: { path: ['scope'], equals: 'creator' } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return { success: true, notifications };
+  }
+
+  async markNotificationRead(userId: number, id: string) {
+    const notification = await this.prisma.notification.findFirst({
+      where: { id, userId, data: { path: ['scope'], equals: 'creator' } },
+    });
+    if (!notification) return null;
+    return this.prisma.notification.update({ where: { id }, data: { readAt: new Date() } });
+  }
+
+  async markAllNotificationsRead(userId: number) {
+    const updated = await this.prisma.notification.updateMany({
+      where: { userId, readAt: null, data: { path: ['scope'], equals: 'creator' } },
+      data: { readAt: new Date() },
+    });
+    return { success: true, count: updated.count };
+  }
+
+  async deleteNotification(userId: number, id: string) {
+    const notification = await this.prisma.notification.findFirst({
+      where: { id, userId, data: { path: ['scope'], equals: 'creator' } },
+    });
+    if (!notification) return null;
+    return this.prisma.notification.delete({ where: { id } });
+  }
+
+  async deleteAllNotifications(userId: number) {
+    const deleted = await this.prisma.notification.deleteMany({
+      where: { userId, data: { path: ['scope'], equals: 'creator' } },
+    });
+    return { success: true, count: deleted.count };
   }
 
   async getDashboard(userId: number, recentLimit = 20) {
@@ -162,7 +243,10 @@ export class CreatorProgramService {
         take: recentLimit,
         include: {
           referredUser: {
-            select: { id: true, email: true, name: true, createdAt: true },
+            select: {
+              id: true, email: true, name: true, createdAt: true,
+              wallets: { select: { address: true, blockchain: true, isPrimary: true } },
+            },
           },
         },
       }),
@@ -252,6 +336,7 @@ export class CreatorProgramService {
           id: referral.referredUser.id,
           email: referral.referredUser.email,
           name: referral.referredUser.name,
+          wallets: referral.referredUser.wallets,
         },
         status: referral.status,
         isActive: referral.isActive,
@@ -298,7 +383,10 @@ export class CreatorProgramService {
       take: limit,
       include: {
         referredUser: {
-          select: { id: true, email: true, name: true, createdAt: true },
+          select: {
+            id: true, email: true, name: true, createdAt: true,
+            wallets: { select: { address: true, blockchain: true, isPrimary: true } },
+          },
         },
       },
     });
@@ -437,6 +525,19 @@ export class CreatorProgramService {
         where: { id: creatorAccount.id },
         data: {
           totalReferralsCount: { increment: 1 },
+        },
+      });
+    }
+
+    if (!isFraud) {
+      await this.createCreatorNotification({
+        userId: creatorAccount.userId,
+        title: 'New referral',
+        body: 'A new user joined through your Creator Program referral link.',
+        creatorType: 'new_referral',
+        data: {
+          referralId: referral.id,
+          referredUserId: params.referredUserId,
         },
       });
     }

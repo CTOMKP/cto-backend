@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreatorProgramService } from './creator-program.service';
@@ -15,6 +15,36 @@ export class CreatorProgramController {
       throw new BadRequestException('Invalid authenticated user');
     }
     return userId;
+  }
+
+  @Get('notifications')
+  @UseGuards(JwtAuthGuard)
+  async getNotifications(@Req() req: any) {
+    return this.creatorProgramService.getNotifications(this.getUserId(req));
+  }
+
+  @Post('notifications/read-all')
+  @UseGuards(JwtAuthGuard)
+  async markAllNotificationsRead(@Req() req: any) {
+    return this.creatorProgramService.markAllNotificationsRead(this.getUserId(req));
+  }
+
+  @Post('notifications/:id/read')
+  @UseGuards(JwtAuthGuard)
+  async markNotificationRead(@Req() req: any, @Param('id') id: string) {
+    return this.creatorProgramService.markNotificationRead(this.getUserId(req), id);
+  }
+
+  @Delete('notifications')
+  @UseGuards(JwtAuthGuard)
+  async deleteAllNotifications(@Req() req: any) {
+    return this.creatorProgramService.deleteAllNotifications(this.getUserId(req));
+  }
+
+  @Delete('notifications/:id')
+  @UseGuards(JwtAuthGuard)
+  async deleteNotification(@Req() req: any, @Param('id') id: string) {
+    return this.creatorProgramService.deleteNotification(this.getUserId(req), id);
   }
 
   @Get('me')

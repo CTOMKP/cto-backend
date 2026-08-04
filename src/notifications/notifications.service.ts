@@ -43,19 +43,22 @@ export class NotificationsService {
   }
 
   async list(userId: number, unreadOnly?: boolean) {
-    return this.prisma.notification.findMany({
+    const notifications = await this.prisma.notification.findMany({
       where: {
         userId,
         ...(unreadOnly ? { readAt: null } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 200,
     });
+    return notifications
+      .filter((notification: any) => notification.data?.scope !== 'creator')
+      .slice(0, 100);
   }
 
   async markRead(userId: number, id: string) {
     const notification = await this.prisma.notification.findUnique({ where: { id } });
-    if (!notification || notification.userId !== userId) {
+    if (!notification || notification.userId !== userId || (notification.data as any)?.scope === 'creator') {
       return null;
     }
     return this.prisma.notification.update({
@@ -65,10 +68,13 @@ export class NotificationsService {
   }
 
   async markAllRead(userId: number) {
+    const visible = await this.list(userId, true);
+    if (visible.length === 0) return 0;
     const updated = await this.prisma.notification.updateMany({
       where: {
         userId,
         readAt: null,
+        id: { in: visible.map((notification) => notification.id) },
       },
       data: { readAt: new Date() },
     });
@@ -77,7 +83,7 @@ export class NotificationsService {
 
   async delete(userId: number, id: string) {
     const notification = await this.prisma.notification.findUnique({ where: { id } });
-    if (!notification || notification.userId !== userId) {
+    if (!notification || notification.userId !== userId || (notification.data as any)?.scope === 'creator') {
       return null;
     }
     return this.prisma.notification.delete({ where: { id } });

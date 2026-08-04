@@ -145,6 +145,7 @@ export class PrivyAuthController {
   async syncUser(
     @Body('privyToken') privyToken: string,
     @Body('referralCode') referralCode?: string,
+    @Body('source') source?: string,
     @Request() req?: any,
   ) {
     try {
@@ -189,11 +190,15 @@ export class PrivyAuthController {
             if (!wallets || wallets.length === 0) {
               this.logger.log('⚠️ 0 wallets found, waiting 1s for Privy indexing...');
               await new Promise(resolve => setTimeout(resolve, 1000));
-              return await this.privyAuthService.getUserWallets((privyUser as any).userId);
+              const indexedWallets = await this.privyAuthService.getUserWallets((privyUser as any).userId);
+              if (!indexedWallets || indexedWallets.length === 0) {
+                throw new Error('Privy wallets are not indexed yet');
+              }
+              return indexedWallets;
             }
             return wallets;
           },
-          2, // Reduced retries
+          5,
           1000,
           1.5
         );
@@ -359,7 +364,9 @@ export class PrivyAuthController {
         }
       }
 
-      await this.creatorProgramService.getReferralLinkForUser(user.id);
+      await this.creatorProgramService.getReferralLinkForUser(user.id, {
+        sendWelcomeNotification: isNewUser && source === 'creator_program',
+      });
 
       // Note: Aptos wallet creation is now manual via dashboard button
       this.logger.log('Step 6: Skipping automatic Aptos wallet creation (now manual)');
