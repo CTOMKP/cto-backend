@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { XpService } from '../xp/xp.service';
+import { createHash, randomBytes } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -225,6 +226,47 @@ export class AuthService {
         wallets: user.wallets || [], // Full list of wallets
       },
     };
+  }
+
+  async createSessionHandoff(userId: number, target: string) {
+    if (!['creator', 'marketplace'].includes(target)) {
+      throw new Error('Unsupported session handoff target');
+    }
+
+    const code = randomBytes(32).toString('base64url');
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    const expiresAt = new Date(Date.now() + 60_000);
+
+    await this.prisma.authHandoff.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    });
+    await this.prisma.authHandoff.create({
+      data: { codeHash, target, userId, expiresAt },
+    });
+
+    return { code, expiresAt: expiresAt.toISOString() };
+  }
+
+  async exchangeSessionHandoff(code: string, target: string) {
+    if (!code || !['creator', 'marketplace'].includes(target)) return null;
+
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    const now = new Date();
+    const handoff = await this.prisma.$transaction(async (tx) => {
+      const candidate = await tx.authHandoff.findUnique({ where: { codeHash } });
+      if (!candidate || candidate.target !== target || candidate.usedAt || candidate.expiresAt <= now) {
+        return null;
+      }
+      const claimed = await tx.authHandoff.updateMany({
+        where: { id: candidate.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      return claimed.count === 1 ? candidate : null;
+    });
+
+    if (!handoff) return null;
+    const user = await this.getUserById(handoff.userId);
+    return user ? this.login(user) : null;
   }
 
   // Refresh access token

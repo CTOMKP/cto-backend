@@ -66,9 +66,24 @@ model User {
   creatorEarnings CreatorEarning[] @relation("CreatorEarningCreatorUser")
   creatorEarningsAsReferredUser CreatorEarning[] @relation("CreatorEarningReferredUser")
   creatorPayouts CreatorPayout[] @relation("CreatorPayoutCreatorUser")
+  authHandoffs AuthHandoff[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+}
+
+model AuthHandoff {
+  id        Int       @id @default(autoincrement())
+  codeHash  String    @unique
+  target    String
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 // Extend ScanResult with fields needed by marketplace while retaining Int id

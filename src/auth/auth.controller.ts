@@ -51,6 +51,27 @@ export class AuthController {
     return this.authService.login(req.user);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('handoff')
+  @HttpCode(HttpStatus.OK)
+  async createHandoff(@Request() req, @Body('target') target: string) {
+    const userId = Number(req.user.userId || req.user.sub);
+    if (!userId) throw new UnauthorizedException('User ID not found in token');
+    try {
+      return await this.authService.createSessionHandoff(userId, target);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Invalid handoff target');
+    }
+  }
+
+  @Post('handoff/exchange')
+  @HttpCode(HttpStatus.OK)
+  async exchangeHandoff(@Body('code') code: string, @Body('target') target: string) {
+    const session = await this.authService.exchangeSessionHandoff(code, target);
+    if (!session) throw new UnauthorizedException('Session handoff is invalid or expired');
+    return session;
+  }
+
   @ApiOperation({ summary: 'Google OAuth login', description: 'Exchange Google account for backend-issued JWT' })
   @ApiBody({ type: GoogleLoginDto })
   @ApiResponse({ status: 200, description: 'Login successful', type: LoginResponseDto })
