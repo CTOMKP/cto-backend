@@ -1,11 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreatorPayoutRequestDto {
   @IsString()
   @IsOptional()
   @ApiProperty({ description: 'Destination payout wallet address', example: '0xabc123...', required: false })
   walletAddress?: string;
+
+  @IsString()
+  @IsIn(['solana', 'ethereum'])
+  @IsOptional()
+  @ApiProperty({ description: 'USDC payout network', enum: ['solana', 'ethereum'], default: 'solana', required: false })
+  chain?: 'solana' | 'ethereum';
 
   @IsNumber()
   @Min(0)

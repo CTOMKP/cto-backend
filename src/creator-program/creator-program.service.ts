@@ -365,6 +365,7 @@ export class CreatorProgramService {
         amountRequested: payout.amountRequested,
         amountApproved: payout.amountApproved,
         walletAddress: payout.walletAddress,
+        chain: (payout.metadata as any)?.chain || 'solana',
         txHash: payout.txHash,
         requestNote: payout.requestNote,
         createdAt: payout.createdAt,
@@ -754,7 +755,7 @@ export class CreatorProgramService {
     return results;
   }
 
-  async requestPayout(userId: number, payload: { walletAddress?: string; amount?: number; note?: string }) {
+  async requestPayout(userId: number, payload: { walletAddress?: string; amount?: number; chain?: 'solana' | 'ethereum'; note?: string }) {
     const account = await this.ensureCreatorAccount(userId);
     if (account.fraudStatus !== 'CLEAR') {
       throw new ForbiddenException('Creator account is on hold pending review');
@@ -775,6 +776,7 @@ export class CreatorProgramService {
     if (!walletAddress) {
       throw new BadRequestException('Wallet address is required for payout requests');
     }
+    const chain = payload.chain || 'solana';
 
     const payout = await this.prisma.$transaction(async (tx) => {
       const payout = await tx.creatorPayout.create({
@@ -785,6 +787,7 @@ export class CreatorProgramService {
           amountRequested: amount,
           status: 'REQUESTED',
           requestNote: payload.note?.trim() || null,
+          metadata: { chain },
         },
       });
 

@@ -112,6 +112,7 @@ export class CreatorProgramController {
     return this.creatorProgramService.requestPayout(userId, {
       walletAddress: body?.walletAddress,
       amount: body?.amount,
+      chain: body?.chain,
       note: body?.note,
     });
   }
