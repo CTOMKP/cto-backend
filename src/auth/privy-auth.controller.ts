@@ -226,7 +226,7 @@ export class PrivyAuthController {
         email = `privy-${(privyUser as any).userId}@ctomemes.xyz`;
       }
       
-      this.logger.log(`Resolved email: ${email}`);
+      this.logger.log('Privy identity resolved');
       this.logToFile(`Resolved email: ${email}`);
 
       // Check if user exists in our DB
@@ -446,7 +446,7 @@ export class PrivyAuthController {
       
       // Log additional Privy-specific error details
       if ((error as any).response) {
-        this.logger.error(`Privy API Response: ${JSON.stringify((error as any).response.data)}`);
+        this.logger.error(`Privy API request failed with status ${(error as any).response.status || 'unknown'}`);
         this.logToFile(`Privy API Response: ${JSON.stringify((error as any).response.data)}`);
       }
       
@@ -856,5 +856,4 @@ export class PrivyAuthController {
     }
   }
 }
-
 

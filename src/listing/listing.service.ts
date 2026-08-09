@@ -74,8 +74,8 @@ export class ListingService {
     if (!contractAddress) throw new BadRequestException('contractAddress is required');
     // Map EVM to ETHEREUM for worker
     const workerChain = chain === 'EVM' ? 'ETHEREUM' : chain;
-    this.worker.enqueue({ address: contractAddress, chain: workerChain as any });
-    return { accepted: true, contractAddress, chain };
+    const job = await this.worker.enqueue({ address: contractAddress, chain: workerChain as any });
+    return { accepted: true, contractAddress, chain, jobId: job.id };
   }
 
   @Header('Content-Type', 'text/plain; version=0.0.4')

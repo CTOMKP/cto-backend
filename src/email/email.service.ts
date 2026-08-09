@@ -31,6 +31,14 @@ type MarketplaceAdApprovedEmailParams = {
   adTitle: string;
 };
 
+type MarketplaceAdExpiryEmailParams = {
+  to: string;
+  userName?: string | null;
+  adId: string;
+  adTitle: string;
+  expiresAt: Date;
+};
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -471,6 +479,32 @@ export class EmailService {
       });
     } catch (error: any) {
       this.logger.error(`Failed to send approved marketplace ad email to ${params.to}: ${error?.message ?? error}`);
+    }
+  }
+
+  async sendMarketplaceAdExpiryEmail(params: MarketplaceAdExpiryEmailParams): Promise<void> {
+    const baseUrl = this.getFrontendBaseUrl().replace(/\/+$/, '');
+    const adsUrl = `${baseUrl}/profile?tab=ads`;
+    const adUrl = `${baseUrl}/marketplace/ads/${params.adId}`;
+    const name = this.displayName(params.userName);
+    const expiry = params.expiresAt.toLocaleDateString('en-GB', { dateStyle: 'medium' });
+    const subject = 'Your marketplace ad expires in 7 days';
+    const text =
+      `Hi ${name},\n\nYour ad "${params.adTitle}" will expire on ${expiry}.\n` +
+      `Manage your ads: ${adsUrl}\nAd details: ${adUrl}\n\n- CTO Marketplace`;
+    const html = this.buildEmailHtml({
+      title: 'Your Ad Expires Soon',
+      intro: `Hi ${name}, your marketplace ad will expire on ${expiry}. Extend it or mark it no longer available from your ads page.`,
+      projectTitle: params.adTitle,
+      primaryCtaText: 'Manage My Ads',
+      primaryCtaUrl: adsUrl,
+      secondaryCtaText: 'Open Ad Details',
+      secondaryCtaUrl: adUrl,
+    });
+    try {
+      await this.sendEmail({ to: params.to, subject, html, text });
+    } catch (error: any) {
+      this.logger.error(`Failed to send marketplace expiry email to ${params.to}: ${error?.message ?? error}`);
     }
   }
 }

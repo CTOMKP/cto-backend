@@ -7,11 +7,13 @@ import { MarketplaceController } from './marketplace.controller';
 import { MarketplaceService } from './marketplace.service';
 import { MarketplacePricingService } from './marketplace-pricing.service';
 import { MarketplaceCronService } from './marketplace-cron.service';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { AdminGuard } from '../auth/guards/admin.guard';
 
 @Module({
-  imports: [PrismaModule, PaymentModule, XpModule, EmailModule],
+  imports: [PrismaModule, PaymentModule, XpModule, EmailModule, NotificationsModule],
   controllers: [MarketplaceController],
-  providers: [MarketplaceService, MarketplacePricingService, MarketplaceCronService],
+  providers: [MarketplaceService, MarketplacePricingService, MarketplaceCronService, AdminGuard],
   exports: [MarketplaceService, MarketplacePricingService],
 })
 export class MarketplaceModule {}

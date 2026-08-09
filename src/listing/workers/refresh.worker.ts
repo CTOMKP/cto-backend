@@ -15,6 +15,8 @@ import { Pillar1RiskScoringService, TokenVettingData } from '../../services/pill
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { DistributedLockService } from '../../services/distributed-lock.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 /*
   RefreshWorker
@@ -75,6 +77,8 @@ export class RefreshWorker {
     private readonly pillar1RiskScoringService: Pillar1RiskScoringService,
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    private readonly distributedLock: DistributedLockService,
+    private readonly prisma: PrismaService,
   ) {
     this.jupiterApiKey = this.configService.get<string>('JUPITER_API_KEY') || null;
   }
@@ -82,6 +86,11 @@ export class RefreshWorker {
   // Removed onModuleInit auto-fetch per user request
   // But we still want to ensure initial tokens are present
   async onModuleInit() {
+    const initialSyncEnabled = this.configService.get<string>('INITIAL_TOKEN_SYNC_ENABLED', 'false') === 'true';
+    if (!initialSyncEnabled) {
+      this.logger.log('RefreshWorker initialized; startup token synchronization is disabled');
+      return;
+    }
     this.logger.log('🚀 RefreshWorker initialized. Ensuring initial tokens are present...');
     // Non-blocking call to ensure initial tokens exist
     this.ensureInitialTokensExist().catch(err => {
@@ -89,15 +98,81 @@ export class RefreshWorker {
     });
   }
 
-  enqueue(contract: string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' }) {
-    this.queue.push(contract as any);
-    this.run();
+  async enqueue(contract: string | { address: string; chain: 'SOLANA' | 'ETHEREUM' | 'BSC' | 'SUI' | 'BASE' | 'APTOS' | 'NEAR' | 'OSMOSIS' | 'OTHER' | 'UNKNOWN' }) {
+    const address = typeof contract === 'string' ? contract : contract.address;
+    const chain = (typeof contract === 'string' ? 'SOLANA' : contract.chain) as any;
+    const existing = await (this.prisma as any).scanJob.findFirst({
+      where: {
+        contractAddress: address,
+        chain,
+        status: { in: ['PENDING', 'PROCESSING'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) return existing;
+
+    const job = await (this.prisma as any).scanJob.create({
+      data: { contractAddress: address, chain },
+    });
+    void this.processPendingScanJobs();
+    return job;
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'durable-scan-job-consumer' })
+  async processPendingScanJobs() {
+    const lockOwner = await this.distributedLock.acquire('durable-scan-job-consumer', 55 * 1000);
+    if (!lockOwner) return;
+    try {
+      await (this.prisma as any).scanJob.updateMany({
+        where: {
+          status: 'PROCESSING',
+          lockedAt: { lt: new Date(Date.now() - 5 * 60 * 1000) },
+        },
+        data: { status: 'PENDING', lockedAt: null, runAfter: new Date() },
+      });
+      const jobs = await (this.prisma as any).scanJob.findMany({
+        where: { status: 'PENDING', runAfter: { lte: new Date() } },
+        orderBy: { createdAt: 'asc' },
+        take: 10,
+      });
+
+      for (const job of jobs) {
+        const claimed = await (this.prisma as any).scanJob.updateMany({
+          where: { id: job.id, status: 'PENDING' },
+          data: { status: 'PROCESSING', lockedAt: new Date(), attempts: { increment: 1 } },
+        });
+        if (claimed.count !== 1) continue;
+
+        try {
+          await this.vetTokenWithBackend(job.contractAddress, job.chain);
+          await (this.prisma as any).scanJob.update({
+            where: { id: job.id },
+            data: { status: 'COMPLETED', completedAt: new Date(), lastError: null },
+          });
+        } catch (error: any) {
+          const attempts = Number(job.attempts || 0) + 1;
+          const terminal = attempts >= Number(job.maxAttempts || 3);
+          const backoffMinutes = Math.min(30, Math.pow(2, attempts));
+          await (this.prisma as any).scanJob.update({
+            where: { id: job.id },
+            data: {
+              status: terminal ? 'FAILED' : 'PENDING',
+              runAfter: terminal ? job.runAfter : new Date(Date.now() + backoffMinutes * 60 * 1000),
+              lockedAt: null,
+              lastError: String(error?.message || error).slice(0, 500),
+            },
+          });
+        }
+      }
+    } finally {
+      await this.distributedLock.release('durable-scan-job-consumer', lockOwner);
+    }
   }
 
 
   /**
    * Process existing unvetted tokens in batches
-   * Runs every 10 minutes to vet tokens that were added before n8n integration
+   * Runs every 10 minutes to vet tokens that were added before durable backend scanning
    */
   // PILLAR 1: Process unvetted tokens (vetting/risk scoring)
   // Runs at :05, :15, :25, :35, :45, :55 every hour (every 10 minutes, offset by 5 min from discovery)
@@ -106,6 +181,11 @@ export class RefreshWorker {
     timeZone: 'UTC',
   })
   async processExistingUnvettedTokens() {
+    const lockOwner = await this.distributedLock.acquire('pillar1-vet-tokens', 9 * 60 * 1000);
+    if (!lockOwner) {
+      this.logger.debug('Pillar 1 vetting is already running on another instance');
+      return;
+    }
     this.logger.log('🔄 [PILLAR 1] Starting processExistingUnvettedTokens cron job (vetting)...');
     
     try {
@@ -133,7 +213,7 @@ export class RefreshWorker {
       for (const token of unvettedTokens) {
         try {
           this.logger.log(`🔄 Triggering vetting for token ${token.contractAddress} (chain: ${token.chain})`);
-          await this.triggerN8nVettingForNewToken(token.contractAddress, token.chain.toLowerCase());
+          await this.vetTokenWithBackend(token.contractAddress, token.chain.toLowerCase());
         } catch (error: any) {
           this.logger.error(`❌ Failed to process unvetted token ${token.contractAddress}: ${error.message}`);
           this.logger.error(`Stack: ${error.stack}`);
@@ -143,6 +223,8 @@ export class RefreshWorker {
       this.logger.log(`✅ Completed processing ${unvettedTokens.length} unvetted tokens`);
     } catch (error: any) {
       this.logger.error(`Error processing unvetted tokens: ${error.message}`);
+    } finally {
+      await this.distributedLock.release('pillar1-vet-tokens', lockOwner);
     }
   }
 
@@ -1070,8 +1152,8 @@ export class RefreshWorker {
           deltas.new.push(payload);
           // Only trigger vetting for NEW unvetted tokens (Pillar 1)
           // Check if token is unvetted (vetted = false OR riskScore IS NULL)
-          if ((after?.vetted === false || after?.riskScore === null) && this.n8nService && this.externalApisService) {
-            this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
+          if (after?.vetted === false || after?.riskScore === null) {
+            this.vetTokenWithBackend(address, chain).catch((error) => {
               this.logger.warn(`Failed to trigger vetting for new token ${address}: ${error.message}`);
             });
           } else if (after?.vetted === false || after?.riskScore === null) {
@@ -1080,8 +1162,8 @@ export class RefreshWorker {
           }
         } else {
           // For existing tokens, only trigger vetting if they haven't been vetted (Pillar 1)
-          if ((after?.vetted === false || (after?.riskScore === null && after?.vetted !== true)) && this.n8nService && this.externalApisService) {
-            this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
+          if (after?.vetted === false || (after?.riskScore === null && after?.vetted !== true)) {
+            this.vetTokenWithBackend(address, chain).catch((error) => {
               this.logger.warn(`Failed to trigger vetting for existing unvetted token ${address}: ${error.message}`);
             });
           }
@@ -1347,8 +1429,8 @@ export class RefreshWorker {
           
           // Trigger vetting if token hasn't been vetted (Pillar 1)
           const saved = await this.repo.findOne(address);
-          if (saved && (saved.vetted === false || saved.riskScore === null) && this.n8nService && this.externalApisService) {
-            this.triggerN8nVettingForNewToken(address, chain).catch((error) => {
+          if (saved && (saved.vetted === false || saved.riskScore === null)) {
+            this.vetTokenWithBackend(address, chain).catch((error) => {
               this.logger.warn(`Failed to trigger vetting for initial token ${t.symbol}: ${error.message}`);
             });
           }
@@ -1409,7 +1491,7 @@ export class RefreshWorker {
             this.logger.log(`🔄 Processing ${address} with Pillar 1 risk scoring`);
             try {
               // Trigger comprehensive vetting (this uses Pillar1RiskScoringService)
-              await this.triggerN8nVettingForNewToken(address, chain.toLowerCase());
+              await this.vetTokenWithBackend(address, chain.toLowerCase());
               apiCalls += 1;
               
               // Fetch updated listing to get the risk score and tier
@@ -1427,26 +1509,8 @@ export class RefreshWorker {
                 this.logger.log(`✅ Refreshed ${chain}:${address} - Risk: ${updated.riskScore}, Tier: ${updated.tier || 'none'}`);
               }
             } catch (error: any) {
+              failures += 1;
               this.logger.warn(`Failed to process ${address} with Pillar 1: ${error.message}`);
-              // Fallback to old scanService if Pillar 1 fails
-              try {
-                const result = await this.scanService.scanToken(address, undefined, chain);
-                apiCalls += 1;
-                const { listing: updated } = await this.repo.persistScanAndUpsertListing({
-                  contractAddress: address,
-                  chain,
-                  token: result.metadata,
-                  riskScore: result.risk_score,
-                  tier: result.tier,
-                  summary: result.summary,
-                });
-                this.gateway.emitUpdate({ chain, contractAddress: address, tier: result.tier, riskScore: result.risk_score, communityScore: (updated as any)?.communityScore ?? null });
-                refreshed += 1;
-                this.logger.log(`Refreshed ${chain}:${address} (fallback to old system)`);
-              } catch (fallbackError: any) {
-                failures += 1;
-                this.logger.warn(`Refresh failed for ${chain}:${address}: ${fallbackError.message}`);
-              }
             }
           } else {
             // For non-SOLANA chains, use old scanService for now
@@ -1482,11 +1546,51 @@ export class RefreshWorker {
   }
 
   /**
-   * Trigger n8n vetting for a new token with COMPLETE data
-   * Fetches data from DexScreener, Helius, Alchemy, and BearTree APIs
-   * This is called asynchronously when a new listing is created
+   * Vet a token through the canonical backend scan and persistence path.
    */
-  private async triggerN8nVettingForNewToken(contractAddress: string, chain: string) {
+  private async vetTokenWithBackend(contractAddress: string, chain: string) {
+    const normalizedChain = String(chain || 'SOLANA').toUpperCase();
+    if (normalizedChain !== 'SOLANA' && normalizedChain !== 'APTOS') {
+      throw new Error(`Vetting is not supported for ${normalizedChain}`);
+    }
+
+    try {
+      const result = await this.scanService.scanToken(
+        contractAddress,
+        undefined,
+        normalizedChain as 'SOLANA' | 'APTOS',
+      );
+      const persistenceChain = normalizedChain as 'SOLANA' | 'APTOS';
+      const { listing } = await this.repo.persistScanAndUpsertListing({
+        contractAddress,
+        chain: persistenceChain,
+        token: result.metadata,
+        riskScore: result.risk_score,
+        tier: result.tier,
+        summary: result.summary,
+      });
+      if (!result?.eligible) {
+        throw new Error(`Vetting remained inconclusive for ${normalizedChain}:${contractAddress}`);
+      }
+      this.gateway.emitUpdate({
+        chain: persistenceChain,
+        contractAddress,
+        tier: result.tier,
+        riskScore: result.risk_score,
+        communityScore: (listing as any)?.communityScore ?? null,
+      });
+      this.logger.log(`Vetted ${normalizedChain}:${contractAddress} through the canonical scan pipeline`);
+    } catch (error: any) {
+      this.logger.warn(`Canonical vetting failed for ${normalizedChain}:${contractAddress}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Legacy duplicate enrichment flow retained temporarily for rollback analysis.
+   * It is intentionally not called; the canonical ScanService path above is authoritative.
+   */
+  private async legacyTriggerN8nVettingForNewToken(contractAddress: string, chain: string) {
     try {
       this.logger.debug(`🔍 Fetching comprehensive data for n8n vetting: ${contractAddress} on ${chain}`);
       
@@ -1732,7 +1836,8 @@ export class RefreshWorker {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
+      const heliusApiKey = this.configService.get<string>('HELIUS_API_KEY');
+      if (!heliusApiKey) return null;
       const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
 
       const [assetResponse, holdersResponse] = await Promise.allSettled([
@@ -1800,7 +1905,8 @@ export class RefreshWorker {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const alchemyApiKey = this.configService.get('ALCHEMY_API_KEY', 'bSSmYhMZK2oYWgB2aMzA_');
+      const alchemyApiKey = this.configService.get<string>('ALCHEMY_API_KEY');
+      if (!alchemyApiKey) return null;
       const alchemyUrl = `https://solana-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
 
       const response = await firstValueFrom(
@@ -1841,7 +1947,8 @@ export class RefreshWorker {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '99b6e8db-d86a-4d3d-a5ee-88afa8015074');
+      const bearTreeApiKey = this.configService.get<string>('HELIUS_BEARTREE_API_KEY');
+      if (!bearTreeApiKey) return null;
       const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
 
       const response = await firstValueFrom(

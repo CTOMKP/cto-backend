@@ -98,10 +98,11 @@ export class MovementPaymentController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Payment not found' })
   async verifyPayment(
+    @Request() req: any,
     @Param('paymentId') paymentId: string,
     @Body() body: { txHash: string },
   ) {
-    return this.movementPaymentService.verifyPayment(paymentId, body.txHash);
+    return this.movementPaymentService.verifyPayment(paymentId, body.txHash, Number(req.user.userId));
   }
 }
 

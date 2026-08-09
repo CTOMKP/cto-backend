@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -294,11 +294,12 @@ export class SolanaPaymentService {
     return true;
   }
 
-  async verifyPayment(paymentId: string, txHash: string) {
+  async verifyPayment(paymentId: string, txHash: string, userId: number) {
     const payment = await this.prisma.payment.findUnique({
       where: { id: paymentId },
     });
     if (!payment) throw new NotFoundException('Payment not found');
+    if (payment.userId !== userId) throw new ForbiddenException('Not your payment');
     if (payment.status === 'COMPLETED') {
       await this.recordCreatorRevenueForPayment(payment as any);
       return { success: true, payment, message: 'Payment already verified' };
@@ -368,10 +369,10 @@ export class SolanaPaymentService {
     return { success: true, payment: updated };
   }
 
-  async verifyMarketplaceAdPayment(paymentId: string, txHash: string) {
+  async verifyMarketplaceAdPayment(paymentId: string, txHash: string, userId: number) {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
     if (payment.paymentType !== 'MARKETPLACE_AD') throw new BadRequestException('Invalid payment type');
-    return this.verifyPayment(paymentId, txHash);
+    return this.verifyPayment(paymentId, txHash, userId);
   }
 }

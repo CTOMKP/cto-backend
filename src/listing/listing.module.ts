@@ -13,11 +13,12 @@ import { ListingGateway } from './services/listing.gateway';
 import { AnalyticsService } from './services/analytics.service';
 import { TokenAnalysisService } from './services/token-analysis.service';
 import { TokenVettingModule } from '../services/token-vetting.module';
+import { AdminGuard } from '../auth/guards/admin.guard';
 
 @Module({
   imports: [PrismaModule, forwardRef(() => ScanModule), forwardRef(() => TokenVettingModule), HttpModule],
   controllers: [ListingController],
-  providers: [ListingService, ListingRepository, CacheService, RefreshWorker, RateLimiterGuard, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
-  exports: [ListingService, ListingRepository, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
+  providers: [ListingService, ListingRepository, CacheService, RefreshWorker, RateLimiterGuard, AdminGuard, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
+  exports: [ListingService, ListingRepository, CacheService, RateLimiterGuard, MetricsService, ListingGateway, AnalyticsService, TokenAnalysisService],
 })
 export class ListingModule {}

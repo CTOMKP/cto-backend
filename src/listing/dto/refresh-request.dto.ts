@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export enum ChainRefreshInput {
   SOLANA = 'SOLANA',
@@ -13,6 +13,8 @@ export enum ChainRefreshInput {
 export class RefreshRequestDto {
   @ApiProperty({ description: 'Contract address to refresh' })
   @IsString()
+  @MinLength(1)
+  @MaxLength(256)
   contractAddress: string;
 
   @ApiProperty({ description: 'Chain for the contract', enum: ChainRefreshInput, required: false })

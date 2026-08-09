@@ -61,8 +61,8 @@ export class SolanaPaymentController {
   @ApiResponse({ status: 400, description: 'Invalid request, payment already completed, or transaction not confirmed' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Payment not found' })
-  async verifyPayment(@Param('paymentId') paymentId: string, @Body() body: VerifySolanaPaymentDto) {
-    return this.solanaPaymentService.verifyPayment(paymentId, body?.txHash);
+  async verifyPayment(@Request() req: any, @Param('paymentId') paymentId: string, @Body() body: VerifySolanaPaymentDto) {
+    return this.solanaPaymentService.verifyPayment(paymentId, body?.txHash, Number(req.user.userId));
   }
 
   @Post('verify-ad/:paymentId')
@@ -78,7 +78,7 @@ export class SolanaPaymentController {
   @ApiResponse({ status: 400, description: 'Invalid request, payment already completed, or payment type mismatch' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Payment not found' })
-  async verifyAdPayment(@Param('paymentId') paymentId: string, @Body() body: VerifySolanaPaymentDto) {
-    return this.solanaPaymentService.verifyMarketplaceAdPayment(paymentId, body?.txHash);
+  async verifyAdPayment(@Request() req: any, @Param('paymentId') paymentId: string, @Body() body: VerifySolanaPaymentDto) {
+    return this.solanaPaymentService.verifyMarketplaceAdPayment(paymentId, body?.txHash, Number(req.user.userId));
   }
 }

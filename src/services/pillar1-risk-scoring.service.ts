@@ -22,15 +22,15 @@ export interface TokenVettingData {
     socials?: string[];
   };
   security: {
-    isMintable: boolean;
-    isFreezable: boolean;
+    isMintable: boolean | null;
+    isFreezable: boolean | null;
     lpLockPercentage: number;
     totalSupply: number;
     circulatingSupply: number;
     lpLocks?: Array<{ tag?: string; [key: string]: any }>;
   };
   holders: {
-    count: number;
+    count: number | null;
     topHolders: Array<{
       address: string;
       balance: number;
@@ -39,22 +39,26 @@ export interface TokenVettingData {
   };
   developer: {
     creatorAddress: string | null;
-    creatorBalance: number;
+    creatorBalance: number | null;
     creatorStatus: string;
     top10HolderRate: number;
     twitterCreateTokenCount: number;
   };
   trading: {
-    price: number;
-    priceChange24h: number;
-    volume24h: number;
-    buys24h: number;
-    sells24h: number;
-    liquidity: number;
-    fdv: number;
-    holderCount: number;
+    price: number | null;
+    priceChange24h: number | null;
+    volume24h: number | null;
+    buys24h: number | null;
+    sells24h: number | null;
+    liquidity: number | null;
+    fdv: number | null;
+    holderCount: number | null;
   };
-  tokenAge: number;
+  tokenAge: number | null;
+  evidence?: Partial<Record<
+    'authorities' | 'holderDistribution' | 'holderCount' | 'liquidity' | 'lpLock' | 'creator' | 'tokenAge',
+    'observed' | 'derived' | 'stale' | 'unknown'
+  >>;
 }
 
 export interface ComponentScore {
@@ -83,11 +87,14 @@ export interface VettingResults {
   dataSufficient: boolean;
   missingData: string[];
   calculatedAt: string;
+  scoringVersion: string;
+  scoreDirection: 'HIGHER_IS_SAFER';
 }
 
 @Injectable()
 export class Pillar1RiskScoringService {
   private readonly logger = new Logger(Pillar1RiskScoringService.name);
+  static readonly SCORING_VERSION = 'pillar1-solana-v2';
 
   /**
    * Calculate comprehensive risk score for a token
@@ -117,11 +124,19 @@ export class Pillar1RiskScoringService {
       ...technical.flags,
     ];
 
-    // Check data completeness (for flags only - we always calculate scores now)
+    const evidence = data.evidence || {};
+    const hasAuthorityVerification = evidence.authorities === 'observed' ||
+      (typeof security?.isMintable === 'boolean' && typeof security?.isFreezable === 'boolean');
+    const hasLiquidityVerification = evidence.liquidity === 'observed' ||
+      (Number.isFinite(Number(trading?.liquidity)) && Number(trading?.liquidity) > 0);
+    const hasReliableAge = evidence.tokenAge === 'observed' ||
+      (Number.isFinite(Number(tokenAge)) && Number(tokenAge) >= 0);
+
+    // These three inputs are the minimum evidence needed to publish a score.
     const missingCriticalData: string[] = [];
-    if (distribution.score === null) missingCriticalData.push('Distribution');
-    if (liquidity.score === null) missingCriticalData.push('Liquidity');
-    if (technical.score === null) missingCriticalData.push('Technical');
+    if (!hasAuthorityVerification) missingCriticalData.push('Mint/freeze authority');
+    if (!hasLiquidityVerification) missingCriticalData.push('Liquidity');
+    if (!hasReliableAge) missingCriticalData.push('Token age');
 
     // CRITICAL FIX: If critical data is missing, throw error instead of defaulting to 0
     // This stops the "0/100" hallucinations caused by API rate limits
@@ -143,9 +158,10 @@ export class Pillar1RiskScoringService {
       (technicalScore * 0.20)
     );
 
-    const hasTopHolderDistribution = !!(holders?.topHolders && holders.topHolders.length > 0);
-    const hasCreatorVerification = !!developer?.creatorAddress;
-    const hasLpLockVerification = (security?.lpLockPercentage || 0) > 0;
+    const hasTopHolderDistribution = evidence.holderDistribution === 'observed' ||
+      !!(holders?.topHolders && holders.topHolders.length > 0);
+    const hasCreatorVerification = evidence.creator === 'observed' || !!developer?.creatorAddress;
+    const hasLpLockVerification = evidence.lpLock === 'observed';
     const unknownCriticalCount = [
       !hasLpLockVerification,
       !hasCreatorVerification,
@@ -194,7 +210,14 @@ export class Pillar1RiskScoringService {
       });
     }
 
-    const verificationSignals = [hasLpLockVerification, hasCreatorVerification, hasTopHolderDistribution];
+    const verificationSignals = [
+      hasAuthorityVerification,
+      hasReliableAge,
+      hasLiquidityVerification,
+      hasLpLockVerification,
+      hasCreatorVerification,
+      hasTopHolderDistribution,
+    ];
     const verificationCoverage = Math.round(
       (verificationSignals.filter(Boolean).length / verificationSignals.length) * 100
     );
@@ -206,16 +229,21 @@ export class Pillar1RiskScoringService {
       );
     }
 
-    // Determine eligible tier (always calculate, even with partial data)
-    // Calculate LP lock duration in months from lpLocks array
+    // Tier assignment requires independently verified LP lock evidence.
     const lpLockMonths = this.calculateLPLockMonths(security.lpLocks || []);
-    const eligibleTier = this.determineEligibleTier(
-      overallScore,
-      tokenAge,
-      security.lpLockPercentage || 0,
-      lpLockMonths,
-      trading.liquidity || 0
-    );
+    const eligibleTier = missingCriticalData.length === 0 && hasLpLockVerification
+      ? this.determineEligibleTier(
+          overallScore,
+          Number(tokenAge),
+          security.lpLockPercentage || 0,
+          lpLockMonths,
+          trading.liquidity || 0,
+        )
+      : 'none';
+
+    if (!hasLpLockVerification) missingCriticalData.push('LP lock verification');
+    if (!hasTopHolderDistribution) missingCriticalData.push('Holder distribution');
+    if (!hasCreatorVerification) missingCriticalData.push('Creator wallet');
 
     return {
       componentScores: {
@@ -230,9 +258,11 @@ export class Pillar1RiskScoringService {
       allFlags,
       verificationCoverage,
       riskFlags,
-      dataSufficient: missingCriticalData.length === 0,
+      dataSufficient: hasAuthorityVerification && hasLiquidityVerification && hasReliableAge,
       missingData: missingCriticalData,
       calculatedAt: new Date().toISOString(),
+      scoringVersion: Pillar1RiskScoringService.SCORING_VERSION,
+      scoreDirection: 'HIGHER_IS_SAFER',
     };
   }
 
@@ -344,7 +374,7 @@ export class Pillar1RiskScoringService {
     let score = 100;
     const flags: string[] = [];
 
-    const lpLockPercentage = security.lpLockPercentage || 0;
+    const lpLockPercentage = Number(security?.lpLockPercentage || 0);
     const lpLocks = security.lpLocks || [];
     const burnedLP = lpLocks.find((lock: any) => lock.tag === 'Burned');
 
@@ -376,7 +406,7 @@ export class Pillar1RiskScoringService {
     }
 
     // Liquidity amount analysis
-    const liquidityUSD = trading?.liquidity || 0;
+    const liquidityUSD = Number(trading?.liquidity || 0);
     
     // Additional penalty if liquidity data is also missing
     if (lpLockPercentage === 0 && liquidityUSD === 0) {
@@ -414,7 +444,7 @@ export class Pillar1RiskScoringService {
       return { score, flags };
     }
 
-    const creatorBalance = developer.creatorBalance || 0;
+    const creatorBalance = Number(developer.creatorBalance || 0);
     const creatorStatus = developer.creatorStatus || 'unknown';
     const top10HolderRate = developer.top10HolderRate || 0;
 
@@ -484,7 +514,7 @@ export class Pillar1RiskScoringService {
     }
 
     // Check if we have at least mint/freeze authority data
-    if (security.isMintable === undefined && security.isFreezable === undefined) {
+    if (typeof security.isMintable !== 'boolean' || typeof security.isFreezable !== 'boolean') {
       // Missing authority data - apply penalty (assume worst case)
       score -= 10; // Base penalty for missing authority data
       score -= 20; // Additional penalty for unknown status (assumed authorities are active = risky)
@@ -509,8 +539,8 @@ export class Pillar1RiskScoringService {
       };
     }
 
-    const isMintable = security.isMintable || false;
-    const isFreezable = security.isFreezable || false;
+    const isMintable = security.isMintable;
+    const isFreezable = security.isFreezable;
 
     // Mint authority check (EXACT CTO MARKETPLACE SCORING)
     if (isMintable === true) {
@@ -554,30 +584,41 @@ export class Pillar1RiskScoringService {
    */
   private calculateLPLockMonths(lpLocks: Array<{ tag?: string; [key: string]: any }>): number {
     if (!lpLocks || lpLocks.length === 0) return 0;
-    
-    // Check if any LP is burned (permanent lock)
-    const burnedLP = lpLocks.find((lock: any) => lock.tag === 'Burned');
-    if (burnedLP) return 999; // Burned = permanent lock
-    
-    // Try to extract lock duration from lock data
+
+    const burnedLP = lpLocks.find((lock: any) =>
+      String(lock?.tag || '').toLowerCase() === 'burned',
+    );
+    if (burnedLP) return 999;
+
     let maxLockMonths = 0;
     for (const lock of lpLocks) {
-      // Check various possible fields for lock duration
-      const durationMs = lock.duration || lock.durationMs || lock.lockDuration || lock.unlockTime;
-      if (durationMs) {
-        // Convert milliseconds to months (approximate: 30 days per month)
-        const months = Math.floor((durationMs - Date.now()) / (1000 * 60 * 60 * 24 * 30));
+      const explicitMonths = Number(lock.months ?? lock.durationMonths);
+      if (Number.isFinite(explicitMonths) && explicitMonths > maxLockMonths) {
+        maxLockMonths = Math.floor(explicitMonths);
+      }
+
+      const durationMs = Number(lock.durationMs ?? lock.lockDurationMs);
+      if (Number.isFinite(durationMs) && durationMs > 0) {
+        const months = Math.floor(durationMs / (1000 * 60 * 60 * 24 * 30));
         if (months > maxLockMonths) maxLockMonths = months;
       }
-      
-      // Check for unlockTime timestamp
-      const unlockTime = lock.unlockTime || lock.unlockTimestamp;
-      if (unlockTime) {
-        const months = Math.floor((unlockTime - Date.now()) / (1000 * 60 * 60 * 24 * 30));
+
+      const durationSeconds = Number(lock.durationSeconds ?? lock.lockDurationSeconds);
+      if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+        const months = Math.floor(durationSeconds / (60 * 60 * 24 * 30));
+        if (months > maxLockMonths) maxLockMonths = months;
+      }
+
+      const rawUnlockTime = Number(lock.unlockTime ?? lock.unlockTimestamp);
+      if (Number.isFinite(rawUnlockTime) && rawUnlockTime > 0) {
+        const unlockTimeMs = rawUnlockTime < 10_000_000_000
+          ? rawUnlockTime * 1000
+          : rawUnlockTime;
+        const months = Math.floor((unlockTimeMs - Date.now()) / (1000 * 60 * 60 * 24 * 30));
         if (months > maxLockMonths) maxLockMonths = months;
       }
     }
-    
+
     return maxLockMonths;
   }
 
@@ -603,15 +644,14 @@ export class Pillar1RiskScoringService {
     // Log tier evaluation for debugging
     this.logger.debug(`🔍 Tier evaluation: score=${score}, age=${age} days, liquidity=$${liquidityUSD}, LP lock=${lpLockPercentage}%, LP lock months=${lpLockMonths}`);
     
-    // Check LP lock requirements (use months if available, otherwise use percentage as proxy)
-    // If we have lock months, use that; otherwise estimate from percentage
-    // High percentage (>90%) likely means longer lock, low percentage likely means shorter/no lock
     if (!Number.isFinite(age) || age < 0) {
       this.logger.debug('Tier: none (token age unavailable)');
       return 'none';
     }
 
-    const effectiveLockMonths = lpLockMonths > 0 ? lpLockMonths : (lpLockPercentage >= 90 ? 12 : lpLockPercentage >= 50 ? 6 : 0);
+    // Lock percentage and lock duration are independent facts. Never infer duration
+    // from percentage; only observed duration/burn evidence can qualify a tier.
+    const effectiveLockMonths = lpLockMonths > 0 ? lpLockMonths : 0;
     const hasBurnedLP = lpLockMonths >= 999; // Burned LP = permanent lock
     
     // Check tiers from highest to lowest (Stellar -> Bloom -> Sprout -> Seed)
@@ -622,7 +662,7 @@ export class Pillar1RiskScoringService {
     // Allow tokens with any liquidity above minimum (established tokens often have millions in liquidity)
     if (age >= 60 && 
         liquidityUSD >= 100000 && 
-        ((effectiveLockMonths >= 24 && effectiveLockMonths <= 36) || hasBurnedLP) && 
+        (effectiveLockMonths >= 24 || hasBurnedLP) &&
         score >= 70) {
       this.logger.debug(`✅ Tier: stellar (age ${age} >= 60 days, liquidity $${liquidityUSD} >= $100k, LP lock ${effectiveLockMonths} months [24-36], score ${score} >= 70)`);
       return 'stellar';
@@ -633,7 +673,7 @@ export class Pillar1RiskScoringService {
     // Allow tokens with liquidity >= $50k (no upper limit - high liquidity tokens can still be Bloom if they don't meet Stellar)
     if (age >= 30 && 
         liquidityUSD >= 50000 && 
-        effectiveLockMonths >= 24 && effectiveLockMonths <= 36 && 
+        effectiveLockMonths >= 24 &&
         score >= 50) {
       this.logger.debug(`✅ Tier: bloom (age ${age} >= 30 days, liquidity $${liquidityUSD} >= $50k, LP lock ${effectiveLockMonths} months [24-36], score ${score} >= 50)`);
       return 'bloom';
@@ -644,7 +684,7 @@ export class Pillar1RiskScoringService {
     // Allow tokens with liquidity >= $20k (no upper limit - high liquidity tokens can still be Sprout if they don't meet Bloom/Stellar)
     if (age >= 21 && 
         liquidityUSD >= 20000 && 
-        effectiveLockMonths >= 12 && effectiveLockMonths <= 18 && 
+        effectiveLockMonths >= 12 &&
         score >= 50) {
       this.logger.debug(`✅ Tier: sprout (age ${age} >= 21 days, liquidity $${liquidityUSD} >= $20k, LP lock ${effectiveLockMonths} months [12-18], score ${score} >= 50)`);
       return 'sprout';
@@ -655,7 +695,7 @@ export class Pillar1RiskScoringService {
     // Allow tokens with liquidity >= $10k (no upper limit - high liquidity tokens can still be Seed if they don't meet higher tiers)
     if (age >= 14 && 
         liquidityUSD >= 10000 && 
-        effectiveLockMonths >= 6 && effectiveLockMonths <= 12 && 
+        effectiveLockMonths >= 6 &&
         score >= 30) {
       this.logger.debug(`✅ Tier: seed (age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock ${effectiveLockMonths} months [6-12], score ${score} >= 30)`);
       return 'seed';

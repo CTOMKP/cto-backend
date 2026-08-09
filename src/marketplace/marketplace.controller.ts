@@ -5,6 +5,8 @@ import { MarketplaceService } from './marketplace.service';
 import { CreateMarketplaceAdDto } from './dto/create-marketplace-ad.dto';
 import { UpdateMarketplaceAdDto } from './dto/update-marketplace-ad.dto';
 import { VerifyMarketplacePaymentDto } from './dto/marketplace-payment.dto';
+import { UpdateMarketplacePricingDto } from './dto/update-marketplace-pricing.dto';
+import { AdminGuard } from '../auth/guards/admin.guard';
 
 @ApiTags('marketplace')
 @Controller('marketplace')
@@ -28,6 +30,18 @@ export class MarketplaceController {
   })
   async getPricing() {
     return this.marketplaceService.getPricing();
+  }
+
+  @Put('pricing/:kind/:key')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Update configurable marketplace category or add-on pricing' })
+  async updatePricing(
+    @Param('kind') kind: string,
+    @Param('key') key: string,
+    @Body() dto: UpdateMarketplacePricingDto,
+  ) {
+    return this.marketplaceService.updatePricing(kind, key, dto);
   }
 
   @Get('ads')
@@ -81,6 +95,12 @@ export class MarketplaceController {
       page: Number(page) || 1,
       limit: Number(limit) || 20,
     });
+  }
+
+  @Get('ads/spotlight')
+  @ApiOperation({ summary: 'List active homepage spotlight ads' })
+  async listHomepageSpotlight(@Query('limit') limit = 12) {
+    return this.marketplaceService.listHomepageSpotlight(Number(limit) || 12);
   }
 
   @Get('ads/for-you')
@@ -215,10 +235,12 @@ export class MarketplaceController {
   @ApiResponse({ status: 400, description: 'Invalid transaction hash or payment state' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async verifyPayment(
+    @Req() req: any,
     @Param('paymentId') paymentId: string,
     @Body() dto: VerifyMarketplacePaymentDto,
   ) {
-    return this.marketplaceService.verifyPayment(paymentId, dto.txHash);
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    return this.marketplaceService.verifyPayment(userId, paymentId, dto.txHash);
   }
 
   @Post('ads/:id/extend')

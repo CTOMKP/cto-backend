@@ -11,9 +11,6 @@ export class PrivyAuthService {
     const appId = this.configService.get<string>('PRIVY_APP_ID');
     const appSecret = this.configService.get<string>('PRIVY_APP_SECRET');
 
-    this.logger.log(`🔑 Privy App ID: ${appId}`);
-    this.logger.log(`🔑 Privy App Secret: ${appSecret?.substring(0, 20)}...`);
-
     if (!appId || !appSecret) {
       this.logger.error('PRIVY_APP_ID and PRIVY_APP_SECRET must be set in environment variables');
       throw new Error('Privy credentials not configured');
@@ -35,12 +32,7 @@ export class PrivyAuthService {
       this.logger.debug(`Token verified for user: ${claims.userId}`);
       return claims;
     } catch (error) {
-      this.logger.error('Privy token verification failed', error);
-      this.logger.error('Privy error details:', {
-        message: error.message,
-        status: error.status,
-        response: error.response?.data
-      });
+      this.logger.warn(`Privy token verification failed${error?.status ? ` (status ${error.status})` : ''}`);
       throw new UnauthorizedException('Invalid Privy authentication token');
     }
   }
@@ -55,7 +47,7 @@ export class PrivyAuthService {
       const user = await this.privyClient.getUserById(userId);
       return user;
     } catch (error) {
-      this.logger.error(`Failed to get user ${userId} from Privy`, error);
+      this.logger.warn(`Failed to get user from Privy${error?.status ? ` (status ${error.status})` : ''}`);
       throw new UnauthorizedException('User not found in Privy');
     }
   }
@@ -74,9 +66,6 @@ export class PrivyAuthService {
       const addedWallets = new Set<string>();
 
       if (user.linkedAccounts) {
-        // Log all linked accounts to see what Privy returns
-        this.logger.log(`📋 RAW linkedAccounts for ${userId}: ${JSON.stringify(user.linkedAccounts)}`);
-        
         // Filter for wallet accounts - BE MORE INCLUSIVE
         const linkedWallets = user.linkedAccounts.filter(
           (account: any) => {

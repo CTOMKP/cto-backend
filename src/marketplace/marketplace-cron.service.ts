@@ -15,4 +15,12 @@ export class MarketplaceCronService {
     await this.marketplaceService.expireAds();
     await this.marketplaceService.purgeExpiredAds();
   }
+
+  @Cron('5 * * * *', { name: 'marketplace-auto-bump' })
+  async handleAutoBumps() {
+    const result = await this.marketplaceService.applyAutoBumps();
+    if (result.bumped > 0) {
+      this.logger.log(`Applied ${result.bumped} marketplace auto-bumps`);
+    }
+  }
 }

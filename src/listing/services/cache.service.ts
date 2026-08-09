@@ -61,12 +61,29 @@ export class CacheService {
     }
   }
 
+  async incrementWithExpiry(k: string, ttlSeconds: number): Promise<number | null> {
+    if (!this.client || !this.ready) return null;
+    try {
+      const result = await this.client.eval(
+        `local current = redis.call('INCR', KEYS[1])
+         if current == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+         return current`,
+        { keys: [k], arguments: [String(ttlSeconds)] },
+      );
+      return Number(result);
+    } catch (e: any) {
+      this.logger.debug(`cache increment fail: ${e.message}`);
+      return null;
+    }
+  }
+
   async invalidateMatching(patterns: string[]): Promise<void> {
     if (!this.client || !this.ready) return;
     for (const p of patterns) {
       try {
-        const keys = await this.client.keys(p);
-        if (keys.length) await this.client.del(keys);
+        for await (const key of this.client.scanIterator({ MATCH: p, COUNT: 100 })) {
+          await this.client.del(String(key));
+        }
       } catch (e: any) {
         this.logger.debug(`cache invalidate fail: ${e.message}`);
       }

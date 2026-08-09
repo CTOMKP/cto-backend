@@ -14,6 +14,7 @@ import { Chain, Listing } from '@prisma/client';
 import { ListingRepository } from '../listing/repository/listing.repository';
 import { AnalyticsService } from '../listing/services/analytics.service';
 import { PublicKey } from '@solana/web3.js';
+import { DistributedLockService } from './distributed-lock.service';
 
 @Injectable()
 export class CronService implements OnModuleInit {
@@ -31,6 +32,7 @@ export class CronService implements OnModuleInit {
     private listingRepository: ListingRepository,
     private httpService: HttpService,
     private analyticsService: AnalyticsService,
+    private distributedLock: DistributedLockService,
   ) {}
 
   /**
@@ -85,9 +87,13 @@ export class CronService implements OnModuleInit {
       return;
     }
 
-    this.logger.log('Starting token monitoring cron job');
-
+    const lockOwner = await this.distributedLock.acquire('pillar2-token-monitoring', 55 * 60 * 1000);
+    if (!lockOwner) {
+      this.logger.debug('Token monitoring is already running on another instance');
+      return;
+    }
     try {
+      this.logger.log('Starting token monitoring cron job');
       const batchSize = parseInt(this.configService.get('TOKEN_MONITORING_BATCH_SIZE', '100'));
       
       // Get listings that need monitoring
@@ -115,6 +121,8 @@ export class CronService implements OnModuleInit {
       this.logger.log('Token monitoring cron job completed successfully');
     } catch (error) {
       this.logger.error('Token monitoring cron job failed:', error);
+    } finally {
+      await this.distributedLock.release('pillar2-token-monitoring', lockOwner);
     }
   }
 
@@ -530,7 +538,8 @@ export class CronService implements OnModuleInit {
    */
   private async fetchHeliusData(contractAddress: string) {
     try {
-      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
+      const heliusApiKey = this.configService.get<string>('HELIUS_API_KEY');
+      if (!heliusApiKey) return null;
       const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
 
       // Fetch token metadata and creation date
@@ -597,7 +606,8 @@ export class CronService implements OnModuleInit {
    */
   private async fetchAlchemyData(contractAddress: string) {
     try {
-      const alchemyApiKey = this.configService.get('ALCHEMY_API_KEY', 'bSSmYhMZK2oYWgB2aMzA_');
+      const alchemyApiKey = this.configService.get<string>('ALCHEMY_API_KEY');
+      if (!alchemyApiKey) return null;
       // Alchemy Solana API endpoint
       const alchemyUrl = `https://solana-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
 
@@ -637,7 +647,8 @@ export class CronService implements OnModuleInit {
    */
   private async fetchHeliusBearTreeData(contractAddress: string) {
     try {
-      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
+      const bearTreeApiKey = this.configService.get<string>('HELIUS_BEARTREE_API_KEY');
+      if (!bearTreeApiKey) return null;
       // Note: BearTree API endpoint may need to be configured
       const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
 

@@ -97,44 +97,11 @@ export class ScanService {
       
       // Calculate risk score using Pillar1RiskScoringService
       const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
-      
-      // Check if score meets minimum threshold (50)
-      if (!vettingResults.dataSufficient || vettingResults.overallScore === null || vettingResults.overallScore < 50) {
-        const reason = !vettingResults.dataSufficient 
-          ? `Insufficient data to calculate risk score. Missing: ${vettingResults.missingData.join(', ')}`
-          : `Risk score ${vettingResults.overallScore} is below minimum threshold of 50`;
-        
-        const normalizedTier = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
-        throw new HttpException(
-          {
-            message: reason,
-            eligible: false,
-            tier: normalizedTier,
-            risk_score: vettingResults.overallScore || 0,
-            risk_level: vettingResults.riskLevel.toUpperCase(),
-            summary: reason,
-            metadata: {
-              token_symbol: vettingData.tokenInfo.symbol,
-              token_name: vettingData.tokenInfo.name,
-              project_age_days: hasReliableAge ? Number(tokenData.project_age_days) : null,
-              age_display: hasReliableAge ? formatTokenAge(Number(tokenData.project_age_days)) : 'Age unavailable',
-              age_display_short: hasReliableAge ? formatTokenAgeShort(Number(tokenData.project_age_days)) : 'Age unavailable',
-              creation_date: creationDate ?? null,
-              lp_amount_usd: vettingData.trading.liquidity,
-              token_price: vettingData.trading.price,
-              volume_24h: vettingData.trading.volume24h,
-              market_cap: vettingData.trading.fdv,
-              holder_count: vettingData.holders.count,
-              scan_timestamp: new Date().toISOString(),
-              vetting_results: {
-                ...vettingResults,
-                eligibleTier: normalizedTier,
-              },
-            },
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
+      const hasEligibleTier = vettingResults.eligibleTier !== 'none';
+      const eligible = vettingResults.dataSufficient && vettingResults.overallScore !== null && hasEligibleTier;
+      const inconclusiveReason = !vettingResults.dataSufficient
+        ? `Insufficient data to calculate risk score. Missing: ${vettingResults.missingData.join(', ')}`
+        : `Token does not meet a verified listing tier. Missing or unmet requirements: ${vettingResults.missingData.join(', ') || 'tier policy'}`;
 
       // Map risk level to uppercase string
       const riskLevelMap: Record<string, string> = {
@@ -148,13 +115,15 @@ export class ScanService {
       // Generate AI summary
       const tierResolution = this.resolveDisplayTier(vettingResults);
       const normalizedTier = tierResolution.tier;
-      const summary = generateAISummary(tokenData, { name: normalizedTier }, vettingResults.overallScore);
+      const summary = eligible
+        ? generateAISummary(tokenData, { name: normalizedTier }, vettingResults.overallScore)
+        : inconclusiveReason;
 
       const result = {
         tier: normalizedTier,
         risk_score: vettingResults.overallScore,
         risk_level: riskLevel,
-        eligible: true,
+        eligible,
         summary,
         metadata: {
           token_symbol: vettingData.tokenInfo.symbol,
@@ -193,9 +162,25 @@ export class ScanService {
           await this.prisma.scanResult.create({
             data: {
               contractAddress,
+              chain: 'SOLANA',
               resultData: result as any,
+              riskScore: vettingResults.overallScore,
+              tier: normalizedTier,
+              summary,
+              status: eligible ? 'COMPLETED' : 'INCONCLUSIVE',
+              scoringVersion: vettingResults.scoringVersion,
+              scoreDirection: vettingResults.scoreDirection,
+              dataSufficient: vettingResults.dataSufficient,
+              missingData: vettingResults.missingData as any,
+              failureReason: eligible ? null : inconclusiveReason.slice(0, 500),
+              providerSnapshot: {
+                token: tokenData.data_sources ?? null,
+                market: tokenData.data_source ?? null,
+                scannedAt: new Date().toISOString(),
+              } as any,
+              completedAt: new Date(),
               userId,
-            },
+            } as any,
           });
         } catch (dbError: unknown) {
           const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
@@ -206,6 +191,35 @@ export class ScanService {
       return result;
     } catch (error: unknown) {
       this.logger.error(`❌ Scan error for ${contractAddress}:`, error instanceof Error ? error.stack : String(error));
+      if (userId) {
+        try {
+          const response = error instanceof HttpException ? error.getResponse() : null;
+          const responseBody = typeof response === 'object' && response !== null ? response as any : null;
+          const failureReason = responseBody?.message || (error instanceof Error ? error.message : 'Scan failed');
+          await (this.prisma as any).scanResult.create({
+            data: {
+              contractAddress,
+              chain: 'SOLANA',
+              resultData: responseBody || { message: 'Scan failed' },
+              riskScore: responseBody?.risk_score ?? null,
+              tier: responseBody?.tier ?? null,
+              summary: responseBody?.summary ?? null,
+              status: error instanceof HttpException && error.getStatus() === HttpStatus.BAD_REQUEST
+                ? 'INCONCLUSIVE'
+                : 'FAILED',
+              scoringVersion: Pillar1RiskScoringService.SCORING_VERSION,
+              scoreDirection: 'HIGHER_IS_SAFER',
+              dataSufficient: responseBody?.metadata?.vetting_results?.dataSufficient ?? false,
+              missingData: responseBody?.metadata?.vetting_results?.missingData ?? [],
+              failureReason: String(failureReason).slice(0, 500),
+              completedAt: new Date(),
+              userId,
+            },
+          });
+        } catch (auditError) {
+          this.logger.warn(`Failed to persist scan audit for ${contractAddress}: ${auditError instanceof Error ? auditError.message : String(auditError)}`);
+        }
+      }
       const msg = error instanceof Error ? error.message : (typeof error === 'string' ? error : '');
       if (msg.includes('Token not found') || msg.includes('account not found')) {
         throw new HttpException('Token not found. Please verify the contract address is correct.', HttpStatus.NOT_FOUND);
@@ -263,10 +277,9 @@ export class ScanService {
       insufficient_data: 'HIGH',
     };
     const riskLevel = riskLevelMap[vettingResults.riskLevel] || 'HIGH';
-    const tier =
-      vettingResults.eligibleTier === 'none'
-        ? (vettingResults.overallScore >= aptosMinQualifyingScore ? 'seed' : null)
-        : vettingResults.eligibleTier;
+    const tier = vettingResults.eligibleTier === 'none'
+      ? null
+      : vettingResults.eligibleTier;
     const reasonCode = vettingResults.reasonCode ?? null;
     const summary = this.generateAptosSummary(tokenData, vettingResults, tier);
 
@@ -275,7 +288,10 @@ export class ScanService {
       risk_score: vettingResults.overallScore,
       risk_level: riskLevel,
       reason_code: reasonCode,
-      eligible: (vettingResults.overallScore || 0) >= aptosMinQualifyingScore,
+      eligible:
+        vettingResults.dataSufficient &&
+        tier !== null &&
+        (vettingResults.overallScore || 0) >= aptosMinQualifyingScore,
       summary,
       metadata: {
         chain: 'APTOS',
@@ -314,32 +330,25 @@ export class ScanService {
         await this.prisma.scanResult.create({
           data: {
             contractAddress,
+            chain: 'APTOS',
             resultData: result as any,
+            riskScore: vettingResults.overallScore,
+            tier,
+            summary,
+            status: result.eligible ? 'COMPLETED' : 'INCONCLUSIVE',
+            scoringVersion: vettingResults.scoringVersion,
+            scoreDirection: vettingResults.scoreDirection,
+            dataSufficient: vettingResults.dataSufficient,
+            missingData: vettingResults.missingData as any,
+            providerSnapshot: tokenData.source ?? null,
+            failureReason: result.eligible ? null : reasonCode || 'NO_ELIGIBLE_TIER',
+            completedAt: new Date(),
             userId,
-          },
+          } as any,
         });
       } catch (dbError: any) {
         this.logger.warn(`Failed to persist Aptos scan result for ${contractAddress}: ${dbError.message}`);
       }
-    }
-
-    if (!result.risk_score || result.risk_score < aptosMinQualifyingScore) {
-      throw new HttpException(
-        {
-          message:
-            result.risk_score && result.risk_score < aptosMinQualifyingScore
-              ? `Risk score ${result.risk_score} is below minimum threshold of ${aptosMinQualifyingScore}`
-              : 'Token does not meet minimum Aptos listing criteria',
-          eligible: false,
-          tier,
-          risk_score: result.risk_score ?? 0,
-          risk_level: result.risk_level,
-          reason_code: reasonCode,
-          summary: result.summary,
-          metadata: result.metadata,
-        },
-        HttpStatus.BAD_REQUEST,
-      );
     }
 
     return result;
@@ -405,14 +414,15 @@ export class ScanService {
           const vettingData = this.transformToVettingData(contractAddress, tokenData, 'SOLANA');
           const vettingResults = this.pillar1RiskScoringService.calculateRiskScore(vettingData);
           
-          if (!vettingResults.dataSufficient || !vettingResults.overallScore || vettingResults.overallScore < 50) {
+          const hasEligibleTier = vettingResults.eligibleTier !== 'none';
+          if (!vettingResults.dataSufficient || vettingResults.overallScore === null || !hasEligibleTier) {
             return {
               contractAddress,
               chain: 'SOLANA',
               success: false,
               error: !vettingResults.dataSufficient 
                 ? `Insufficient data. Missing: ${vettingResults.missingData.join(', ')}`
-                : `Risk score ${vettingResults.overallScore} below minimum threshold of 50`,
+                : `Token does not meet a verified listing tier. Missing or unmet requirements: ${vettingResults.missingData.join(', ') || 'tier policy'}`,
               eligible: false,
               metadata: {
                 token_symbol: tokenData.symbol,
@@ -557,7 +567,8 @@ export class ScanService {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
+      const heliusApiKey = this.configService.get<string>('HELIUS_API_KEY');
+      if (!heliusApiKey) return null;
       const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
 
       const [assetResponse, holdersResponse] = await Promise.allSettled([
@@ -637,7 +648,8 @@ export class ScanService {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const alchemyApiKey = this.configService.get('ALCHEMY_API_KEY', 'bSSmYhMZK2oYWgB2aMzA_');
+      const alchemyApiKey = this.configService.get<string>('ALCHEMY_API_KEY');
+      if (!alchemyApiKey) return null;
       const alchemyUrl = `https://solana-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
 
       const response = await firstValueFrom(
@@ -678,7 +690,8 @@ export class ScanService {
     if (!this.httpService || !this.configService) return null;
     
     try {
-      const bearTreeApiKey = this.configService.get('HELIUS_BEARTREE_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
+      const bearTreeApiKey = this.configService.get<string>('HELIUS_BEARTREE_API_KEY');
+      if (!bearTreeApiKey) return null;
       const bearTreeUrl = `https://api.helius.xyz/v0/token-metadata?api-key=${bearTreeApiKey}`;
 
       const response = await firstValueFrom(
@@ -720,41 +733,27 @@ export class ScanService {
     chain: string,
   ): TokenVettingData {
     // Transform top holders: SolanaApiService uses { address, amount, share } where share is percentage
-    const topHolders = (tokenData.top_holders || []).slice(0, 10).map((h: any) => ({
-      address: h.address || h.owner || '',
-      balance: Number(h.amount || 0),
-      percentage: Number(h.share || h.percentage || 0),
-    }));
+    const topHolders = (tokenData.top_holders || []).slice(0, 10).map((h: any) => {
+      const rawPercentage = Number(h.share ?? h.percentage ?? 0);
+      return {
+        address: h.address || h.owner || '',
+        balance: Number(h.amount || 0),
+        percentage: rawPercentage > 0 && rawPercentage <= 1
+          ? rawPercentage * 100
+          : rawPercentage,
+      };
+    });
 
-    // Calculate LP lock percentage from available data
-    // If LP is burned, it's 100% locked permanently
-    // If LP is locked, estimate percentage based on lock duration
-    // Note: SolanaApiService doesn't provide exact percentage, so we estimate conservatively
-    let lpLockPercentage = 0;
-    if (tokenData.lp_burned) {
-      lpLockPercentage = 100; // Burned = 100% locked permanently
-    } else if (tokenData.lp_locked) {
-      // If locked, estimate percentage conservatively
-      // Longer lock duration typically means higher percentage of LP locked
-      if (tokenData.lp_lock_months >= 12) {
-        lpLockPercentage = 99; // Very long lock = likely most/all LP
-      } else if (tokenData.lp_lock_months >= 6) {
-        lpLockPercentage = 95; // Long lock = most LP
-      } else if (tokenData.lp_lock_months >= 3) {
-        lpLockPercentage = 90; // Medium lock = high percentage
-      } else if (tokenData.lp_lock_months > 0) {
-        lpLockPercentage = 85; // Short lock = high percentage (conservative estimate)
-      } else {
-        // Locked but no duration info - use conservative estimate
-        lpLockPercentage = 90;
-      }
-    }
+    const lpLockObserved = tokenData.lp_lock_data_status === 'observed';
+    const lpLockPercentage = lpLockObserved
+      ? Number(tokenData.lp_lock_percentage ?? (tokenData.lp_burned ? 100 : 0))
+      : 0;
 
     // Build LP locks array (for Pillar1RiskScoringService)
     const lpLocks: Array<{ tag?: string; [key: string]: any }> = [];
-    if (tokenData.lp_burned) {
+    if (lpLockObserved && tokenData.lp_burned) {
       lpLocks.push({ tag: 'Burned' });
-    } else if (tokenData.lp_locked) {
+    } else if (lpLockObserved && tokenData.lp_locked) {
       lpLocks.push({ tag: 'Locked', months: tokenData.lp_lock_months });
     }
 
@@ -762,8 +761,9 @@ export class ScanService {
     const top10HolderRate = topHolders.slice(0, 10).reduce((sum, h) => sum + h.percentage, 0) / 100;
 
     // Determine mint/freeze authority status
-    const isMintable = !!tokenData.mint_authority;
-    const isFreezable = !!tokenData.freeze_authority;
+    const authorityObserved = tokenData.authority_data_status === 'observed';
+    const isMintable = authorityObserved ? !!tokenData.mint_authority : null;
+    const isFreezable = authorityObserved ? !!tokenData.freeze_authority : null;
 
     // Create image URL (fallback to identicon if not available)
     const imageUrl = (tokenData as any).icon || (tokenData as any).image || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(contractAddress)}`;
@@ -775,7 +775,7 @@ export class ScanService {
         name: tokenData.name || 'Unknown Token',
         symbol: tokenData.symbol || 'UNKNOWN',
         image: imageUrl,
-        decimals: tokenData.decimals || 6,
+        decimals: tokenData.decimals ?? 6,
         description: null,
         websites: [],
         socials: [],
@@ -785,17 +785,19 @@ export class ScanService {
         isFreezable,
         lpLockPercentage,
         totalSupply: Number(tokenData.total_supply || 0),
-        circulatingSupply: Number(tokenData.total_supply || 0), // Assume all circulating if not provided
+        circulatingSupply: Number(tokenData.circulating_supply || 0),
         lpLocks,
       },
       holders: {
-        count: tokenData.holder_count || tokenData.total_holders || 0,
+        count: tokenData.holder_data_status === 'observed'
+          ? Number(tokenData.holder_count ?? tokenData.total_holders ?? 0)
+          : null,
         topHolders,
       },
       developer: {
         // GMGN data not available from SolanaApiService, use defaults/estimates
         creatorAddress: null, // Not available without GMGN
-        creatorBalance: 0, // Not available without GMGN
+        creatorBalance: null,
         creatorStatus: 'unknown', // Not available without GMGN
         top10HolderRate,
         twitterCreateTokenCount: 0, // Not available without GMGN
@@ -812,7 +814,18 @@ export class ScanService {
       },
       tokenAge: Number.isFinite(Number(tokenData.project_age_days))
         ? Math.max(0, Math.floor(Number(tokenData.project_age_days)))
-        : -1,
+        : null,
+      evidence: {
+        authorities: authorityObserved ? 'observed' : 'unknown',
+        holderDistribution: tokenData.holder_data_status === 'observed' && topHolders.length > 0
+          ? 'observed'
+          : 'unknown',
+        holderCount: tokenData.holder_data_status === 'observed' ? 'observed' : 'unknown',
+        liquidity: tokenData.liquidity_data_status === 'observed' ? 'observed' : 'unknown',
+        lpLock: lpLockObserved ? 'observed' : 'unknown',
+        creator: 'unknown',
+        tokenAge: tokenData.age_data_status === 'observed' ? 'observed' : 'unknown',
+      },
     };
   }
 
@@ -919,15 +932,6 @@ export class ScanService {
 
   private resolveDisplayTier(vettingResults: { eligibleTier: string; overallScore: number | null }): { tier: string; note: string | null } {
     const normalizedTier = vettingResults.eligibleTier === 'none' ? 'unclassified' : vettingResults.eligibleTier;
-    const score = Number(vettingResults.overallScore ?? 0);
-
-    if (normalizedTier === 'unclassified' && score >= 70) {
-      return {
-        tier: 'seed',
-        note: 'Provisional Seed tier due to incomplete verification data (LP lock / creator / holder distribution).',
-      };
-    }
-
     return { tier: normalizedTier, note: null };
   }
 }

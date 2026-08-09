@@ -16,6 +16,8 @@ import { RefreshRequestDto } from './dto/refresh-request.dto';
 import { AddTokenRequestDto } from './dto/add-token.dto';
 import { DeleteTokenRequestDto } from './dto/delete-token.dto';
 import { RateLimiterGuard } from './services/rate-limiter.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
 
 @ApiTags('Listing')
 @Controller('listing')
@@ -58,7 +60,7 @@ export class ListingController {
   }
 
   @Post('scan')
-  @UseGuards(RateLimiterGuard)
+  @UseGuards(JwtAuthGuard, RateLimiterGuard)
   @HttpCode(200)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Scan a token and upsert listing' })
@@ -68,6 +70,7 @@ export class ListingController {
   }
 
   @Post('refresh')
+  @UseGuards(JwtAuthGuard, RateLimiterGuard)
   @HttpCode(202)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Trigger background refresh for a contract' })
@@ -118,6 +121,8 @@ export class ListingController {
   }
 
   @Post('refresh-holders')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Refresh holder data for all tokens' })
   @ApiResponse({ status: 200, description: 'Holder data refresh initiated' })
   async refreshHolders() {
@@ -125,7 +130,7 @@ export class ListingController {
   }
 
   @Post('add')
-  @UseGuards(RateLimiterGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard, RateLimiterGuard)
   @HttpCode(200)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Add a token to the database (manual addition)' })
@@ -137,7 +142,7 @@ export class ListingController {
   }
 
   @Post('delete')
-  @UseGuards(RateLimiterGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard, RateLimiterGuard)
   @HttpCode(200)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Delete a token from the database' })

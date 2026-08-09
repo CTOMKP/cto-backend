@@ -1,10 +1,11 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import { createSafeFetcher } from '../../utils/safe-fetcher';
 
 @Injectable()
 export class SolanaApiService {
+  private readonly logger = new Logger(SolanaApiService.name);
   // API Configuration - Using Solana Mainnet for production-ready token analysis
   private readonly HELIUS_RPC_URL: string;
   private readonly SOLANA_SCAN_RPC_URL: string;
@@ -19,11 +20,13 @@ export class SolanaApiService {
   private solscan: AxiosInstance;
 
   constructor(private readonly configService: ConfigService) {
-    const heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
-    const moralisApiKey = this.configService.get('MORALIS_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI');
-    const solscanApiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B7WsY3kCcOGvIIS3jZUBrat0');
+    const heliusApiKey = this.configService.get<string>('HELIUS_API_KEY')?.trim();
+    const moralisApiKey = this.configService.get<string>('MORALIS_API_KEY')?.trim();
+    const solscanApiKey = this.configService.get<string>('SOLSCAN_API_KEY')?.trim();
 
-    this.HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+    this.HELIUS_RPC_URL = heliusApiKey
+      ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(heliusApiKey)}`
+      : 'https://api.mainnet-beta.solana.com';
     // Scanner must always read Solana mainnet token history, independent of faucet/runtime RPC.
     this.SOLANA_SCAN_RPC_URL = this.configService.get(
       'SOLANA_SCAN_RPC_URL',
@@ -32,7 +35,7 @@ export class SolanaApiService {
     
     // Helius free/low tiers work best with key in URL, not header
     this.helius = axios.create({
-      baseURL: `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`,
+      baseURL: this.HELIUS_RPC_URL,
       timeout: 15000,
     });
 
@@ -61,22 +64,19 @@ export class SolanaApiService {
         this.fetchMoralisMarket(contractAddress),
       ]);
 
-      // Calculate project age using the oldest trustworthy timestamp we have.
-      // RPC mint-history can miss older events; Dex pair creation is a safer lower bound than "now".
+      // Mint age must come from mint history. Pool creation is stored separately and
+      // must never be presented as the token's creation time.
       const rpcCreationDate = tokenInfo.creation_date || null;
       const dexPairCreationDate = liquidityData.pair_created_at || null;
-      const creationDate =
-        rpcCreationDate && dexPairCreationDate
-          ? new Date(Math.min(rpcCreationDate.getTime(), dexPairCreationDate.getTime()))
-          : (rpcCreationDate || dexPairCreationDate || null);
+      const creationDate = rpcCreationDate;
       const projectAgeDays = creationDate
         ? (Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24)
         : null;
 
       // Prefer Moralis market/price data when available
       const tokenPrice = moralisData?.price_usd ?? liquidityData.price;
-      const marketCap = moralisData?.market_cap_usd ?? liquidityData.market_cap ?? 0;
-      const volume24h = moralisData?.volume_24h_usd ?? liquidityData.volume_24h ?? 0;
+      const marketCap = moralisData?.market_cap_usd ?? liquidityData.market_cap ?? null;
+      const volume24h = moralisData?.volume_24h_usd ?? liquidityData.volume_24h ?? null;
 
       return {
         symbol: tokenInfo.symbol || 'UNKNOWN',
@@ -84,17 +84,22 @@ export class SolanaApiService {
         mint_authority: tokenInfo.mint_authority,
         freeze_authority: tokenInfo.freeze_authority,
         creation_date: creationDate,
+        first_pool_created_at: dexPairCreationDate,
         project_age_days: Number.isFinite(projectAgeDays as number)
           ? Math.max(0, projectAgeDays as number)
           : null,
         total_supply: tokenInfo.total_supply,
         decimals: tokenInfo.decimals,
+        authority_data_status: tokenInfo.authority_data_status,
+        age_data_status: creationDate ? 'observed' : 'unknown',
+        data_sources: tokenInfo.data_sources || null,
         
         // Liquidity / market data
-        lp_amount_usd: liquidityData.lp_amount_usd || 0,
-        lp_lock_months: liquidityData.lp_lock_months || 0,
-        lp_burned: liquidityData.lp_burned || false,
-        lp_locked: liquidityData.lp_locked || false,
+        lp_amount_usd: liquidityData.lp_amount_usd ?? null,
+        lp_lock_months: liquidityData.lp_lock_months ?? null,
+        lp_burned: liquidityData.lp_burned ?? null,
+        lp_locked: liquidityData.lp_locked ?? null,
+        lp_lock_data_status: liquidityData.lp_lock_data_status || 'unknown',
         lock_contract: liquidityData.lock_contract,
         lock_analysis: liquidityData.lock_analysis,
         largest_lp_holder: liquidityData.largest_holder,
@@ -108,18 +113,20 @@ export class SolanaApiService {
         pair_selected_by: liquidityData.pair_selected_by,
         txns_24h: liquidityData.txns_24h,
         data_confidence: liquidityData.data_confidence,
+        liquidity_data_status: liquidityData.liquidity_data_status || 'unknown',
         dex_pair_url: liquidityData.dex_pair_url,
         
         // Holder data
         top_holders: holderData.top_holders || [],
-        total_holders: holderData.total_holders || 0,
-        holder_count: holderData.total_holders || 0,
-        active_wallets: this.calculateActiveWalletsFromVolume(volume24h, marketCap) || holderData.active_wallets || 0,
+        total_holders: holderData.holder_data_status === 'observed' ? holderData.total_holders : null,
+        holder_count: holderData.holder_data_status === 'observed' ? holderData.total_holders : null,
+        holder_data_status: holderData.holder_data_status || 'unknown',
+        active_wallets: this.calculateActiveWalletsFromVolume(Number(volume24h ?? 0), Number(marketCap ?? 0)) || holderData.active_wallets || null,
         suspicious_activity: holderData.suspicious_activity || {},
         distribution_metrics: holderData.distribution_metrics || {},
         whale_analysis: holderData.whale_analysis || {},
         wallet_activity: holderData.wallet_activity || [],
-        activity_summary: this.generateActivitySummaryFromVolume(volume24h, marketCap) || holderData.activity_summary || {},
+        activity_summary: this.generateActivitySummaryFromVolume(Number(volume24h ?? 0), Number(marketCap ?? 0), liquidityData.txns_24h) || holderData.activity_summary || {},
         
         // Smart contract analysis (real data)
         smart_contract_risks: await this.analyzeSmartContractRisks(contractAddress, tokenInfo),
@@ -197,21 +204,24 @@ export class SolanaApiService {
         owner: accountInfo.owner,
         executable: accountInfo.executable,
         lamports: accountInfo.lamports,
-        verified: true,
+        verified: false,
+        authority_data_status: 'observed',
       };
 
     } catch (error: any) {
       console.error('Helius API error:', error.message);
       
-      // Return minimal data structure so other APIs can still work
+      // Preserve unknown security state. A provider failure must not look like
+      // renounced mint/freeze authorities.
       return {
         source: 'helius_error',
-        mint_authority: null,
-        freeze_authority: null,
-        supply: '0',
-        decimals: 6,
-        is_initialized: true,
+        mint_authority: undefined,
+        freeze_authority: undefined,
+        supply: undefined,
+        decimals: undefined,
+        is_initialized: undefined,
         verified: false,
+        authority_data_status: 'unknown',
         error: error.message
       };
     }
@@ -265,7 +275,8 @@ export class SolanaApiService {
         website: null,
         twitter: null,
         tag: tokenMeta.tags?.[0] || null,
-        verified: true, // Jupiter tokens are verified
+        verified: false,
+        metadata_listed: true,
         holder: holderCount,
         supply: null,
         decimals: tokenMeta.decimals || 6,
@@ -311,7 +322,8 @@ export class SolanaApiService {
             website: null,
             twitter: null,
             tag: null,
-            verified: true,
+            verified: false,
+            metadata_listed: true,
             holder: holderCount,
             supply: null,
             decimals: 6,
@@ -446,9 +458,12 @@ export class SolanaApiService {
       name: solscanData.name || 'Unknown Token',
       mint_authority: heliusData.mint_authority,
       freeze_authority: heliusData.freeze_authority,
+      authority_data_status: heliusData.authority_data_status || 'unknown',
       creation_date: creationDate,
-      total_supply: parseInt(heliusData.supply || solscanData.supply || '0'),
-      decimals: heliusData.decimals || solscanData.decimals || 6,
+      total_supply: heliusData.supply != null || solscanData.supply != null
+        ? Number(heliusData.supply ?? solscanData.supply)
+        : null,
+      decimals: heliusData.decimals ?? solscanData.decimals ?? null,
       verified: solscanData.verified || false,
       holder_count: solscanData.holder || 0,
       
@@ -476,24 +491,32 @@ export class SolanaApiService {
     try {
       console.log('Fetching holder distribution from Solscan API...');
       
-      const res = await this.solscan.get(`token/holders?address=${contractAddress}&page=1&page_size=20`)
-        .catch((e: any) => {
-          console.warn(`Solscan holder fetch failed: ${e.message}`);
-          return { data: { data: [], total: 0 } };
-        });
+      const res = await this.solscan.get(`token/holders?address=${contractAddress}&page=1&page_size=20`);
       
       // Handle Solscan V2 response structure
-      const list = res.data?.data || [];
-      const total = res.data?.data?.total || res.data?.total || list.length;
+      const payload = res.data?.data;
+      const list = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.items)
+          ? payload.items
+          : Array.isArray(res.data?.items)
+            ? res.data.items
+            : [];
+      const total = Number(payload?.total ?? res.data?.total ?? list.length);
       
-      const topHolders = list.map((h: any) => ({ 
-        address: h.address || h.owner, 
-        amount: h.amount, 
-        share: h.percentage ? (h.percentage / 100) : (h.share || 0)
-      }));
+      const topHolders = list.map((h: any) => {
+        const rawShare = Number(h.percentage ?? h.share ?? 0);
+        const percentage = rawShare > 0 && rawShare <= 1 ? rawShare * 100 : rawShare;
+        return {
+          address: h.address || h.owner,
+          amount: h.amount,
+          share: Math.min(100, Math.max(0, percentage)),
+        };
+      });
 
       return {
         total_holders: total,
+        holder_data_status: 'observed',
         active_wallets: 0, // will be estimated elsewhere
         top_holders: topHolders,
         suspicious_activity: {},
@@ -509,6 +532,7 @@ export class SolanaApiService {
       
       return {
         total_holders: 0,
+        holder_data_status: 'unknown',
         active_wallets: 0,
         top_holders: [],
         suspicious_activity: {},
@@ -539,11 +563,13 @@ export class SolanaApiService {
           
           console.log('✅ DexScreener real data found!');
           
-          // For LP burn/lock status, prefer explicit flags from DEX endpoints; otherwise leave false/default
-          const lpBurned = Boolean(bestPair.liquidity?.isBurned) || false;
-          const lpLocked = Boolean(bestPair.liquidity?.isLocked) || false;
-          const lockContract = bestPair.liquidity?.lockContract ?? null;
-          const lockAnalysis = 'dexscreener-real-data';
+          // DexScreener is authoritative for market liquidity, not LP lock/burn
+          // evidence. Keep those fields unknown until a lock provider or on-chain
+          // locker analysis resolves them.
+          const lpBurned = null;
+          const lpLocked = null;
+          const lockContract = null;
+          const lockAnalysis = 'not_verified';
           
           const tx24hBuys = Number(bestPair?.txns?.h24?.buys || 0);
           const tx24hSells = Number(bestPair?.txns?.h24?.sells || 0);
@@ -562,6 +588,7 @@ export class SolanaApiService {
             lp_lock_months: 0, // DexScreener doesn't provide lock duration
             lp_burned: lpBurned,
             lp_locked: lpLocked,
+            lp_lock_data_status: 'unknown',
             lock_contract: lockContract,
             lock_analysis: lockAnalysis,
             largest_holder: null,
@@ -581,6 +608,7 @@ export class SolanaApiService {
             pair_selected_by: 'quality_score',
             txns_24h: { buys: tx24hBuys, sells: tx24hSells, total: tx24hTotal },
             data_confidence: dataConfidence,
+            liquidity_data_status: liquidityUsd > 0 ? 'observed' : 'unknown',
             dex_pair_url: bestPair?.url || null,
             pair_created_at: bestPair?.pairCreatedAt ? new Date(Number(bestPair.pairCreatedAt)) : null,
           };
@@ -592,23 +620,25 @@ export class SolanaApiService {
       // Fallback to basic data if DexScreener fails
       console.log('Using basic liquidity data due to DexScreener failure');
       return {
-        lp_amount_usd: 0,
-        lp_lock_months: 0,
-        lp_burned: false,
-        lp_locked: false,
-        lock_contract: 'basic_fallback',
-        lock_analysis: 'estimated_from_basic_data',
-        largest_holder: 'unknown',
-        pair_address: 'unknown',
-        price: 0,
-        volume_24h: 0,
-        market_cap: 0,
-        pool_count: 0,
+        lp_amount_usd: null,
+        lp_lock_months: null,
+        lp_burned: null,
+        lp_locked: null,
+        lp_lock_data_status: 'unknown',
+        lock_contract: null,
+        lock_analysis: 'not_verified',
+        largest_holder: null,
+        pair_address: null,
+        price: null,
+        volume_24h: null,
+        market_cap: null,
+        pool_count: null,
         data_source: 'fallback',
         market_cap_source: 'unavailable',
         pair_selected_by: 'none',
-        txns_24h: { buys: 0, sells: 0, total: 0 },
+        txns_24h: null,
         data_confidence: 'low',
+        liquidity_data_status: 'unknown',
         dex_pair_url: null,
         pair_created_at: null,
       };
@@ -616,23 +646,25 @@ export class SolanaApiService {
     } catch (error) {
       console.error('Error fetching liquidity data:', error);
       return {
-        lp_amount_usd: 0,
-        lp_lock_months: 0,
-        lp_burned: false,
-        lp_locked: false,
+        lp_amount_usd: null,
+        lp_lock_months: null,
+        lp_burned: null,
+        lp_locked: null,
+        lp_lock_data_status: 'unknown',
         lock_contract: null,
         lock_analysis: 'error_fallback',
         largest_holder: null,
         pair_address: null,
-        price: 0,
-        volume_24h: 0,
-        market_cap: 0,
-        pool_count: 0,
+        price: null,
+        volume_24h: null,
+        market_cap: null,
+        pool_count: null,
         data_source: 'error',
         market_cap_source: 'unavailable',
         pair_selected_by: 'none',
-        txns_24h: { buys: 0, sells: 0, total: 0 },
+        txns_24h: null,
         data_confidence: 'low',
+        liquidity_data_status: 'unknown',
         dex_pair_url: null,
         pair_created_at: null,
       };
@@ -673,25 +705,30 @@ export class SolanaApiService {
   private async analyzeSmartContractRisks(contractAddress: string, tokenInfo: any) {
     try {
       console.log('Analyzing smart contract risks...');
-      
-      // Professional default: deterministic, optimistic for verified tokens
-      const isVerified = !!tokenInfo?.verified;
-      const hasMint = !!tokenInfo?.mint_authority;
-      const hasFreeze = !!tokenInfo?.freeze_authority;
+
+      const authorityObserved = tokenInfo?.authority_data_status === 'observed';
+      const hasMint = authorityObserved ? !!tokenInfo?.mint_authority : null;
+      const hasFreeze = authorityObserved ? !!tokenInfo?.freeze_authority : null;
       return {
-        critical_vulnerabilities: 0,
-        high_vulnerabilities: (hasMint || hasFreeze) ? 1 : 0,
-        medium_vulnerabilities: isVerified ? 0 : 1,
+        critical_vulnerabilities: null,
+        high_vulnerabilities: hasMint || hasFreeze ? 1 : 0,
+        medium_vulnerabilities: null,
         mint_authority_active: hasMint,
         freeze_authority_active: hasFreeze,
-        mint_authority_risk: hasMint ? 'high' : 'none',
-        freeze_authority_risk: hasFreeze ? 'high' : 'none',
-        overall_risk_level: (hasMint || hasFreeze) ? 'medium' : 'low',
-        security_score: isVerified ? 95 : 85,
-        authority_risk_level: tokenInfo.mint_authority && tokenInfo.freeze_authority ? 'critical' : 
-                             tokenInfo.mint_authority ? 'high' : 'low',
-        full_audit: true,
-        bug_bounty: true,
+        mint_authority_risk: !authorityObserved ? 'unknown' : hasMint ? 'high' : 'none',
+        freeze_authority_risk: !authorityObserved ? 'unknown' : hasFreeze ? 'high' : 'none',
+        overall_risk_level: !authorityObserved ? 'unknown' : (hasMint || hasFreeze) ? 'medium' : 'low',
+        security_score: null,
+        authority_risk_level: !authorityObserved
+          ? 'unknown'
+          : hasMint && hasFreeze
+            ? 'critical'
+            : hasMint || hasFreeze
+              ? 'high'
+              : 'low',
+        authority_data_status: authorityObserved ? 'observed' : 'unknown',
+        full_audit: false,
+        bug_bounty: false,
         security_issues: [],
         security_warnings: [],
         security_info: [],
@@ -699,7 +736,9 @@ export class SolanaApiService {
         rugcheck_score: 0,
         rugcheck_risk_level: 'unknown',
         analysis_timestamp: new Date().toISOString(),
-        risk_summary: 'Basic security analysis completed'
+        risk_summary: authorityObserved
+          ? 'Mint and freeze authority analysis completed; no independent audit was verified.'
+          : 'Mint and freeze authority data is unavailable; no independent audit was verified.'
       };
     } catch (error) {
       console.error('Error analyzing smart contract risks:', error);
@@ -788,7 +827,11 @@ export class SolanaApiService {
   /**
    * Generate activity summary based on real volume and market data
    */
-  private generateActivitySummaryFromVolume(volume24h: number, marketCap: number) {
+  private generateActivitySummaryFromVolume(
+    volume24h: number,
+    marketCap: number,
+    transactions?: { buys?: number; sells?: number; total?: number },
+  ) {
     if (!volume24h || !marketCap) return null;
     
     const volumeRatio = volume24h / marketCap;
@@ -799,33 +842,36 @@ export class SolanaApiService {
     // Consider both volume ratio AND absolute volume
     if (volume24h > 1000000) { // >$1M volume = very active regardless of ratio
       activityLevel = 'very_active';
-      activityScore = 90 + Math.floor(Math.random() * 10);
+      activityScore = 95;
     } else if (volume24h > 100000) { // >$100K volume = active
       activityLevel = 'active';
-      activityScore = 70 + Math.floor(Math.random() * 20);
+      activityScore = 80;
     } else if (volumeRatio > 0.1) {
       activityLevel = 'very_active';
-      activityScore = 90 + Math.floor(Math.random() * 10);
+      activityScore = 90;
     } else if (volumeRatio > 0.05) {
       activityLevel = 'active';
-      activityScore = 70 + Math.floor(Math.random() * 20);
+      activityScore = 75;
     } else if (volumeRatio > 0.01) {
       activityLevel = 'moderate';
-      activityScore = 40 + Math.floor(Math.random() * 30);
+      activityScore = 55;
     } else {
       activityLevel = 'low';
-      activityScore = 10 + Math.floor(Math.random() * 30);
+      activityScore = 25;
     }
     
     return {
-      total_analyzed: Math.floor(volume24h / 10000) || 10, // Estimate based on volume
+      total_analyzed: Number(transactions?.total || 0) || null,
       suspicious_wallets: 0,
-      recent_sell_pressure: Math.floor(Math.random() * 30), // Random for now
+      recent_sell_pressure: Number(transactions?.total || 0) > 0
+        ? Math.round((Number(transactions?.sells || 0) / Number(transactions?.total || 1)) * 100)
+        : null,
       activity_score: activityScore,
       avg_activity_level: activityLevel,
       volume_24h: volume24h,
       market_cap: marketCap,
-      volume_ratio: volumeRatio
+      volume_ratio: volumeRatio,
+      status: 'derived',
     };
   }
 }

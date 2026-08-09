@@ -13,63 +13,63 @@ datasource db {
 
 // Keeping existing User model shape (Int id) to avoid breaking auth
 model User {
-  id              Int           @id @default(autoincrement())
-  name            String?
-  email           String        @unique
-  passwordHash    String?
-  role            UserRole      @default(USER)
+  id                Int       @id @default(autoincrement())
+  name              String?
+  email             String    @unique
+  passwordHash      String?
+  role              UserRole  @default(USER)
   // OAuth provider fields
-  provider        String?
-  providerId      String?       @unique
+  provider          String?
+  providerId        String?   @unique
   // Circle identity fields (legacy)
-  circleUserId    String?       @unique
-  circleAppId     String?
-  circlePinStatus String?
+  circleUserId      String?   @unique
+  circleAppId       String?
+  circlePinStatus   String?
   // Privy identity fields
-  privyUserId     String?       @unique
-  privyDid        String?       @unique
-  lastLoginAt     DateTime?
+  privyUserId       String?   @unique
+  privyDid          String?   @unique
+  lastLoginAt       DateTime?
   // Profile fields
-  avatarUrl       String?        // Profile picture URL
-  bio             String?        // User bio
-  xpBalance       Int            @default(0) // Cached XP balance for fast checks
-  rankScore       Int            @default(0) // Append-only reputation score for rank
-  rankTier        Int            @default(1) // Cached rank tier for fast lookups
-  currentStreakDays Int          @default(0)
-  lastDailyXpAt   DateTime?      // Last time daily login XP was awarded
-  lastLoginDate   DateTime?      // Last calendar date counted toward login streak
+  avatarUrl         String? // Profile picture URL
+  bio               String? // User bio
+  xpBalance         Int       @default(0) // Cached XP balance for fast checks
+  rankScore         Int       @default(0) // Append-only reputation score for rank
+  rankTier          Int       @default(1) // Cached rank tier for fast lookups
+  currentStreakDays Int       @default(0)
+  lastDailyXpAt     DateTime? // Last time daily login XP was awarded
+  lastLoginDate     DateTime? // Last calendar date counted toward login streak
 
   // Relations
-  wallets         Wallet[]
-  scanResults     ScanResult[]
-  userListings    UserListing[]
-  marketplaceAds  MarketplaceAd[]
-  marketplaceAdInteractions MarketplaceAdInteraction[]
-  uploadedMemes   Meme[]
-  payments        Payment[]
-  userTrades      UserTrade[]
-  pendingOrders   PendingOrder[]
-  xpTransactions  XpTransaction[]
-  rankScoreTransactions RankScoreTransaction[]
-  conversationsAsPoster    Conversation[] @relation("PosterConversations")
-  conversationsAsApplicant Conversation[] @relation("ApplicantConversations")
-  messagesSent    Message[] @relation("MessageSender")
-  messagesReceived Message[] @relation("MessageReceiver")
-  messageReactions MessageReaction[]
-  escrowsAsPoster    Escrow[] @relation("PosterEscrows")
-  escrowsAsApplicant Escrow[] @relation("ApplicantEscrows")
-  notifications  Notification[]
-  supportTickets SupportTicket[]
-  creatorProgramAccount CreatorProgramAccount?
-  creatorReferrals CreatorReferral[] @relation("CreatorReferrals")
-  creatorReferral CreatorReferral? @relation("ReferredUser")
-  creatorEarnings CreatorEarning[] @relation("CreatorEarningCreatorUser")
-  creatorEarningsAsReferredUser CreatorEarning[] @relation("CreatorEarningReferredUser")
-  creatorPayouts CreatorPayout[] @relation("CreatorPayoutCreatorUser")
-  authHandoffs AuthHandoff[]
+  wallets                       Wallet[]
+  scanResults                   ScanResult[]
+  userListings                  UserListing[]
+  marketplaceAds                MarketplaceAd[]
+  marketplaceAdInteractions     MarketplaceAdInteraction[]
+  uploadedMemes                 Meme[]
+  payments                      Payment[]
+  userTrades                    UserTrade[]
+  pendingOrders                 PendingOrder[]
+  xpTransactions                XpTransaction[]
+  rankScoreTransactions         RankScoreTransaction[]
+  conversationsAsPoster         Conversation[]             @relation("PosterConversations")
+  conversationsAsApplicant      Conversation[]             @relation("ApplicantConversations")
+  messagesSent                  Message[]                  @relation("MessageSender")
+  messagesReceived              Message[]                  @relation("MessageReceiver")
+  messageReactions              MessageReaction[]
+  escrowsAsPoster               Escrow[]                   @relation("PosterEscrows")
+  escrowsAsApplicant            Escrow[]                   @relation("ApplicantEscrows")
+  notifications                 Notification[]
+  supportTickets                SupportTicket[]
+  creatorProgramAccount         CreatorProgramAccount?
+  creatorReferrals              CreatorReferral[]          @relation("CreatorReferrals")
+  creatorReferral               CreatorReferral?           @relation("ReferredUser")
+  creatorEarnings               CreatorEarning[]           @relation("CreatorEarningCreatorUser")
+  creatorEarningsAsReferredUser CreatorEarning[]           @relation("CreatorEarningReferredUser")
+  creatorPayouts                CreatorPayout[]            @relation("CreatorPayoutCreatorUser")
+  authHandoffs                  AuthHandoff[]
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model AuthHandoff {
@@ -86,23 +86,62 @@ model AuthHandoff {
   @@index([expiresAt])
 }
 
+model JobLease {
+  name      String   @id
+  owner     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model ScanJob {
+  id              String    @id @default(cuid())
+  contractAddress String
+  chain           Chain
+  status          String    @default("PENDING")
+  attempts        Int       @default(0)
+  maxAttempts     Int       @default(3)
+  runAfter        DateTime  @default(now())
+  lockedAt        DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  completedAt     DateTime?
+
+  @@index([status, runAfter])
+  @@index([contractAddress, chain, status])
+}
+
 // Extend ScanResult with fields needed by marketplace while retaining Int id
 model ScanResult {
-  id              Int      @id @default(autoincrement())
-  contractAddress String
-  resultData      Json
-  riskScore       Int?
-  tier            String?
-  summary         String?
-  indexed         Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               Int       @id @default(autoincrement())
+  contractAddress  String
+  chain            Chain?
+  resultData       Json
+  riskScore        Int?
+  tier             String?
+  summary          String?
+  status           String    @default("COMPLETED")
+  scoringVersion   String?
+  scoreDirection   String?
+  dataSufficient   Boolean?
+  missingData      Json?
+  providerSnapshot Json?
+  failureReason    String?
+  completedAt      DateTime?
+  indexed          Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   // Relations
   userId Int?
   user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([contractAddress])
+  @@index([contractAddress, chain, createdAt])
+  @@index([status, createdAt])
   @@index([userId])
   @@index([riskScore])
 }
@@ -119,8 +158,8 @@ enum Chain {
   BSC
   SUI
   BASE
-  APTOS      // Keep for backward compatibility
-  MOVEMENT   // NEW - Movement Network (Aptos-compatible)
+  APTOS // Keep for backward compatibility
+  MOVEMENT // NEW - Movement Network (Aptos-compatible)
   NEAR
   OSMOSIS
   OTHER
@@ -148,8 +187,8 @@ model Listing {
   communityScore  Float?
   tier            String?
   priceUsd        Float?
-  change1m        Float?  // 1 minute price change percentage
-  change5m        Float?  // 5 minute price change percentage
+  change1m        Float? // 1 minute price change percentage
+  change5m        Float? // 5 minute price change percentage
   change1h        Float?
   change6h        Float?
   change24h       Float?
@@ -162,16 +201,21 @@ model Listing {
   txCount24h      Int?
   metadata        Json?
   lastScannedAt   DateTime?
-  vetted          Boolean         @default(false)  // Track if token has undergone Pillar 1 (risk scoring)
-  
+  lastVettedAt    DateTime?
+  lastMonitoredAt DateTime?
+  nextScanAt      DateTime?
+  scoringVersion  String?
+  dataSufficient  Boolean?
+  vetted          Boolean         @default(false) // Track if token has undergone Pillar 1 (risk scoring)
+
   // New filter fields
-  lpBurnedPercentage     Float?    // LP burned percentage (0-100)
-  top10HoldersPercentage  Float?    // Top 10 holders percentage (0-100)
-  mintAuthDisabled       Boolean?  // Mint authority disabled
-  raidingDetected        Boolean?  // Raiding activity detected
-  
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  lpBurnedPercentage     Float? // LP burned percentage (0-100)
+  top10HoldersPercentage Float? // Top 10 holders percentage (0-100)
+  mintAuthDisabled       Boolean? // Mint authority disabled
+  raidingDetected        Boolean? // Raiding activity detected
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Back-relations
 
@@ -180,31 +224,32 @@ model Listing {
   @@index([tier])
   @@index([riskScore])
   @@index([lastScannedAt])
+  @@index([vetted, nextScanAt])
 }
 
 // Circle Wallets persisted for users
 model Wallet {
-  id                   String   @id @default(cuid())        // internal id
-  circleWalletId       String?  @unique                     // Circle wallet id (legacy)
-  privyWalletId        String?                              // Privy wallet id
-  address              String?
-  blockchain           Chain
-  type                 String?                              // e.g., USER_CONTROLLED, PRIVY_EMBEDDED, PRIVY_EXTERNAL
-  walletClient         String?                              // e.g., metamask, phantom, coinbase_wallet, APTOS_EMBEDDED
-  description          String?
-  isPrimary            Boolean  @default(false)             // Primary wallet for the user
-  encryptedPrivateKey  String?                              // Encrypted private key for server-managed wallets (Aptos)
+  id                  String  @id @default(cuid()) // internal id
+  circleWalletId      String? @unique // Circle wallet id (legacy)
+  privyWalletId       String? // Privy wallet id
+  address             String?
+  blockchain          Chain
+  type                String? // e.g., USER_CONTROLLED, PRIVY_EMBEDDED, PRIVY_EXTERNAL
+  walletClient        String? // e.g., metamask, phantom, coinbase_wallet, APTOS_EMBEDDED
+  description         String?
+  isPrimary           Boolean @default(false) // Primary wallet for the user
+  encryptedPrivateKey String? // Encrypted private key for server-managed wallets (Aptos)
 
-  userId         Int
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Relations
-  walletBalances WalletBalance[]
+  walletBalances     WalletBalance[]
   walletTransactions WalletTransaction[]
-  userTrades      UserTrade[]
+  userTrades         UserTrade[]
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([blockchain])
@@ -223,14 +268,14 @@ model UserListing {
   logoUrl      String?
   bannerUrl    String?
   links        Json?
-  status       String   // DRAFT | PENDING_APPROVAL | PUBLISHED | REJECTED
+  status       String // DRAFT | PENDING_APPROVAL | PUBLISHED | REJECTED
   vettingTier  String
   vettingScore Int
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
-  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   boosts AdBoost[]
 
   @@index([status])
@@ -240,7 +285,7 @@ model UserListing {
 model AdBoost {
   id           String   @id @default(cuid())
   listingId    String
-  type         String   // top, priority, bump, spotlight, homepage, urgent
+  type         String // top, priority, bump, spotlight, homepage, urgent
   durationDays Int
   startDate    DateTime @default(now())
   endDate      DateTime
@@ -254,21 +299,21 @@ model AdBoost {
 
 // Meme images uploaded by admins (public access)
 model Meme {
-  id           String   @id @default(cuid())
-  filename     String   // Original filename
-  s3Key        String   @unique  // S3 object key (memes/filename_timestamp.jpg)
-  s3Url        String   // Direct public S3 URL
-  size         Int      // File size in bytes
-  mimeType     String   // image/jpeg, image/png, etc.
-  description  String?  // Optional description
-  category     String?  // Optional category/tag
-  
+  id          String  @id @default(cuid())
+  filename    String // Original filename
+  s3Key       String  @unique // S3 object key (memes/filename_timestamp.jpg)
+  s3Url       String // Direct public S3 URL
+  size        Int // File size in bytes
+  mimeType    String // image/jpeg, image/png, etc.
+  description String? // Optional description
+  category    String? // Optional category/tag
+
   // Admin who uploaded
   uploadedById Int
-  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
-  
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  uploadedBy   User @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([uploadedById])
   @@index([createdAt])
@@ -279,49 +324,49 @@ model Waitlist {
   id        String   @id @default(cuid())
   email     String   @unique
   createdAt DateTime @default(now())
-  
+
   @@index([createdAt])
 }
 
 // Payment tracking for listings and ad boosts
 model Payment {
-  id                String        @id @default(cuid())
-  userId            Int
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(cuid())
+  userId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Payment type and related entity
-  paymentType       PaymentType   // LISTING | AD_BOOST | MARKETPLACE_AD
-  listingId         String?       // Reference to UserListing
-  adBoostId         String?       // Reference to AdBoost
-  marketplaceAdId   String?       // Reference to MarketplaceAd
-  marketplaceAd     MarketplaceAd? @relation(fields: [marketplaceAdId], references: [id])
-  escrowId          String?       @unique // Reference to Escrow
-  escrow            Escrow?       @relation(fields: [escrowId], references: [id])
-  
+  paymentType     PaymentType // LISTING | AD_BOOST | MARKETPLACE_AD
+  listingId       String? // Reference to UserListing
+  adBoostId       String? // Reference to AdBoost
+  marketplaceAdId String? // Reference to MarketplaceAd
+  marketplaceAd   MarketplaceAd? @relation(fields: [marketplaceAdId], references: [id])
+  escrowId        String?        @unique // Reference to Escrow
+  escrow          Escrow?        @relation(fields: [escrowId], references: [id])
+
   // Payment details
-  amount            Float
-  currency          String        @default("USDC")
-  status            PaymentStatus @default(PENDING)
-  
+  amount   Float
+  currency String        @default("USDC")
+  status   PaymentStatus @default(PENDING)
+
   // Circle transaction details
-  transferId        String?       @unique  // Circle transfer ID
-  txHash            String?                // Blockchain transaction hash
-  fromWalletId      String?                // Source wallet (user's wallet)
-  toAddress         String?                // Destination address (platform wallet)
-  
+  transferId   String? @unique // Circle transfer ID
+  txHash       String? // Blockchain transaction hash
+  fromWalletId String? // Source wallet (user's wallet)
+  toAddress    String? // Destination address (platform wallet)
+
   // Metadata
-  description       String?
-  metadata          Json?
-  
+  description String?
+  metadata    Json?
+
   // Timestamps
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  completedAt       DateTime?
-  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
   // Relations
   walletTransactions WalletTransaction[]
-  creatorEarnings CreatorEarning[]
-  
+  creatorEarnings    CreatorEarning[]
+
   @@index([userId])
   @@index([paymentType])
   @@index([status])
@@ -451,57 +496,64 @@ enum CreatorPayoutStatus {
 }
 
 model MarketplaceAd {
-  id                 String              @id @default(cuid())
-  userId             Int
-  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  postType           MarketplacePostType @default(LOOKING_FOR)
-  category           String
-  subCategory        String?
-  title              String
-  description        String
-  tags               Json?
-  contactInfo        String?
-  chain              Chain?
+  postType    MarketplacePostType @default(LOOKING_FOR)
+  category    String
+  subCategory String?
+  title       String
+  description String
+  tags        Json?
+  contactInfo String?
+  chain       Chain?
 
-  offerType          String?
-  priceAmount        Float?
-  priceCurrency      String?             @default("USDC")
+  offerType     String?
+  priceAmount   Float?
+  priceCurrency String? @default("USDC")
 
-  images             Json?
-  imageCount         Int                 @default(0)
+  images     Json?
+  imageCount Int   @default(0)
 
-  tier               MarketplaceTier     @default(FREE)
-  durationMode       MarketplaceAdDurationMode @default(SINGULAR)
-  featuredPlacement  Boolean             @default(false)
-  homepageSpotlight  Boolean             @default(false)
-  topOfDayDays       Int?
-  featuredUntil      DateTime?
-  autoBumpDays       Int?
-  urgentTag          Boolean             @default(false)
-  multiChainTag      Boolean             @default(false)
+  tier              MarketplaceTier           @default(FREE)
+  durationMode      MarketplaceAdDurationMode @default(SINGULAR)
+  featuredPlacement Boolean                   @default(false)
+  homepageSpotlight Boolean                   @default(false)
+  topOfDayDays      Int?
+  featuredUntil     DateTime?
+  spotlightUntil    DateTime?
+  autoBumpDays      Int?
+  lastBumpedAt      DateTime?
+  nextAutoBumpAt    DateTime?
+  autoBumpEndsAt    DateTime?
+  urgentTag         Boolean                   @default(false)
+  multiChainTag     Boolean                   @default(false)
 
-  totalPrice         Float?
-  status             MarketplaceAdStatus @default(DRAFT)
-  rejectionReason    String?
-  approvedBy         Int?
-  viewCount          Int                 @default(0)
-  messageCount       Int                 @default(0)
-  lastInteractionAt  DateTime?
+  totalPrice        Float?
+  baseListingFeeUsd Decimal?            @db.Decimal(12, 2)
+  addOnsFeeUsd      Decimal?            @db.Decimal(12, 2)
+  pricingVersion    String?
+  status            MarketplaceAdStatus @default(DRAFT)
+  rejectionReason   String?
+  approvedBy        Int?
+  viewCount         Int                 @default(0)
+  messageCount      Int                 @default(0)
+  lastInteractionAt DateTime?
 
-  payments           Payment[]
-  interactions       MarketplaceAdInteraction[]
-  conversations      Conversation[]
-  escrows            Escrow[]
+  payments      Payment[]
+  interactions  MarketplaceAdInteraction[]
+  conversations Conversation[]
+  escrows       Escrow[]
 
   publishedAt        DateTime?
   expiresAt          DateTime?
-  extendedCount      Int                 @default(0)
+  extendedCount      Int       @default(0)
   lastExtendedAt     DateTime?
   expiryNoticeSentAt DateTime?
 
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -509,17 +561,18 @@ model MarketplaceAd {
   @@index([subCategory])
   @@index([expiresAt])
   @@index([lastInteractionAt])
+  @@index([nextAutoBumpAt])
 }
 
 model MarketplaceAdInteraction {
-  id        String   @id @default(cuid())
+  id        String        @id @default(cuid())
   adId      String
   ad        MarketplaceAd @relation(fields: [adId], references: [id], onDelete: Cascade)
   userId    Int?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String   // VIEW | APPLY | MESSAGE | SHARE
+  user      User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // VIEW | APPLY | MESSAGE | SHARE
   metadata  Json?
-  createdAt DateTime @default(now())
+  createdAt DateTime      @default(now())
 
   @@index([adId])
   @@index([userId])
@@ -528,17 +581,17 @@ model MarketplaceAdInteraction {
 }
 
 model MarketplacePricing {
-  id        String                 @id @default(cuid())
-  kind      MarketplacePricingKind
-  key       String
-  label     String
-  amount    Float
-  currency  String                 @default("USDC")
-  active    Boolean                @default(true)
-  metadata  Json?
+  id       String                 @id @default(cuid())
+  kind     MarketplacePricingKind
+  key      String
+  label    String
+  amount   Float
+  currency String                 @default("USDC")
+  active   Boolean                @default(true)
+  metadata Json?
 
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([kind, key])
   @@index([kind])
@@ -546,21 +599,21 @@ model MarketplacePricing {
 }
 
 model Conversation {
-  id           String              @id @default(cuid())
-  adId         String
-  ad           MarketplaceAd       @relation(fields: [adId], references: [id], onDelete: Cascade)
-  posterId     Int
-  poster       User                @relation("PosterConversations", fields: [posterId], references: [id], onDelete: Cascade)
-  applicantId  Int
-  applicant    User                @relation("ApplicantConversations", fields: [applicantId], references: [id], onDelete: Cascade)
-  status       ConversationStatus  @default(ACTIVE)
-  lastMessageAt DateTime?
+  id                 String             @id @default(cuid())
+  adId               String
+  ad                 MarketplaceAd      @relation(fields: [adId], references: [id], onDelete: Cascade)
+  posterId           Int
+  poster             User               @relation("PosterConversations", fields: [posterId], references: [id], onDelete: Cascade)
+  applicantId        Int
+  applicant          User               @relation("ApplicantConversations", fields: [applicantId], references: [id], onDelete: Cascade)
+  status             ConversationStatus @default(ACTIVE)
+  lastMessageAt      DateTime?
   lastMessagePreview String?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
-  messages     Message[]
-  escrows      Escrow[]
+  messages Message[]
+  escrows  Escrow[]
 
   @@unique([adId, applicantId])
   @@index([posterId])
@@ -581,7 +634,7 @@ model Message {
   readAt         DateTime?
   createdAt      DateTime     @default(now())
 
-  reactions      MessageReaction[]
+  reactions MessageReaction[]
 
   @@index([conversationId])
   @@index([senderId])
@@ -614,28 +667,28 @@ model Escrow {
   applicantId    Int
   applicant      User          @relation("ApplicantEscrows", fields: [applicantId], references: [id], onDelete: Cascade)
 
-  title          String
-  totalAmount    Float
-  currency       String        @default("USDC")
-  deadline       DateTime?
-  noDeadline     Boolean       @default(false)
-  status         EscrowStatus  @default(PROPOSED)
-  isFrozen       Boolean       @default(false)
-  flaggedReason  String?
-  disputeReason  String?
-  proposedAt     DateTime      @default(now())
-  acceptedAt     DateTime?
-  fundedAt       DateTime?
-  submittedAt    DateTime?
-  completedAt    DateTime?
-  cancelledAt    DateTime?
+  title         String
+  totalAmount   Float
+  currency      String       @default("USDC")
+  deadline      DateTime?
+  noDeadline    Boolean      @default(false)
+  status        EscrowStatus @default(PROPOSED)
+  isFrozen      Boolean      @default(false)
+  flaggedReason String?
+  disputeReason String?
+  proposedAt    DateTime     @default(now())
+  acceptedAt    DateTime?
+  fundedAt      DateTime?
+  submittedAt   DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
 
-  payment        Payment?
+  payment         Payment?
   creatorEarnings CreatorEarning[]
-  milestones     EscrowMilestone[]
+  milestones      EscrowMilestone[]
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([posterId])
   @@index([applicantId])
@@ -644,29 +697,29 @@ model Escrow {
 }
 
 model EscrowMilestone {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   escrowId  String
-  escrow    Escrow   @relation(fields: [escrowId], references: [id], onDelete: Cascade)
+  escrow    Escrow    @relation(fields: [escrowId], references: [id], onDelete: Cascade)
   title     String
   amount    Float
   dueDate   DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([escrowId])
 }
 
 model XpTransaction {
-  id        String   @id @default(cuid())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String   // EARN | SPEND
-  reason    String   // signup, login, share, create_ad, create_listing, fund_wallet, start_conversation, etc.
-  amount    Int
+  id           String   @id @default(cuid())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         String // EARN | SPEND
+  reason       String // signup, login, share, create_ad, create_listing, fund_wallet, start_conversation, etc.
+  amount       Int
   balanceAfter Int
-  eventKey  String?  @unique
-  metadata  Json?
-  createdAt DateTime @default(now())
+  eventKey     String?  @unique
+  metadata     Json?
+  createdAt    DateTime @default(now())
 
   @@index([userId])
   @@index([createdAt])
@@ -704,18 +757,18 @@ model Notification {
 }
 
 model SupportTicket {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   userId     Int
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   subject    String
-  category   String   @default("GENERAL")
-  priority   String   @default("NORMAL")
+  category   String    @default("GENERAL")
+  priority   String    @default("NORMAL")
   message    String
-  status     String   @default("OPEN")
+  status     String    @default("OPEN")
   adminReply String?
   resolvedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -723,54 +776,54 @@ model SupportTicket {
 }
 
 model CreatorProgramAccount {
-  id                  String         @id @default(cuid())
-  userId              Int            @unique
-  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  referralCode        String         @unique
-  referralLink        String
-  tier                CreatorTier    @default(STARTER)
-  activeReferralsCount Int           @default(0)
-  totalReferralsCount  Int           @default(0)
-  totalEarned         Float          @default(0)
-  pendingBalance      Float          @default(0)
-  reservedBalance     Float          @default(0)
-  paidBalance         Float          @default(0)
-  heldBalance         Float          @default(0)
-  payoutWalletAddress String?
-  fraudStatus         String         @default("CLEAR")
-  fraudReason         String?
-  lastReviewedAt      DateTime?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  id                   String      @id @default(cuid())
+  userId               Int         @unique
+  user                 User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referralCode         String      @unique
+  referralLink         String
+  tier                 CreatorTier @default(STARTER)
+  activeReferralsCount Int         @default(0)
+  totalReferralsCount  Int         @default(0)
+  totalEarned          Float       @default(0)
+  pendingBalance       Float       @default(0)
+  reservedBalance      Float       @default(0)
+  paidBalance          Float       @default(0)
+  heldBalance          Float       @default(0)
+  payoutWalletAddress  String?
+  fraudStatus          String      @default("CLEAR")
+  fraudReason          String?
+  lastReviewedAt       DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
-  earnings            CreatorEarning[]
-  payouts             CreatorPayout[]
+  earnings CreatorEarning[]
+  payouts  CreatorPayout[]
 
   @@index([tier])
   @@index([fraudStatus])
 }
 
 model CreatorReferral {
-  id                    String                  @id @default(cuid())
-  creatorUserId         Int?
-  creatorUser           User?                   @relation("CreatorReferrals", fields: [creatorUserId], references: [id], onDelete: SetNull)
-  referredUserId        Int                     @unique
-  referredUser          User                    @relation("ReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
-  referralCode          String
-  referralSource        String?
-  ipAddress             String?
-  userAgent             String?
-  status                CreatorReferralStatus   @default(SIGNED_UP)
-  isActive              Boolean                 @default(false)
-  isFraudFlagged        Boolean                 @default(false)
-  fraudReason           String?
-  signedUpAt            DateTime                @default(now())
-  activatedAt           DateTime?
+  id                        String                @id @default(cuid())
+  creatorUserId             Int?
+  creatorUser               User?                 @relation("CreatorReferrals", fields: [creatorUserId], references: [id], onDelete: SetNull)
+  referredUserId            Int                   @unique
+  referredUser              User                  @relation("ReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
+  referralCode              String
+  referralSource            String?
+  ipAddress                 String?
+  userAgent                 String?
+  status                    CreatorReferralStatus @default(SIGNED_UP)
+  isActive                  Boolean               @default(false)
+  isFraudFlagged            Boolean               @default(false)
+  fraudReason               String?
+  signedUpAt                DateTime              @default(now())
+  activatedAt               DateTime?
   firstQualifyingActionType String?
   firstQualifyingActionId   String?
-  totalEarned           Float                   @default(0)
-  metadata              Json?
-  updatedAt             DateTime                @updatedAt
+  totalEarned               Float                 @default(0)
+  metadata                  Json?
+  updatedAt                 DateTime              @updatedAt
 
   @@index([creatorUserId])
   @@index([status])
@@ -778,28 +831,28 @@ model CreatorReferral {
 }
 
 model CreatorEarning {
-  id                    String                @id @default(cuid())
-  creatorAccountId      String
-  creatorAccount        CreatorProgramAccount @relation(fields: [creatorAccountId], references: [id], onDelete: Cascade)
-  creatorUserId         Int
-  creatorUser           User                  @relation("CreatorEarningCreatorUser", fields: [creatorUserId], references: [id], onDelete: Cascade)
-  referredUserId        Int
-  referredUser          User                  @relation("CreatorEarningReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
-  sourceType            CreatorEarningType
-  sourceId              String
-  paymentId             String?
-  payment               Payment?              @relation(fields: [paymentId], references: [id], onDelete: SetNull)
-  escrowId              String?
-  escrow                Escrow?               @relation(fields: [escrowId], references: [id], onDelete: SetNull)
-  amountGross           Float
-  platformFeeAmount     Float
-  creatorCutPercent     Float
-  amountEarned          Float
-  status                CreatorEarningStatus  @default(PENDING)
-  eventKey              String                @unique
-  metadata              Json?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  id                String                @id @default(cuid())
+  creatorAccountId  String
+  creatorAccount    CreatorProgramAccount @relation(fields: [creatorAccountId], references: [id], onDelete: Cascade)
+  creatorUserId     Int
+  creatorUser       User                  @relation("CreatorEarningCreatorUser", fields: [creatorUserId], references: [id], onDelete: Cascade)
+  referredUserId    Int
+  referredUser      User                  @relation("CreatorEarningReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
+  sourceType        CreatorEarningType
+  sourceId          String
+  paymentId         String?
+  payment           Payment?              @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  escrowId          String?
+  escrow            Escrow?               @relation(fields: [escrowId], references: [id], onDelete: SetNull)
+  amountGross       Float
+  platformFeeAmount Float
+  creatorCutPercent Float
+  amountEarned      Float
+  status            CreatorEarningStatus  @default(PENDING)
+  eventKey          String                @unique
+  metadata          Json?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   @@index([creatorUserId])
   @@index([referredUserId])
@@ -809,25 +862,25 @@ model CreatorEarning {
 }
 
 model CreatorPayout {
-  id                    String               @id @default(cuid())
-  creatorAccountId      String
-  creatorAccount        CreatorProgramAccount @relation(fields: [creatorAccountId], references: [id], onDelete: Cascade)
-  creatorUserId         Int
-  creatorUser           User                 @relation("CreatorPayoutCreatorUser", fields: [creatorUserId], references: [id], onDelete: Cascade)
-  walletAddress         String
-  amountRequested       Float
-  amountApproved        Float?
-  status                CreatorPayoutStatus  @default(REQUESTED)
-  txHash                String?
-  requestNote           String?
-  reviewedBy            Int?
-  reviewedAt            DateTime?
-  processedAt           DateTime?
-  rejectedAt            DateTime?
-  failureReason         String?
-  metadata              Json?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  id               String                @id @default(cuid())
+  creatorAccountId String
+  creatorAccount   CreatorProgramAccount @relation(fields: [creatorAccountId], references: [id], onDelete: Cascade)
+  creatorUserId    Int
+  creatorUser      User                  @relation("CreatorPayoutCreatorUser", fields: [creatorUserId], references: [id], onDelete: Cascade)
+  walletAddress    String
+  amountRequested  Float
+  amountApproved   Float?
+  status           CreatorPayoutStatus   @default(REQUESTED)
+  txHash           String?
+  requestNote      String?
+  reviewedBy       Int?
+  reviewedAt       DateTime?
+  processedAt      DateTime?
+  rejectedAt       DateTime?
+  failureReason    String?
+  metadata         Json?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   @@index([creatorUserId])
   @@index([status])
@@ -836,25 +889,25 @@ model CreatorPayout {
 
 // Movement wallet balance tracking
 model WalletBalance {
-  id            String   @id @default(cuid())
-  walletId      String   // Reference to Wallet.id
-  wallet        Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  
+  id       String @id @default(cuid())
+  walletId String // Reference to Wallet.id
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
   // Token details
-  tokenAddress  String   // Movement test token contract address
-  tokenSymbol   String   // e.g., "MOV", "TEST"
-  tokenName     String?  // Full token name
-  decimals      Int      @default(8) // Movement token decimals
-  
+  tokenAddress String // Movement test token contract address
+  tokenSymbol  String // e.g., "MOV", "TEST"
+  tokenName    String? // Full token name
+  decimals     Int     @default(8) // Movement token decimals
+
   // Balance
-  balance       String   @default("0") // Stored as string to handle large numbers
-  balanceUsd    Float?   // USD value if available
-  
+  balance    String @default("0") // Stored as string to handle large numbers
+  balanceUsd Float? // USD value if available
+
   // Metadata
-  lastUpdated   DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
+  lastUpdated DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   @@unique([walletId, tokenAddress])
   @@index([walletId])
   @@index([tokenAddress])
@@ -862,37 +915,37 @@ model WalletBalance {
 
 // Movement wallet transaction history
 model WalletTransaction {
-  id            String   @id @default(cuid())
-  walletId      String   // Reference to Wallet.id
-  wallet        Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  
+  id       String @id @default(cuid())
+  walletId String // Reference to Wallet.id
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
   // Transaction details
-  txHash        String   // Movement transaction hash
-  txType        String   // CREDIT | DEBIT | TRANSFER
-  amount        String   // Amount as string
-  tokenAddress  String   // Token contract address
-  tokenSymbol   String   // Token symbol
-  
+  txHash       String // Movement transaction hash
+  txType       String // CREDIT | DEBIT | TRANSFER
+  amount       String // Amount as string
+  tokenAddress String // Token contract address
+  tokenSymbol  String // Token symbol
+
   // Transaction parties
-  fromAddress   String?  // Sender address
-  toAddress     String?  // Recipient address
-  
+  fromAddress String? // Sender address
+  toAddress   String? // Recipient address
+
   // Related entities
-  paymentId     String?  // Reference to Payment.id if this is a payment
-  payment       Payment?  @relation(fields: [paymentId], references: [id])
-  
+  paymentId String? // Reference to Payment.id if this is a payment
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+
   // Status
-  status        String   @default("COMPLETED") // PENDING | COMPLETED | FAILED
-  blockNumber   String?  // Block number
-  blockTime     DateTime? // Block timestamp
-  
+  status      String    @default("COMPLETED") // PENDING | COMPLETED | FAILED
+  blockNumber String? // Block number
+  blockTime   DateTime? // Block timestamp
+
   // Metadata
-  description   String?
-  metadata      Json?
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
+  description String?
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([walletId, txHash])
   @@index([walletId])
   @@index([txHash])
@@ -903,63 +956,63 @@ model WalletTransaction {
 
 // Pillar 2: Monitoring snapshots for continuous tracking
 model MonitoringSnapshot {
-  id                String   @id @default(cuid())
-  contractAddress   String   // Reference to Listing.contractAddress
-  scannedAt         DateTime @default(now())
-  
+  id              String   @id @default(cuid())
+  contractAddress String // Reference to Listing.contractAddress
+  scannedAt       DateTime @default(now())
+
   // Current state
-  currentTier       String?
-  
+  currentTier String?
+
   // Market metrics
-  price             Float?   @default(0)
-  marketCap         Float?   @default(0)
-  liquidity         Float?   @default(0)
-  volume24h         Float?   @default(0)
-  priceChange24h    Float?   @default(0)
-  
+  price          Float? @default(0)
+  marketCap      Float? @default(0)
+  liquidity      Float? @default(0)
+  volume24h      Float? @default(0)
+  priceChange24h Float? @default(0)
+
   // Holder metrics
-  totalHolders      Int?     @default(0)
-  holderChange24h   Int?     @default(0)
-  topHolderPct      Float?   @default(0)
-  top10HoldersPct   Float?   @default(0)
-  
+  totalHolders    Int?   @default(0)
+  holderChange24h Int?   @default(0)
+  topHolderPct    Float? @default(0)
+  top10HoldersPct Float? @default(0)
+
   // Activity metrics
-  txns24h           Int?     @default(0)
-  buys24h           Int?     @default(0)
-  sells24h          Int?     @default(0)
-  uniqueWallets24h  Int?     @default(0)
-  
+  txns24h          Int? @default(0)
+  buys24h          Int? @default(0)
+  sells24h         Int? @default(0)
+  uniqueWallets24h Int? @default(0)
+
   // Trends
-  liquidityTrend    String?  // 'increasing' | 'decreasing' | 'stable'
-  holderTrend       String?  // 'increasing' | 'decreasing' | 'stable'
-  activityTrend     String?  // 'increasing' | 'decreasing' | 'stable'
-  
+  liquidityTrend String? // 'increasing' | 'decreasing' | 'stable'
+  holderTrend    String? // 'increasing' | 'decreasing' | 'stable'
+  activityTrend  String? // 'increasing' | 'decreasing' | 'stable'
+
   // Raw data for reference
-  rawData           Json?
-  
-  createdAt         DateTime @default(now())
-  
+  rawData Json?
+
+  createdAt DateTime @default(now())
+
   @@index([contractAddress])
   @@index([scannedAt])
 }
 
 // Pillar 2: Alerts detected during monitoring
 model Alert {
-  id                  String   @id @default(cuid())
-  contractAddress     String   // Reference to Listing.contractAddress
-  severity            String   // 'low' | 'medium' | 'high' | 'critical'
-  triggerType         String   // 'liquidity_drop' | 'holder_loss' | 'price_crash' | etc.
+  id                   String    @id @default(cuid())
+  contractAddress      String // Reference to Listing.contractAddress
+  severity             String // 'low' | 'medium' | 'high' | 'critical'
+  triggerType          String // 'liquidity_drop' | 'holder_loss' | 'price_crash' | etc.
   conditionDescription String? // Human-readable description of what triggered the alert
-  actionTaken         String?  // What action was taken (e.g., 'monitoring_detected', 'tier_downgraded')
-  message             String?  // Alert message
-  detected            Boolean  @default(true)
-  resolved            Boolean  @default(false)
-  resolvedAt          DateTime?
-  resolvedBy          Int?     // User ID who resolved it (if manual)
-  
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  
+  actionTaken          String? // What action was taken (e.g., 'monitoring_detected', 'tier_downgraded')
+  message              String? // Alert message
+  detected             Boolean   @default(true)
+  resolved             Boolean   @default(false)
+  resolvedAt           DateTime?
+  resolvedBy           Int? // User ID who resolved it (if manual)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([contractAddress])
   @@index([severity])
   @@index([triggerType])
@@ -969,44 +1022,44 @@ model Alert {
 
 // User trading history
 model UserTrade {
-  id            String   @id @default(cuid())
-  userId        Int
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(cuid())
+  userId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Chain and trade type
-  chain         String   // "solana" | "movement"
-  type          String   // "BUY" | "SELL"
-  
+  chain String // "solana" | "movement"
+  type  String // "BUY" | "SELL"
+
   // Token information
-  tokenInAddress  String   // Input token contract address
-  tokenOutAddress String   // Output token contract address
-  tokenInSymbol   String?  // For display
-  tokenOutSymbol  String?  // For display
-  
+  tokenInAddress  String // Input token contract address
+  tokenOutAddress String // Output token contract address
+  tokenInSymbol   String? // For display
+  tokenOutSymbol  String? // For display
+
   // Amounts (stored as strings for precision)
-  amountIn        String
-  amountOut       String
-  price           Decimal? // Price per token
-  
+  amountIn  String
+  amountOut String
+  price     Decimal? // Price per token
+
   // Trade execution details
-  slippageBps     Int      // Slippage in basis points (e.g., 50 = 0.5%)
-  priceImpact     Decimal? // Price impact percentage
-  
+  slippageBps Int // Slippage in basis points (e.g., 50 = 0.5%)
+  priceImpact Decimal? // Price impact percentage
+
   // Transaction details
-  txHash          String   @unique
-  status          String   // "pending" | "completed" | "failed"
-  
+  txHash String @unique
+  status String // "pending" | "completed" | "failed"
+
   // Wallet used for trade
-  walletId        String?  // Reference to Wallet.id
-  wallet          Wallet?  @relation(fields: [walletId], references: [id])
-  
+  walletId String? // Reference to Wallet.id
+  wallet   Wallet? @relation(fields: [walletId], references: [id])
+
   // Optional: Link to Listing (token being traded)
-  listingId       String?  // Reference to Listing.id (via contractAddress)
-  
+  listingId String? // Reference to Listing.id (via contractAddress)
+
   // Timestamps
-  createdAt       DateTime @default(now())
-  completedAt     DateTime?
-  
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
   @@index([userId])
   @@index([txHash])
   @@index([chain, createdAt])
@@ -1016,36 +1069,36 @@ model UserTrade {
 
 // Pending trading orders (quotes awaiting execution)
 model PendingOrder {
-  id            String   @id @default(cuid())
-  userId        Int
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(cuid())
+  userId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Chain and order type
-  chain         String   // "solana" | "movement"
-  type          String   // "BUY" | "SELL"
-  
+  chain String // "solana" | "movement"
+  type  String // "BUY" | "SELL"
+
   // Token information
   tokenInAddress  String
   tokenOutAddress String
-  amount          String   // Amount to trade
-  
+  amount          String // Amount to trade
+
   // Quote data (stored as JSON)
-  quote         Json     // Full Jupiter/Panora quote response
-  
+  quote Json // Full Jupiter/Panora quote response
+
   // Slippage
-  slippageBps   Int      // Slippage in basis points
-  
+  slippageBps Int // Slippage in basis points
+
   // Status tracking
-  status        String   // "pending" | "executing" | "completed" | "cancelled" | "failed"
-  
+  status String // "pending" | "executing" | "completed" | "cancelled" | "failed"
+
   // Execution result
-  txHash        String?
-  errorMessage  String?
-  
+  txHash       String?
+  errorMessage String?
+
   // Timestamps
-  createdAt     DateTime @default(now())
-  expiresAt     DateTime // When the quote becomes invalid
-  
+  createdAt DateTime @default(now())
+  expiresAt DateTime // When the quote becomes invalid
+
   @@index([userId, status])
   @@index([expiresAt])
 }

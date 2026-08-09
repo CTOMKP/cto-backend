@@ -1,10 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Allow, IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Allow, ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateMarketplaceAdDto {
   @IsOptional()
-  @IsEnum(['LOOKING_FOR', 'OFFERING'])
-  @ApiProperty({ required: false, enum: ['LOOKING_FOR', 'OFFERING'], example: 'LOOKING_FOR' })
+  @IsIn(['LOOKING_FOR', 'OFFERING', 'looking_for', 'offering'])
+  @ApiProperty({ required: false, enum: ['looking_for', 'offering'], example: 'looking_for' })
   postType?: string;
 
   @IsOptional()
@@ -19,10 +19,12 @@ export class UpdateMarketplaceAdDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(80)
   category?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   subCategory?: string;
 
   @IsOptional()
@@ -47,11 +49,13 @@ export class UpdateMarketplaceAdDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(20)
   @IsString({ each: true })
   tags?: string[];
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(5)
   @IsString({ each: true })
   images?: string[];
 
@@ -96,12 +100,12 @@ export class UpdateMarketplaceAdDto {
   multiChainTag?: boolean;
 
   @IsOptional()
-  @IsEnum(['SINGULAR', 'RECURRING'])
+  @IsEnum(['SINGULAR'])
   @ApiProperty({
     required: false,
-    enum: ['SINGULAR', 'RECURRING'],
+    enum: ['SINGULAR'],
     example: 'SINGULAR',
-    description: 'Singular ads expire after 28 days; recurring ads remain open after successful payment until the user closes them.',
+    description: 'Marketplace ads expire 28 days after publication.',
   })
   durationMode?: string;
 }

@@ -15,7 +15,7 @@ const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 
 const prisma = new PrismaClient();
-const JUPITER_API_KEY = process.env.JUPITER_API_KEY || '91b41fe6-81e7-40f8-8d84-76fdc669838d';
+const JUPITER_API_KEY = process.env.JUPITER_API_KEY;
 const DRY_RUN = process.argv.includes('--dry-run');
 
 // Known correct mint addresses from INITIAL_TOKENS
@@ -41,7 +41,7 @@ async function verifyMintWithJupiter(address) {
     const url = `https://api.jup.ag/tokens/v2/mints?ids=${address}`;
     const response = await axios.get(url, {
       headers: {
-        'x-api-key': JUPITER_API_KEY,
+        ...(JUPITER_API_KEY ? { 'x-api-key': JUPITER_API_KEY } : {}),
         'accept': 'application/json',
       },
       timeout: 5000,

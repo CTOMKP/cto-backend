@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MovementWalletService } from '../wallet/movement-wallet.service';
 import { ConfigService } from '@nestjs/config';
@@ -404,7 +404,7 @@ export class MovementPaymentService {
    * Verify payment was completed on-chain
    * Called after frontend confirms transaction
    */
-  async verifyPayment(paymentId: string, txHash: string) {
+  async verifyPayment(paymentId: string, txHash: string, userId: number) {
     try {
       const payment = await this.prisma.payment.findUnique({
         where: { id: paymentId },
@@ -413,6 +413,7 @@ export class MovementPaymentService {
       if (!payment) {
         throw new NotFoundException('Payment not found');
       }
+      if (payment.userId !== userId) throw new ForbiddenException('Not your payment');
 
       if (payment.status === 'COMPLETED') {
         // Recovery path: if client retries verify for an already completed payment,
@@ -586,7 +587,7 @@ export class MovementPaymentService {
     }
   }
 
-  async verifyMarketplaceAdPayment(paymentId: string, txHash: string) {
+  async verifyMarketplaceAdPayment(paymentId: string, txHash: string, userId: number) {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
     if (payment.paymentType !== 'MARKETPLACE_AD') throw new BadRequestException('Invalid payment type');
@@ -599,7 +600,7 @@ export class MovementPaymentService {
       }
     }
 
-    return this.verifyPayment(paymentId, txHash);
+    return this.verifyPayment(paymentId, txHash, userId);
   }
 }
 

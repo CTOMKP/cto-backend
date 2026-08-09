@@ -260,25 +260,40 @@ export class ListingRepository {
     const { contractAddress, chain, token, riskScore, tier, summary } = params;
     const symbol = token?.token_symbol ?? token?.symbol ?? null;
     const name = token?.token_name ?? token?.name ?? null;
+    const vettingResults = token?.vetting_results ?? token?.vettingResults ?? null;
+    const dataSufficient = typeof vettingResults?.dataSufficient === 'boolean'
+      ? vettingResults.dataSufficient
+      : riskScore !== null;
+    const scoringVersion = vettingResults?.scoringVersion ?? null;
 
     return this.prisma.$transaction(async (tx) => {
-      let scan: any = null;
-      if (riskScore !== null && tier) {
-        scan = await (tx as any).scanResult.create({
+      const normalizedTier = tier ? String(tier).trim().toLowerCase() : null;
+      const isClassifiedTier = Boolean(
+        normalizedTier && normalizedTier !== 'none' && normalizedTier !== 'unclassified',
+      );
+      const vetted = riskScore !== null && isClassifiedTier && dataSufficient;
+      const scan = await (tx as any).scanResult.create({
           data: {
             contractAddress,
+            chain,
             resultData: token,
             riskScore,
             tier,
-            summary: summary ?? `Tier ${tier} · Risk ${riskScore}`,
+            status: vetted ? 'COMPLETED' : 'INCONCLUSIVE',
+            scoringVersion,
+            scoreDirection: vettingResults?.scoreDirection ?? 'HIGHER_IS_SAFER',
+            dataSufficient,
+            missingData: vettingResults?.missingData ?? [],
+            completedAt: new Date(),
+            summary: summary ?? `Tier ${tier ?? 'unclassified'} · Risk ${riskScore ?? 'unavailable'}`,
             indexed: false,
           } as any,
         });
-      }
 
       const existing = await (tx as any).listing.findUnique({ where: { contractAddress } });
       const prevMeta = (existing?.metadata ?? {}) as any;
       const nextMeta = {
+        ...prevMeta,
         market: prevMeta?.market ?? {},
         token: token ?? prevMeta?.token ?? null,
       };
@@ -290,11 +305,11 @@ export class ListingRepository {
       const existingCommunityScore = existing?.communityScore ?? null;
 
       // Convert invalid tier values to null for database consistency
-      const normalizedTier = tier ? String(tier).trim().toLowerCase() : null;
       const tierValue = (
         normalizedTier === null || 
         normalizedTier === undefined || 
-        normalizedTier === 'none' || 
+        normalizedTier === 'none' ||
+        normalizedTier === 'unclassified' ||
         normalizedTier === 'null' || 
         normalizedTier === 'undefined' || 
         normalizedTier === '' || 
@@ -305,7 +320,6 @@ export class ListingRepository {
         normalizedTier === 'n/a' ||
         normalizedTier === 'na'
       ) ? null : (normalizedTier ? normalizedTier : null);
-
       const resolvedAge =
         token?.age_display_short ??
         token?.age_display ??
@@ -325,6 +339,10 @@ export class ListingRepository {
           holders: resolvedHolders,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : null,
+          lastVettedAt: vetted ? new Date() : null,
+          vetted,
+          scoringVersion,
+          dataSufficient,
           // Community score is based on user votes - preserve existing or set to null
           communityScore: existingCommunityScore,
         },
@@ -339,6 +357,10 @@ export class ListingRepository {
           holders: resolvedHolders,
           metadata: nextMeta,
           lastScannedAt: riskScore !== null ? new Date() : (undefined as any),
+          lastVettedAt: vetted ? new Date() : (undefined as any),
+          vetted,
+          scoringVersion,
+          dataSufficient,
           // Community score is based on user votes - preserve existing value
           communityScore: existingCommunityScore,
         },

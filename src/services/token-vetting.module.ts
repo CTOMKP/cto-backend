@@ -8,6 +8,7 @@ import { ExternalApisService } from './external-apis.service';
 import { TokenImageService } from './token-image.service';
 import { Pillar1RiskScoringService } from './pillar1-risk-scoring.service';
 import { Pillar2MonitoringService } from './pillar2-monitoring.service';
+import { DistributedLockService } from './distributed-lock.service';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { Pillar2MonitoringService } from './pillar2-monitoring.service';
     TokenImageService,
     Pillar1RiskScoringService,
     Pillar2MonitoringService,
+    DistributedLockService,
   ],
   exports: [
     CronService,
@@ -29,6 +31,7 @@ import { Pillar2MonitoringService } from './pillar2-monitoring.service';
     ExternalApisService,
     TokenImageService,
     Pillar1RiskScoringService,
+    DistributedLockService,
   ],
 })
 export class TokenVettingModule {}

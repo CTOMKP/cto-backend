@@ -486,31 +486,16 @@ export class AdminService {
       if (ad.status === 'PUBLISHED') throw new BadRequestException('Marketplace ad is already published');
 
       const publishedAt = new Date();
-      const durationMode = String((ad as any).durationMode || 'SINGULAR').toUpperCase();
-      const expiresAt = durationMode === 'RECURRING'
-        ? null
-        : (() => {
-            const next = new Date(publishedAt);
-            next.setDate(next.getDate() + 28);
-            return next;
-          })();
-
-      let featuredUntil: Date | null = null;
-      if (ad.tier === 'PLUS') {
-        featuredUntil = new Date(publishedAt);
-        featuredUntil.setDate(featuredUntil.getDate() + 1);
-      }
-      if (ad.tier === 'PREMIUM') {
-        featuredUntil = new Date(publishedAt);
-        featuredUntil.setDate(featuredUntil.getDate() + 7);
-      }
-      if (ad.topOfDayDays && ad.topOfDayDays > 0) {
-        const topUntil = new Date(publishedAt);
-        topUntil.setDate(topUntil.getDate() + ad.topOfDayDays);
-        if (!featuredUntil || topUntil > featuredUntil) {
-          featuredUntil = topUntil;
-        }
-      }
+      const expiresAt = new Date(publishedAt);
+      expiresAt.setDate(expiresAt.getDate() + 28);
+      const featuredUntil = ad.featuredPlacement ? new Date(expiresAt) : null;
+      const spotlightUntil = ad.homepageSpotlight ? new Date(expiresAt) : null;
+      const autoBumpEndsAt = ad.autoBumpDays
+        ? new Date(publishedAt.getTime() + ad.autoBumpDays * 24 * 60 * 60 * 1000)
+        : null;
+      const nextAutoBumpAt = ad.autoBumpDays
+        ? new Date(publishedAt.getTime() + 60 * 60 * 1000)
+        : null;
 
       const updated = await this.prisma.marketplaceAd.update({
         where: { id: dto.adId },
@@ -519,6 +504,10 @@ export class AdminService {
           publishedAt,
           expiresAt,
           featuredUntil,
+          spotlightUntil,
+          lastBumpedAt: null,
+          nextAutoBumpAt,
+          autoBumpEndsAt,
           approvedBy: (await this.prisma.user.findUnique({ where: { email: dto.adminUserId } }))?.id ?? null,
           updatedAt: new Date(),
         },

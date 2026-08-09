@@ -59,7 +59,7 @@ export class TradesController {
     @Query('chain') chain?: string,
     @Query('limit') limit?: string,
   ) {
-    const userId = req.user?.id || req.user?.sub;
+    const userId = Number(req.user?.userId || req.user?.id || req.user?.sub);
     if (!userId) {
       return { data: [], message: 'User not authenticated' };
     }
@@ -161,7 +161,7 @@ export class TradesController {
     description: 'Trade executed successfully',
   })
   async executeTrade(@Request() req: any, @Body() executeRequest: ExecuteTradeRequestDto) {
-    const userId = req.user?.id || req.user?.sub;
+    const userId = Number(req.user?.userId || req.user?.id || req.user?.sub);
     if (!userId) {
       throw new Error('User not authenticated');
     }
@@ -176,13 +176,23 @@ export class TradesController {
       }
     }
 
-    // Find user's wallet for the chain
+    // Resolve the wallet inside the authenticated user's ownership boundary.
+    // A client-supplied internal wallet ID must never be trusted on its own.
     const wallet = await this.prisma.wallet.findFirst({
       where: {
         userId,
         blockchain: executeRequest.chain.toUpperCase() as any,
+        ...(executeRequest.walletId ? { id: executeRequest.walletId } : {}),
       },
     });
+
+    if (executeRequest.walletId && !wallet) {
+      throw new BadRequestException({
+        code: 'WALLET_NOT_OWNED',
+        message: 'The selected wallet does not belong to the authenticated user or chain.',
+        retryable: false,
+      });
+    }
 
     if (!wallet && executeRequest.chain === 'movement') {
       throw new BadRequestException({
@@ -197,7 +207,7 @@ export class TradesController {
       signedTransaction: executeRequest.signedTransaction,
       userId,
       quote: executeRequest.quote,
-      walletId: executeRequest.walletId || wallet?.id,
+      walletId: wallet?.id,
     });
 
     return {

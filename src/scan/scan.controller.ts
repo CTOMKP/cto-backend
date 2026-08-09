@@ -22,6 +22,7 @@ import { formatTokenAge, formatTokenAgeShort } from '../utils/age-formatter';
 import { ScanRequestDto, BatchScanRequestDto } from './dto/scan-request.dto';
 import { ScanResultDto, BatchScanResponseDto } from './dto/scan-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RateLimiterGuard } from '../listing/services/rate-limiter.guard';
 
 @ApiTags('Token Scanning')
 @Controller('scan')
@@ -47,11 +48,14 @@ export class ScanController {
       this.logger.log(`Single token scan requested for: ${scanRequest.contractAddress}`);
       const userId = req?.user?.userId as number | undefined;
       const chain = (scanRequest as any)?.chain ?? 'SOLANA';
+      const cacheChain = chain === 'EVM' ? 'ETHEREUM' : chain;
       const now = Date.now();
       const cacheWindowMs = 24 * 60 * 60 * 1000;
       const recentScan = await (this.prisma as any).scanResult.findFirst({
         where: {
           contractAddress: scanRequest.contractAddress,
+          chain: cacheChain,
+          status: 'COMPLETED',
           createdAt: { gte: new Date(now - cacheWindowMs) },
         },
         orderBy: { createdAt: 'desc' },
@@ -133,6 +137,8 @@ export class ScanController {
   @ApiResponse({ status: 200, description: 'Batch scan completed successfully', type: BatchScanResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid request parameters' })
   @ApiResponse({ status: 500, description: 'Internal server error during batch scan' })
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(JwtAuthGuard, RateLimiterGuard)
   async scanBatchTokens(@Body() batchRequest: BatchScanRequestDto): Promise<BatchScanResponseDto> {
     try {
       this.logger.log(`Batch scan requested for ${batchRequest.contractAddresses.length} tokens`);

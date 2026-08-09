@@ -6,7 +6,7 @@ const logger = new Logger('SafeFetcher');
 /**
  * Creates a resilient axios instance with retry logic and error interceptors
  */
-export const createSafeFetcher = (baseURL: string, apiKey: string, headerName: string = 'x-api-key'): AxiosInstance => {
+export const createSafeFetcher = (baseURL: string, apiKey?: string, headerName: string = 'x-api-key'): AxiosInstance => {
   // CLEAN THE KEY: Strip any quotes or spaces that might have been pasted into Coolify
   const cleanKey = apiKey?.replace(/['"]/g, '').trim();
   
@@ -14,13 +14,13 @@ export const createSafeFetcher = (baseURL: string, apiKey: string, headerName: s
     logger.warn(`🧹 Cleaned API key for ${baseURL} (removed quotes or spaces)`);
   }
 
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (cleanKey) headers[headerName] = cleanKey;
+
   const client = axios.create({
     baseURL,
     timeout: 15000,
-    headers: {
-      [headerName]: cleanKey,
-      'Accept': 'application/json',
-    },
+    headers,
   });
 
   // Request Interceptor for logging
@@ -37,10 +37,22 @@ export const createSafeFetcher = (baseURL: string, apiKey: string, headerName: s
       const config = error.config as AxiosRequestConfig & { _retryCount?: number };
       const status = error.response?.status;
 
-      // Retry logic for 429 (Rate Limit) or 5xx (Server Error)
-      if ((status === 429 || (status && status >= 500)) && (!config._retryCount || config._retryCount < 3)) {
+      const isTransientNetworkError = !status && [
+        'ECONNABORTED',
+        'ECONNRESET',
+        'ETIMEDOUT',
+        'ENOTFOUND',
+        'EAI_AGAIN',
+      ].includes(String(error.code || ''));
+
+      // Retry rate limits, transient network failures and server errors.
+      if ((status === 429 || (status && status >= 500) || isTransientNetworkError) && (!config._retryCount || config._retryCount < 3)) {
         config._retryCount = (config._retryCount || 0) + 1;
-        const delay = Math.pow(2, config._retryCount) * 1000; // Exponential backoff
+        const retryAfterHeader = error.response?.headers?.['retry-after'];
+        const retryAfterMs = Number(retryAfterHeader) > 0 ? Number(retryAfterHeader) * 1000 : 0;
+        const exponentialDelay = Math.pow(2, config._retryCount) * 1000;
+        const jitter = Math.floor(Math.random() * 500);
+        const delay = Math.max(retryAfterMs, exponentialDelay) + jitter;
         
         logger.warn(`⚠️ Retry attempt #${config._retryCount} for ${baseURL} after ${delay}ms (Status: ${status})`);
         await new Promise(resolve => setTimeout(resolve, delay));

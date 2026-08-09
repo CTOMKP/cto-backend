@@ -115,6 +115,8 @@ export class AptosRiskScoringService {
       dataSufficient: criticalMissingData.length === 0,
       missingData,
       calculatedAt: new Date().toISOString(),
+      scoringVersion: 'pillar1-aptos-v2',
+      scoreDirection: 'HIGHER_IS_SAFER',
     };
   }
 

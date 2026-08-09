@@ -24,9 +24,9 @@ export class AnalyticsService {
 
   constructor(private readonly configService: ConfigService) {
     this.etherscanApiKey = this.configService.get('ETHERSCAN_API_KEY');
-    this.moralisApiKey = this.configService.get('MORALIS_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjlhYjA0YmUzLWQ0MTgtNGI3OS04ZTI0LTg2ZjFhODQyMGNlNCIsIm9yZ0lkIjoiNDg3OTczIiwidXNlcklkIjoiNTAyMDU5IiwidHlwZUlkIjoiMWJmZWVhYTctMDgyMi00NzIxLWE4YzYtMWNiYTVjYmMwZmY0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjcwMzk0NzMsImV4cCI6NDkyMjc5OTQ3M30.9ueViJafyhOTlF637oKifhOvsowP9CP02HIWp9yCslI');
-    this.heliusApiKey = this.configService.get('HELIUS_API_KEY', '1485e891-c87d-40e1-8850-a578511c4b92');
-    this.solscanApiKey = this.configService.get('SOLSCAN_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NjcwMzk4ODY5MDMsImVtYWlsIjoiYmFudGVyY29wQGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc2NzAzOTg4Nn0.MHywPv97_xkaaTrhef5B5WsY3kCcOGvIIS3jZUBrat0');
+    this.moralisApiKey = this.configService.get('MORALIS_API_KEY');
+    this.heliusApiKey = this.configService.get('HELIUS_API_KEY');
+    this.solscanApiKey = this.configService.get('SOLSCAN_API_KEY');
     this.bitqueryToken = this.configService.get('BITQUERY_ACCESS_TOKEN');
 
     // Initialize resilient fetchers
@@ -495,11 +495,15 @@ export class AnalyticsService {
       // For Solana tokens, try Birdeye API (has historical data)
       if (chain.toUpperCase() === 'SOLANA') {
         try {
+          const birdeyeApiKey = this.configService.get<string>('BIRDEYE_API_KEY')?.trim();
+          if (!birdeyeApiKey) {
+            throw new Error('BIRDEYE_API_KEY is not configured');
+          }
           const birdeyeUrl = `https://public-api.birdeye.so/defi/ohlcv?address=${contractAddress}&type=${timeframe}&time_from=${Math.floor(Date.now() / 1000) - 86400}&time_to=${Math.floor(Date.now() / 1000)}`;
           this.logger.log(`Trying Birdeye API: ${birdeyeUrl}`);
           const birdeyeResponse = await axios.get(birdeyeUrl, {
             headers: {
-              'X-API-KEY': process.env.BIRDEYE_API_KEY || 'public',
+              'X-API-KEY': birdeyeApiKey,
             },
             timeout: 5000,
           });
@@ -520,7 +524,7 @@ export class AnalyticsService {
         }
       }
 
-      // Fallback: Use DexScreener to get current price and generate historical data
+      // DexScreener supplies a current market snapshot, not historical candles.
       this.logger.log(`Falling back to DexScreener for ${contractAddress}`);
       const url = `https://api.dexscreener.com/latest/dex/tokens/${contractAddress}`;
       const response = await axios.get(url, { timeout: 5000 });
@@ -534,39 +538,8 @@ export class AnalyticsService {
         this.logger.log(`DexScreener data: price=${currentPrice}, volume=${volume24h}, change=${priceChange24h}%`);
 
         if (currentPrice > 0) {
-          // Generate 24 hours of hourly candles based on current price and 24h change
-          const candles = [];
-          const now = Math.floor(Date.now() / 1000);
-          const hoursToGenerate = 24;
-          
-          // Calculate starting price from 24h change
-          const startPrice = currentPrice / (1 + priceChange24h / 100);
-          
-          for (let i = hoursToGenerate; i >= 0; i--) {
-            const time = now - (i * 3600); // 1 hour intervals
-            const progress = (hoursToGenerate - i) / hoursToGenerate;
-            
-            // Interpolate price with some randomness for realistic candles
-            const basePrice = startPrice + (currentPrice - startPrice) * progress;
-            const volatility = basePrice * 0.02; // 2% volatility
-            
-            const open = basePrice + (Math.random() - 0.5) * volatility;
-            const close = basePrice + (Math.random() - 0.5) * volatility;
-            const high = Math.max(open, close) + Math.random() * volatility * 0.5;
-            const low = Math.min(open, close) - Math.random() * volatility * 0.5;
-            
-            candles.push({
-              time,
-              open: Math.max(0, open),
-              high: Math.max(0, high),
-              low: Math.max(0, low),
-              close: Math.max(0, close),
-              volume: volume24h / hoursToGenerate,
-            });
-          }
-          
-          this.logger.log(`Generated ${candles.length} synthetic candles`);
-          return candles;
+          this.logger.warn('Historical OHLCV is unavailable; returning no candles instead of synthetic data');
+          return [];
         }
       }
 

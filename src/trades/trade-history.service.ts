@@ -573,9 +573,7 @@ export class TradeHistoryService {
     mintAddress: string,
     limit: number,
   ): Promise<UnifiedTrade[]> {
-    const apiKey =
-      this.configService.get('HELIUS_API_KEY') ||
-      '1485e891-c87d-40e1-8850-a578511c4b92';
+    const apiKey = this.configService.get<string>('HELIUS_API_KEY');
 
     if (!apiKey) {
       this.logger.debug('HELIUS_API_KEY missing; skipping Helius trades.');

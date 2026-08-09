@@ -1,4 +1,4 @@
-import { IsString, IsArray, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsArray, IsEnum, IsOptional, ArrayMaxSize, ArrayMinSize, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export enum ScanChainInput {
@@ -16,6 +16,8 @@ export class ScanRequestDto {
     example: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
   })
   @IsString()
+  @MinLength(1)
+  @MaxLength(256)
   contractAddress: string;
 
   @ApiProperty({ description: 'Chain of the contract', enum: ScanChainInput, required: false, default: ScanChainInput.SOLANA })
@@ -31,6 +33,8 @@ export class BatchScanRequestDto {
     isArray: true
   })
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
   @IsString({ each: true })
   contractAddresses: string[];
 }

@@ -45,6 +45,7 @@ export class Pillar2MonitoringService {
 
       // Get previous snapshot for comparison
       const previousSnapshot = await this.getLatestSnapshot(contractAddress);
+      const comparisonSnapshot24h = await this.getSnapshotNear24HoursAgo(contractAddress);
 
       // Collect current monitoring data
       const monitoringData = await this.collectMonitoringData(
@@ -52,18 +53,19 @@ export class Pillar2MonitoringService {
         chain,
         listing,
         previousSnapshot,
+        comparisonSnapshot24h,
       );
 
       // Save snapshot to database
       const snapshot = await this.saveSnapshot(contractAddress, monitoringData);
 
       // Detect alerts based on changes
-      await this.detectAlerts(contractAddress, monitoringData, previousSnapshot);
+      await this.detectAlerts(contractAddress, monitoringData, comparisonSnapshot24h || previousSnapshot);
 
       // Update listing with latest monitoring timestamp
       await this.prisma.listing.update({
         where: { contractAddress },
-        data: { lastScannedAt: new Date() },
+        data: { lastScannedAt: new Date(), lastMonitoredAt: new Date() },
       });
 
       this.logger.log(`✅ Monitoring complete for ${contractAddress}`);
@@ -82,6 +84,7 @@ export class Pillar2MonitoringService {
     chain: string,
     listing: any,
     previousSnapshot: any,
+    comparisonSnapshot24h: any,
   ): Promise<any> {
     const now = new Date();
 
@@ -89,10 +92,10 @@ export class Pillar2MonitoringService {
     const marketData = await this.fetchMarketData(contractAddress, chain);
     
     // Fetch holder data
-    const holderData = await this.fetchHolderData(contractAddress, chain, previousSnapshot);
+    const holderData = await this.fetchHolderData(contractAddress, chain, comparisonSnapshot24h);
     
     // Fetch transaction activity
-    const activityData = await this.fetchActivityData(contractAddress, chain);
+    const activityData = this.extractActivityData(marketData);
 
     // Calculate trends and changes
     const trends = this.calculateTrends(marketData, holderData, activityData, previousSnapshot);
@@ -102,17 +105,17 @@ export class Pillar2MonitoringService {
       currentTier: listing.tier || null,
       
       // Market metrics
-      price: marketData.price || 0,
-      marketCap: marketData.marketCap || 0,
-      liquidity: marketData.liquidity || 0,
-      volume24h: marketData.volume24h || 0,
-      priceChange24h: marketData.priceChange24h || 0,
+      price: marketData.price ?? null,
+      marketCap: marketData.marketCap ?? null,
+      liquidity: marketData.liquidity ?? null,
+      volume24h: marketData.volume24h ?? null,
+      priceChange24h: marketData.priceChange24h ?? null,
       
       // Holder metrics
-      totalHolders: holderData.totalHolders || 0,
-      holderChange24h: holderData.holderChange24h || 0,
-      topHolderPct: holderData.topHolderPct || 0,
-      top10HoldersPct: holderData.top10HoldersPct || 0,
+      totalHolders: holderData.totalHolders ?? null,
+      holderChange24h: holderData.holderChange24h ?? null,
+      topHolderPct: holderData.topHolderPct ?? null,
+      top10HoldersPct: holderData.top10HoldersPct ?? null,
       
       // Activity metrics
       txns24h: activityData.txns24h || 0,
@@ -130,6 +133,7 @@ export class Pillar2MonitoringService {
         marketData,
         holderData,
         activityData,
+        comparisonSnapshotAt: comparisonSnapshot24h?.scannedAt ?? null,
       },
     };
   }
@@ -143,20 +147,25 @@ export class Pillar2MonitoringService {
       const response = await axios.get(url, { timeout: 5000 });
 
       if (response.data?.pairs && response.data.pairs.length > 0) {
-        const pair = response.data.pairs[0];
+        const pair = this.selectBestDexPair(response.data.pairs, contractAddress);
+        const txns = pair.txns?.h24 || {};
         return {
+          status: 'observed',
           price: parseFloat(pair.priceUsd || 0),
           marketCap: parseFloat(pair.marketCap || pair.fdv || 0),
           liquidity: parseFloat(pair.liquidity?.usd || 0),
           volume24h: parseFloat(pair.volume?.h24 || 0),
           priceChange24h: parseFloat(pair.priceChange?.h24 || 0),
+          buys24h: Number(txns.buys || 0),
+          sells24h: Number(txns.sells || 0),
+          pairAddress: pair.pairAddress || null,
         };
       }
 
-      return {};
+      return { status: 'unknown' };
     } catch (error: any) {
       this.logger.debug(`Market data fetch failed: ${error.message}`);
-      return {};
+      return { status: 'unknown', error: error.message };
     }
   }
 
@@ -170,7 +179,10 @@ export class Pillar2MonitoringService {
   ): Promise<any> {
     try {
       // Get current holder count
-      const totalHolders = await this.analyticsService.getHolderCount(contractAddress, chain) || 0;
+      const totalHolders = await this.analyticsService.getHolderCount(contractAddress, chain);
+      if (totalHolders === null) {
+        return { status: 'unknown' };
+      }
 
       // Calculate change from previous snapshot
       const holderChange24h = previousSnapshot
@@ -179,10 +191,11 @@ export class Pillar2MonitoringService {
 
       // TODO: Fetch top holders distribution (requires additional API calls)
       // For now, use placeholder values
-      const topHolderPct = 0; // Will be populated when we have top holders API
-      const top10HoldersPct = 0;
+      const topHolderPct = null;
+      const top10HoldersPct = null;
 
       return {
+        status: 'observed',
         totalHolders,
         holderChange24h,
         topHolderPct,
@@ -190,36 +203,42 @@ export class Pillar2MonitoringService {
       };
     } catch (error: any) {
       this.logger.debug(`Holder data fetch failed: ${error.message}`);
-      return {};
+      return { status: 'unknown', error: error.message };
     }
   }
 
   /**
    * Fetch transaction activity data
    */
-  private async fetchActivityData(contractAddress: string, chain: string): Promise<any> {
-    try {
-      // DexScreener provides transaction counts
-      const url = `https://api.dexscreener.com/latest/dex/tokens/${contractAddress}`;
-      const response = await axios.get(url, { timeout: 5000 });
-
-      if (response.data?.pairs && response.data.pairs.length > 0) {
-        const pair = response.data.pairs[0];
-        const txns = pair.txns || {};
-        
-        return {
-          txns24h: (txns.h24?.buys || 0) + (txns.h24?.sells || 0),
-          buys24h: txns.h24?.buys || 0,
-          sells24h: txns.h24?.sells || 0,
-          uniqueWallets24h: 0, // Not available from DexScreener
-        };
-      }
-
-      return {};
-    } catch (error: any) {
-      this.logger.debug(`Activity data fetch failed: ${error.message}`);
-      return {};
+  private extractActivityData(marketData: any): any {
+    if (marketData?.status !== 'observed') {
+      return { status: 'unknown' };
     }
+    const buys24h = Number(marketData.buys24h || 0);
+    const sells24h = Number(marketData.sells24h || 0);
+    return {
+      status: 'observed',
+      txns24h: buys24h + sells24h,
+      buys24h,
+      sells24h,
+      uniqueWallets24h: null,
+    };
+  }
+
+  private selectBestDexPair(pairs: any[], contractAddress: string): any {
+    const normalizedAddress = contractAddress.toLowerCase();
+    return [...pairs].sort((a, b) => {
+      const score = (pair: any) => {
+        const liquidity = Number(pair?.liquidity?.usd || 0);
+        const volume = Number(pair?.volume?.h24 || 0);
+        const txns = Number(pair?.txns?.h24?.buys || 0) + Number(pair?.txns?.h24?.sells || 0);
+        const base = String(pair?.baseToken?.address || '').toLowerCase();
+        const quote = String(pair?.quoteToken?.address || '').toLowerCase();
+        return Math.log10(liquidity + 1) * 10 + Math.log10(volume + 1) * 5 + txns +
+          (base === normalizedAddress || quote === normalizedAddress ? 100 : 0);
+      };
+      return score(b) - score(a);
+    })[0];
   }
 
   /**
@@ -278,6 +297,24 @@ export class Pillar2MonitoringService {
     }
   }
 
+  private async getSnapshotNear24HoursAgo(contractAddress: string): Promise<any> {
+    const target = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const lowerBound = new Date(target.getTime() - 3 * 60 * 60 * 1000);
+    const upperBound = new Date(target.getTime() + 3 * 60 * 60 * 1000);
+    try {
+      return await this.prisma.monitoringSnapshot.findFirst({
+        where: {
+          contractAddress,
+          scannedAt: { gte: lowerBound, lte: upperBound },
+        },
+        orderBy: { scannedAt: 'desc' },
+      });
+    } catch (error: any) {
+      this.logger.warn(`Failed to get 24-hour comparison snapshot: ${error.message}`);
+      return null;
+    }
+  }
+
   /**
    * Save monitoring snapshot to database
    */
@@ -299,19 +336,19 @@ export class Pillar2MonitoringService {
           contractAddress,
           scannedAt: monitoringData.scannedAt,
           currentTier: monitoringData.currentTier || null,
-          price: monitoringData.price || 0,
-          marketCap: monitoringData.marketCap || 0,
-          liquidity: monitoringData.liquidity || 0,
-          volume24h: monitoringData.volume24h || 0,
-          priceChange24h: monitoringData.priceChange24h || 0,
-          totalHolders: monitoringData.totalHolders || 0,
-          holderChange24h: monitoringData.holderChange24h || 0,
-          topHolderPct: monitoringData.topHolderPct || 0,
-          top10HoldersPct: monitoringData.top10HoldersPct || 0,
-          txns24h: monitoringData.txns24h || 0,
-          buys24h: monitoringData.buys24h || 0,
-          sells24h: monitoringData.sells24h || 0,
-          uniqueWallets24h: monitoringData.uniqueWallets24h || 0,
+          price: monitoringData.price ?? null,
+          marketCap: monitoringData.marketCap ?? null,
+          liquidity: monitoringData.liquidity ?? null,
+          volume24h: monitoringData.volume24h ?? null,
+          priceChange24h: monitoringData.priceChange24h ?? null,
+          totalHolders: monitoringData.totalHolders ?? null,
+          holderChange24h: monitoringData.holderChange24h ?? null,
+          topHolderPct: monitoringData.topHolderPct ?? null,
+          top10HoldersPct: monitoringData.top10HoldersPct ?? null,
+          txns24h: monitoringData.txns24h ?? null,
+          buys24h: monitoringData.buys24h ?? null,
+          sells24h: monitoringData.sells24h ?? null,
+          uniqueWallets24h: monitoringData.uniqueWallets24h ?? null,
           liquidityTrend: monitoringData.liquidityTrend || 'stable',
           holderTrend: monitoringData.holderTrend || 'stable',
           activityTrend: monitoringData.activityTrend || 'stable',
@@ -322,8 +359,7 @@ export class Pillar2MonitoringService {
       return snapshot;
     } catch (error: any) {
       this.logger.error(`Failed to save snapshot: ${error.message}`);
-      // Don't throw here to prevent monitoring process from crashing the app
-      return null;
+      throw error;
     }
   }
 
@@ -340,7 +376,12 @@ export class Pillar2MonitoringService {
     const alerts: any[] = [];
 
     // Alert: Significant liquidity drop (>20% in 24h)
-    if (previousSnapshot.liquidity && currentData.liquidity) {
+    if (
+      previousSnapshot.liquidity !== null &&
+      previousSnapshot.liquidity > 0 &&
+      currentData.liquidity !== null &&
+      currentData.rawData?.marketData?.status === 'observed'
+    ) {
       const liquidityDrop = ((previousSnapshot.liquidity - currentData.liquidity) / previousSnapshot.liquidity) * 100;
       if (liquidityDrop > 20) {
         alerts.push({
@@ -353,7 +394,12 @@ export class Pillar2MonitoringService {
     }
 
     // Alert: Significant holder loss (>10% in 24h)
-    if (previousSnapshot.totalHolders && currentData.totalHolders) {
+    if (
+      previousSnapshot.totalHolders !== null &&
+      previousSnapshot.totalHolders > 0 &&
+      currentData.totalHolders !== null &&
+      currentData.rawData?.holderData?.status === 'observed'
+    ) {
       const holderLoss = ((previousSnapshot.totalHolders - currentData.totalHolders) / previousSnapshot.totalHolders) * 100;
       if (holderLoss > 10) {
         alerts.push({
@@ -366,7 +412,7 @@ export class Pillar2MonitoringService {
     }
 
     // Alert: Price crash (>30% in 24h)
-    if (currentData.priceChange24h < -30) {
+    if (currentData.rawData?.marketData?.status === 'observed' && currentData.priceChange24h < -30) {
       alerts.push({
         severity: 'high',
         triggerType: 'price_crash',
@@ -386,6 +432,15 @@ export class Pillar2MonitoringService {
         });
 
         if (listing) {
+          const duplicate = await alertClient?.findFirst({
+            where: {
+              contractAddress,
+              triggerType: alert.triggerType,
+              resolved: false,
+              createdAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
+            },
+          });
+          if (duplicate) continue;
           // Create alert using Prisma model
           try {
             await alertClient?.create({

@@ -7,6 +7,7 @@ import { XpService } from '../xp/xp.service';
 import { EmailService } from '../email/email.service';
 import { CreateMarketplaceAdDto } from './dto/create-marketplace-ad.dto';
 import { UpdateMarketplaceAdDto } from './dto/update-marketplace-ad.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type PricingBreakdown = {
   baseCategory: number;
@@ -16,7 +17,7 @@ type PricingBreakdown = {
   missingCategoryPrice: boolean;
 };
 
-type MarketplaceAdDurationMode = 'SINGULAR' | 'RECURRING';
+type MarketplaceAdDurationMode = 'SINGULAR';
 
 @Injectable()
 export class MarketplaceService {
@@ -38,6 +39,7 @@ export class MarketplaceService {
     private readonly pricingService: MarketplacePricingService,
     private readonly xpService: XpService,
     private readonly emailService: EmailService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async resolveUserId(userIdOrSub: unknown, email?: string | null) {
@@ -60,11 +62,7 @@ export class MarketplaceService {
   }
 
   private normalizeDurationMode(mode?: string | null): MarketplaceAdDurationMode {
-    return String(mode || 'SINGULAR').toUpperCase() === 'RECURRING' ? 'RECURRING' : 'SINGULAR';
-  }
-
-  private isRecurringAd(ad: { durationMode?: string | null }) {
-    return this.normalizeDurationMode(ad.durationMode) === 'RECURRING';
+    return 'SINGULAR';
   }
 
   private maxImagesForTier(tier: string) {
@@ -78,17 +76,32 @@ export class MarketplaceService {
     }
   }
 
+  private validateChainTags(tags: string[], multiChainTag: boolean) {
+    const supportedChainTags = new Set([
+      'aptos', 'solana', 'ethereum', 'base', 'polygon', 'bsc', 'sui', 'ton', 'evm', 'multi-chain',
+    ]);
+    const selectedChains = new Set(
+      tags.map((tag) => tag.trim().toLowerCase()).filter((tag) => supportedChainTags.has(tag)),
+    );
+    if ((selectedChains.size > 1 || selectedChains.has('multi-chain')) && !multiChainTag) {
+      throw new BadRequestException('Select the Multi-Chain Tag Unlock add-on to use multiple blockchain tags');
+    }
+  }
+
   private buildPricingBreakdown(ad: any, pricing: Awaited<ReturnType<MarketplacePricingService['getPricingMap']>>): PricingBreakdown {
-    // Category/role pricing is not charged. Only tier + add-ons apply.
-    const baseCategory = 0;
-    const tier = pricing.tier.get(ad.tier) ?? 0;
+    const subcategoryPrice = ad.subCategory
+      ? pricing.subcategory.get(`${ad.category}:${ad.subCategory}`)
+      : undefined;
+    const categoryPrice = pricing.category.get(ad.category);
+    const resolvedBasePrice = subcategoryPrice ?? categoryPrice;
+    const baseCategory = resolvedBasePrice ?? 0;
+    // FREE / PLUS / PREMIUM are retained only for legacy display/image limits.
+    // They are not stacked on top of category pricing.
+    const tier = 0;
     let addOns = 0;
 
     if (ad.featuredPlacement) addOns += pricing.addon.get('FEATURED_PLACEMENT') ?? 0;
     if (ad.homepageSpotlight) addOns += pricing.addon.get('HOMEPAGE_SPOTLIGHT') ?? 0;
-    if (ad.topOfDayDays === 1) addOns += pricing.addon.get('TOP_OF_DAY_1') ?? 0;
-    if (ad.topOfDayDays === 3) addOns += pricing.addon.get('TOP_OF_DAY_3') ?? 0;
-    if (ad.topOfDayDays === 7) addOns += pricing.addon.get('TOP_OF_DAY_7') ?? 0;
     if (ad.autoBumpDays === 1) addOns += pricing.addon.get('AUTO_BUMP_1') ?? 0;
     if (ad.autoBumpDays === 3) addOns += pricing.addon.get('AUTO_BUMP_3') ?? 0;
     if (ad.autoBumpDays === 7) addOns += pricing.addon.get('AUTO_BUMP_7') ?? 0;
@@ -100,13 +113,14 @@ export class MarketplaceService {
       tier,
       addOns,
       total: baseCategory + tier + addOns,
-      missingCategoryPrice: false,
+      missingCategoryPrice: resolvedBasePrice === undefined,
     };
   }
 
   async getPricing() {
     const rows = await this.pricingService.getActivePricing();
-    return { success: true, items: rows };
+    const catalog = await this.pricingService.getCatalog();
+    return { success: true, items: rows, ...catalog };
   }
 
   async createDraft(userIdOrSub: unknown, dto: CreateMarketplaceAdDto, email?: string | null) {
@@ -116,13 +130,25 @@ export class MarketplaceService {
     const durationMode = this.normalizeDurationMode(dto.durationMode);
     const images = this.normalizeImages(dto.images);
     this.validateImages(tier, images);
+    this.validateChainTags(dto.tags || [], Boolean(dto.multiChainTag));
+    const selection = await this.pricingService.resolveSelection(dto.category, dto.subCategory);
+    const postType = this.pricingService.normalizePostType(
+      dto.postType,
+      selection.postTypes,
+      selection.defaultPostType,
+    );
+    const pricing = await this.pricingService.getPricingMap();
+    const pricingBreakdown = this.buildPricingBreakdown(
+      { ...dto, category: selection.categoryId, subCategory: selection.subcategoryId, tier },
+      pricing,
+    );
 
     const created = await this.prisma.marketplaceAd.create({
       data: {
         userId,
-        postType: (dto.postType as any) || 'LOOKING_FOR',
-        category: dto.category,
-        subCategory: dto.subCategory ?? null,
+        postType: postType as any,
+        category: selection.categoryId,
+        subCategory: selection.subcategoryId,
         title: dto.title,
         description: dto.description,
         tags: dto.tags ?? [],
@@ -142,6 +168,10 @@ export class MarketplaceService {
         urgentTag: dto.urgentTag ?? false,
         multiChainTag: dto.multiChainTag ?? false,
         status: 'DRAFT',
+        totalPrice: pricingBreakdown.total,
+        baseListingFeeUsd: pricingBreakdown.baseCategory,
+        addOnsFeeUsd: pricingBreakdown.addOns,
+        pricingVersion: '2026-08-09',
       },
       include: {
         user: {
@@ -165,13 +195,40 @@ export class MarketplaceService {
     const durationMode = this.normalizeDurationMode((dto.durationMode ?? (found as any).durationMode) as string);
     const images = this.normalizeImages(dto.images ?? (found.images as string[] | undefined));
     this.validateImages(tier, images);
+    this.validateChainTags(
+      dto.tags ?? (found.tags as string[] | undefined) ?? [],
+      Boolean(dto.multiChainTag ?? found.multiChainTag),
+    );
+    const categoryInput = dto.category ?? found.category;
+    const subcategoryInput = dto.subCategory !== undefined
+      ? dto.subCategory
+      : dto.category && dto.category !== found.category
+        ? null
+        : found.subCategory;
+    const selection = await this.pricingService.resolveSelection(categoryInput, subcategoryInput);
+    const postType = this.pricingService.normalizePostType(
+      dto.postType ?? found.postType,
+      selection.postTypes,
+      selection.defaultPostType,
+    );
+    const pricing = await this.pricingService.getPricingMap();
+    const pricingBreakdown = this.buildPricingBreakdown(
+      {
+        ...found,
+        ...dto,
+        category: selection.categoryId,
+        subCategory: selection.subcategoryId,
+        tier,
+      },
+      pricing,
+    );
 
     const updated = await this.prisma.marketplaceAd.update({
       where: { id },
       data: {
-        postType: (dto.postType as any) ?? found.postType,
-        category: dto.category ?? found.category,
-        subCategory: dto.subCategory ?? found.subCategory,
+        postType: postType as any,
+        category: selection.categoryId,
+        subCategory: selection.subcategoryId,
         title: dto.title ?? found.title,
         description: dto.description ?? found.description,
         tags: dto.tags ?? (found.tags as any),
@@ -190,6 +247,10 @@ export class MarketplaceService {
         autoBumpDays: dto.autoBumpDays ?? found.autoBumpDays,
         urgentTag: dto.urgentTag ?? found.urgentTag,
         multiChainTag: dto.multiChainTag ?? found.multiChainTag,
+        totalPrice: pricingBreakdown.total,
+        baseListingFeeUsd: pricingBreakdown.baseCategory,
+        addOnsFeeUsd: pricingBreakdown.addOns,
+        pricingVersion: '2026-08-09',
       },
       include: {
         user: {
@@ -221,11 +282,21 @@ export class MarketplaceService {
     const skip = (page - 1) * limit;
     const now = new Date();
 
+    let category = params.category;
+    let subCategory = params.subCategory;
+    if (category && subCategory) {
+      const selection = await this.pricingService.resolveSelection(category, subCategory);
+      category = selection.categoryId;
+      subCategory = selection.subcategoryId ?? undefined;
+    } else if (category) {
+      category = await this.pricingService.resolveCategoryId(category);
+    }
+
     const where: any = {
       status: 'PUBLISHED',
       OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      ...(params.category ? { category: params.category } : {}),
-      ...(params.subCategory ? { subCategory: params.subCategory } : {}),
+      ...(category ? { category } : {}),
+      ...(subCategory ? { subCategory } : {}),
     };
 
     const [total, items] = await this.prisma.$transaction([
@@ -233,9 +304,9 @@ export class MarketplaceService {
       this.prisma.marketplaceAd.findMany({
         where,
         orderBy: [
-          { featuredUntil: 'desc' },
           { homepageSpotlight: 'desc' },
           { featuredPlacement: 'desc' },
+          { lastBumpedAt: { sort: 'desc', nulls: 'last' } },
           { publishedAt: 'desc' },
         ],
         skip,
@@ -249,6 +320,23 @@ export class MarketplaceService {
     ]);
 
     return { page, limit, total, items };
+  }
+
+  async listHomepageSpotlight(limitInput = 12) {
+    const now = new Date();
+    const limit = Math.min(Math.max(limitInput || 12, 1), 50);
+    const items = await this.prisma.marketplaceAd.findMany({
+      where: {
+        status: 'PUBLISHED',
+        homepageSpotlight: true,
+        spotlightUntil: { gt: now },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      orderBy: [{ lastBumpedAt: { sort: 'desc', nulls: 'last' } }, { publishedAt: 'desc' }],
+      take: limit,
+      include: { user: { select: this.adUserSelect } },
+    });
+    return { success: true, items };
   }
 
   async listTrending(params: { page?: number; limit?: number }) {
@@ -479,7 +567,12 @@ export class MarketplaceService {
 
     await this.prisma.marketplaceAd.update({
       where: { id },
-      data: { totalPrice: breakdown.total },
+      data: {
+        totalPrice: breakdown.total,
+        baseListingFeeUsd: breakdown.baseCategory,
+        addOnsFeeUsd: breakdown.addOns,
+        pricingVersion: '2026-08-09',
+      },
     });
 
     const requestedPaymentChain = (paymentChain || '').toString().toUpperCase();
@@ -498,14 +591,14 @@ export class MarketplaceService {
     };
   }
 
-  async verifyPayment(paymentId: string, txHash: string) {
+  async verifyPayment(userId: number, paymentId: string, txHash: string) {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
     const chain = (payment.metadata as any)?.chain || (payment as any)?.chain || '';
     if (String(chain).toUpperCase() === 'SOLANA') {
-      return this.solanaPaymentService.verifyMarketplaceAdPayment(paymentId, txHash);
+      return this.solanaPaymentService.verifyMarketplaceAdPayment(paymentId, txHash, userId);
     }
-    return this.movementPaymentService.verifyMarketplaceAdPayment(paymentId, txHash);
+    return this.movementPaymentService.verifyMarketplaceAdPayment(paymentId, txHash, userId);
   }
 
   async markSold(userIdOrSub: unknown, id: string, email?: string | null) {
@@ -569,14 +662,6 @@ export class MarketplaceService {
     if (!ad) throw new NotFoundException('Ad not found');
     if (ad.userId !== userId) throw new ForbiddenException('Not your ad');
 
-    if (this.isRecurringAd(ad)) {
-      return {
-        success: true,
-        data: ad,
-        message: 'Recurring ads stay open until you close them manually.',
-      };
-    }
-
     if (ad.status !== 'PUBLISHED') {
       throw new BadRequestException('Only published ads can be extended');
     }
@@ -584,12 +669,25 @@ export class MarketplaceService {
     const pricing = await this.pricingService.getPricingMap();
     const breakdown = this.buildPricingBreakdown(ad, pricing);
 
-    const canFreeExtend = ad.tier === 'FREE' && (ad.extendedCount ?? 0) < this.freeExtensionLimit;
+    const canFreeExtend = breakdown.baseCategory === 0 && (ad.extendedCount ?? 0) < this.freeExtensionLimit;
     if (!canFreeExtend) {
+      const extensionPrice = await this.prisma.marketplacePricing.findUnique({
+        where: { kind_key: { kind: 'ADDON', key: 'PAID_EXTENSION' } },
+      });
+      if (!extensionPrice?.active || extensionPrice.amount <= 0) {
+        return {
+          success: false,
+          requiresPayment: true,
+          requiresPricingConfiguration: true,
+          amount: null,
+          currency: 'USDC',
+          message: 'Paid extension pricing has not been approved yet.',
+        };
+      }
       return {
         success: false,
         requiresPayment: true,
-        amount: breakdown.baseCategory + breakdown.tier,
+        amount: extensionPrice.amount,
         currency: 'USDC',
         message: 'Free extensions exhausted. Payment required to extend this ad.',
       };
@@ -620,13 +718,32 @@ export class MarketplaceService {
     const candidates = await this.prisma.marketplaceAd.findMany({
       where: {
         status: 'PUBLISHED',
-        durationMode: 'SINGULAR',
-        expiresAt: { lte: noticeDate },
+        expiresAt: { gt: now, lte: noticeDate },
         expiryNoticeSentAt: null,
       },
+      include: { user: { select: { id: true, email: true, name: true } } },
     });
 
     if (!candidates.length) return { success: true, notified: 0 };
+
+    await Promise.allSettled(candidates.map(async (ad) => {
+      if (ad.user?.email && ad.expiresAt) {
+        await this.emailService.sendMarketplaceAdExpiryEmail({
+          to: ad.user.email,
+          userName: ad.user.name,
+          adId: ad.id,
+          adTitle: ad.title,
+          expiresAt: ad.expiresAt,
+        });
+      }
+      await this.notifications.createNotification({
+        userId: ad.userId,
+        type: 'SYSTEM',
+        title: 'Marketplace ad expires in 7 days',
+        body: `Your ad "${ad.title}" expires soon. Extend it or mark it no longer available.`,
+        data: { marketplaceAdId: ad.id, expiresAt: ad.expiresAt },
+      });
+    }));
 
     await this.prisma.marketplaceAd.updateMany({
       where: {
@@ -644,7 +761,6 @@ export class MarketplaceService {
     const expiring = await this.prisma.marketplaceAd.updateMany({
       where: {
         status: 'PUBLISHED',
-        durationMode: 'SINGULAR',
         expiresAt: { lte: now },
       },
       data: { status: 'EXPIRED' },
@@ -673,5 +789,35 @@ export class MarketplaceService {
     }
 
     return { success: true, deleted: result.count };
+  }
+
+  async updatePricing(kind: string, key: string, update: any) {
+    const data = await this.pricingService.updatePricing(kind, key, update);
+    return { success: true, data };
+  }
+
+  async applyAutoBumps() {
+    const now = new Date();
+    const candidates = await this.prisma.marketplaceAd.findMany({
+      where: {
+        status: 'PUBLISHED',
+        nextAutoBumpAt: { lte: now },
+        autoBumpEndsAt: { gte: now },
+      },
+      take: 200,
+      orderBy: { nextAutoBumpAt: 'asc' },
+    });
+
+    for (const ad of candidates) {
+      const next = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      await this.prisma.marketplaceAd.update({
+        where: { id: ad.id },
+        data: {
+          lastBumpedAt: now,
+          nextAutoBumpAt: ad.autoBumpEndsAt && next <= ad.autoBumpEndsAt ? next : null,
+        },
+      });
+    }
+    return { success: true, bumped: candidates.length };
   }
 }
