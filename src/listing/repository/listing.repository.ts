@@ -10,7 +10,7 @@ export class ListingRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async findListings(query: ListingQueryDto) {
-    const { q, chain, category, tier, approved, minRisk, maxRisk, minLpBurned, maxTop10Holders, mintAuthDisabled, noRaiding, sort = 'updatedAt:desc', page = 1, limit = 20 } = query as any;
+    const { q, chain, category, tier, minRisk, maxRisk, minLpBurned, maxTop10Holders, mintAuthDisabled, noRaiding, sort = 'updatedAt:desc', page = 1, limit = 20 } = query as any;
 
     const where: any = {};
     if (q) {
@@ -23,14 +23,14 @@ export class ListingRepository {
     if (chain) where.chain = chain;
     if (category) where.category = category;
     if (tier) where.tier = tier;
-    if (approved === true) {
-      where.AND = [
-        ...(where.AND ?? []),
-        { vetted: true },
-        { tier: { not: null } },
-        { tier: { not: 'unclassified' } },
-      ];
-    }
+    // This is the public marketplace feed. Draft, unvetted, and unclassified
+    // records remain available through owner/admin workflows only.
+    where.AND = [
+      ...(where.AND ?? []),
+      { vetted: true },
+      { tier: { not: null } },
+      { tier: { notIn: ['unclassified', 'UNCLASSIFIED', 'unqualified', 'UNQUALIFIED', 'none', 'NONE'] } },
+    ];
     if (minRisk !== undefined || maxRisk !== undefined) {
       where.riskScore = {};
       if (minRisk !== undefined) where.riskScore.gte = Number(minRisk);

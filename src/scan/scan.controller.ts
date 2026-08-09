@@ -23,6 +23,7 @@ import { ScanRequestDto, BatchScanRequestDto } from './dto/scan-request.dto';
 import { ScanResultDto, BatchScanResponseDto } from './dto/scan-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RateLimiterGuard } from '../listing/services/rate-limiter.guard';
+import { Pillar1RiskScoringService } from '../services/pillar1-risk-scoring.service';
 
 @ApiTags('Token Scanning')
 @Controller('scan')
@@ -61,13 +62,14 @@ export class ScanController {
         orderBy: { createdAt: 'desc' },
       });
 
-      if (recentScan?.resultData) {
+      if (
+        recentScan?.resultData &&
+        recentScan.scoringVersion === Pillar1RiskScoringService.SCORING_VERSION
+      ) {
         const stored = recentScan.resultData as any;
         const riskScore = stored?.risk_score ?? recentScan.riskScore ?? null;
         const tier = stored?.tier ?? recentScan.tier ?? null;
-        const eligible =
-          stored?.eligible ??
-          (typeof riskScore === 'number' ? riskScore >= 50 : false);
+        const eligible = stored?.eligible === true;
         const summary = stored?.summary ?? recentScan.summary ?? null;
         const riskLevel = stored?.risk_level ?? null;
         const metadata = stored?.metadata ?? stored;

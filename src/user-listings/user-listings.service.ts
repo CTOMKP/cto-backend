@@ -6,6 +6,7 @@ import { UpdateUserListingDto } from './dto/update-user-listing.dto';
 import { CreateAdBoostDto } from './dto/ad-boost.dto';
 import { ScanDto } from './dto/scan.dto';
 import { ScanService } from '../scan/services/scan.service';
+import { Pillar1RiskScoringService } from '../services/pillar1-risk-scoring.service';
 import { XpService } from '../xp/xp.service';
 import { EmailService } from '../email/email.service';
 
@@ -105,14 +106,18 @@ export class UserListingsService {
           })
         : null;
 
-      if (recentScan?.resultData) {
+      const cachedResult = recentScan?.resultData as any;
+      const cachedScoringVersion =
+        cachedResult?.metadata?.vetting_results?.scoringVersion ??
+        cachedResult?.vetting_results?.scoringVersion;
+      if (
+        recentScan?.resultData &&
+        cachedScoringVersion === Pillar1RiskScoringService.SCORING_VERSION
+      ) {
         const stored = recentScan.resultData as any;
         const riskScore = stored?.risk_score ?? recentScan.riskScore ?? 0;
-        const tier = stored?.tier ?? recentScan.tier ?? 'Seed';
-        const eligible =
-          stored?.eligible ??
-          (typeof riskScore === 'number' &&
-            riskScore >= minQualifyingScore);
+        const tier = stored?.tier ?? recentScan.tier ?? 'unclassified';
+        const eligible = stored?.eligible === true;
 
         const metadata = stored?.metadata ?? stored;
         const summary = stored?.summary ?? recentScan.summary ?? null;
@@ -141,7 +146,7 @@ export class UserListingsService {
       const result = await this.scanService.scanToken(dto.contractAddr, userId, chain as any);
 
       const score = result?.risk_score ?? 0; // higher is better (score range: 0-100, higher = safer)
-      const tier = result?.tier ?? 'Seed';
+      const tier = result?.tier ?? 'unclassified';
       const metadata = result?.metadata ?? null;
       const summary = result?.summary ?? null;
       const riskLevel = result?.risk_level ?? null;

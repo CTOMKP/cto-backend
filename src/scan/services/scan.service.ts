@@ -85,7 +85,12 @@ export class ScanService {
 
       // Transform to Pillar 1 Vetting Data format (Same as RefreshWorker)
       const vettingData = this.transformToVettingData(contractAddress, tokenData, 'SOLANA');
-      const hasReliableAge = Number.isFinite(Number(tokenData.project_age_days));
+      const hasReliableAge =
+        tokenData.age_data_status === 'observed' &&
+        tokenData.project_age_days !== null &&
+        tokenData.project_age_days !== undefined &&
+        Number.isFinite(Number(tokenData.project_age_days)) &&
+        Number(tokenData.project_age_days) >= 0;
       const creationDate =
         tokenData.creation_date ??
         (hasReliableAge
@@ -133,6 +138,12 @@ export class ScanService {
           age_display_short: hasReliableAge ? formatTokenAgeShort(Number(tokenData.project_age_days)) : 'Age unavailable',
           creation_date: creationDate ?? null,
           lp_amount_usd: vettingData.trading.liquidity,
+          lp_lock_months: tokenData.lp_lock_months ?? null,
+          lp_burned: tokenData.lp_burned ?? null,
+          lp_locked: tokenData.lp_locked ?? null,
+          lp_lock_data_status: tokenData.lp_lock_data_status ?? 'unknown',
+          lock_contract: tokenData.lock_contract ?? null,
+          lock_analysis: tokenData.lock_analysis ?? null,
           token_price: vettingData.trading.price,
           volume_24h: vettingData.trading.volume24h,
           market_cap: vettingData.trading.fdv,
@@ -390,7 +401,13 @@ export class ScanService {
             };
           }
           const logoUrl = (tokenData as any).icon || (tokenData as any).image || null;
-          if (Number.isFinite(Number(tokenData.project_age_days)) && Number(tokenData.project_age_days) < 14) {
+          const hasReliableAge =
+            tokenData.age_data_status === 'observed' &&
+            tokenData.project_age_days !== null &&
+            tokenData.project_age_days !== undefined &&
+            Number.isFinite(Number(tokenData.project_age_days)) &&
+            Number(tokenData.project_age_days) >= 0;
+          if (hasReliableAge && Number(tokenData.project_age_days) < 14) {
             const ageDisplay = formatTokenAge(tokenData.project_age_days);
             return {
               contractAddress,
@@ -465,9 +482,9 @@ export class ScanService {
               logo_url: logoUrl,
               chain: 'SOLANA',
               community_score: null,
-	              project_age_days: Number.isFinite(Number(tokenData.project_age_days)) ? Number(tokenData.project_age_days) : null,
-	              age_display: Number.isFinite(Number(tokenData.project_age_days)) ? formatTokenAge(Number(tokenData.project_age_days)) : 'Age unavailable',
-	              age_display_short: Number.isFinite(Number(tokenData.project_age_days)) ? formatTokenAgeShort(Number(tokenData.project_age_days)) : 'Age unavailable',
+              project_age_days: hasReliableAge ? Number(tokenData.project_age_days) : null,
+              age_display: hasReliableAge ? formatTokenAge(Number(tokenData.project_age_days)) : 'Age unavailable',
+              age_display_short: hasReliableAge ? formatTokenAgeShort(Number(tokenData.project_age_days)) : 'Age unavailable',
               creation_date: tokenData.creation_date,
               lp_amount_usd: tokenData.lp_amount_usd,
 	              token_price: tokenData.token_price,
@@ -486,6 +503,7 @@ export class ScanService {
               lp_lock_months: tokenData.lp_lock_months,
               lp_burned: tokenData.lp_burned,
               lp_locked: tokenData.lp_locked,
+              lp_lock_data_status: tokenData.lp_lock_data_status ?? 'unknown',
               lock_contract: tokenData.lock_analysis,
               lock_analysis: tokenData.lock_analysis,
               largest_lp_holder: tokenData.largest_lp_holder,
@@ -767,6 +785,14 @@ export class ScanService {
 
     // Create image URL (fallback to identicon if not available)
     const imageUrl = (tokenData as any).icon || (tokenData as any).image || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(contractAddress)}`;
+    const projectAgeDays =
+      tokenData.age_data_status === 'observed' &&
+      tokenData.project_age_days !== null &&
+      tokenData.project_age_days !== undefined &&
+      Number.isFinite(Number(tokenData.project_age_days)) &&
+      Number(tokenData.project_age_days) >= 0
+        ? Math.floor(Number(tokenData.project_age_days))
+        : null;
 
     return {
       contractAddress,
@@ -812,9 +838,7 @@ export class ScanService {
         fdv: Number(tokenData.market_cap || 0),
         holderCount: tokenData.holder_count || tokenData.total_holders || 0,
       },
-      tokenAge: Number.isFinite(Number(tokenData.project_age_days))
-        ? Math.max(0, Math.floor(Number(tokenData.project_age_days)))
-        : null,
+      tokenAge: projectAgeDays,
       evidence: {
         authorities: authorityObserved ? 'observed' : 'unknown',
         holderDistribution: tokenData.holder_data_status === 'observed' && topHolders.length > 0

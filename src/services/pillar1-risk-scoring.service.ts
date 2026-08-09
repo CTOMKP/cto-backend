@@ -94,7 +94,7 @@ export interface VettingResults {
 @Injectable()
 export class Pillar1RiskScoringService {
   private readonly logger = new Logger(Pillar1RiskScoringService.name);
-  static readonly SCORING_VERSION = 'pillar1-solana-v2';
+  static readonly SCORING_VERSION = 'pillar1-solana-v3';
 
   /**
    * Calculate comprehensive risk score for a token
@@ -129,8 +129,12 @@ export class Pillar1RiskScoringService {
       (typeof security?.isMintable === 'boolean' && typeof security?.isFreezable === 'boolean');
     const hasLiquidityVerification = evidence.liquidity === 'observed' ||
       (Number.isFinite(Number(trading?.liquidity)) && Number(trading?.liquidity) > 0);
+    const hasNumericTokenAge = tokenAge !== null &&
+      tokenAge !== undefined &&
+      Number.isFinite(Number(tokenAge)) &&
+      Number(tokenAge) >= 0;
     const hasReliableAge = evidence.tokenAge === 'observed' ||
-      (Number.isFinite(Number(tokenAge)) && Number(tokenAge) >= 0);
+      (evidence.tokenAge === undefined && hasNumericTokenAge);
 
     // These three inputs are the minimum evidence needed to publish a score.
     const missingCriticalData: string[] = [];
@@ -272,7 +276,7 @@ export class Pillar1RiskScoringService {
    */
   private calculateDistributionScore(
     holders: TokenVettingData['holders'],
-    tokenAge: number
+    tokenAge: number | null
   ): ComponentScore {
     let score = 100;
     const flags: string[] = [];
@@ -369,7 +373,7 @@ export class Pillar1RiskScoringService {
   private calculateLiquidityScore(
     security: TokenVettingData['security'],
     trading: TokenVettingData['trading'],
-    tokenAge: number
+    tokenAge: number | null
   ): ComponentScore {
     let score = 100;
     const flags: string[] = [];
@@ -433,7 +437,7 @@ export class Pillar1RiskScoringService {
    */
   private calculateDevAbandonmentScore(
     developer: TokenVettingData['developer'],
-    tokenAge: number
+    tokenAge: number | null
   ): ComponentScore {
     let score = 100;
     const flags: string[] = [];
@@ -481,10 +485,11 @@ export class Pillar1RiskScoringService {
     }
 
     // Token age requirements for community tokens
-    if (tokenAge < 14) {
+    const hasReliableAge = tokenAge !== null && Number.isFinite(tokenAge);
+    if (hasReliableAge && tokenAge < 14) {
       score -= 40;
       flags.push(`Token only ${tokenAge} days old (<14 days required for community tokens)`);
-    } else if (tokenAge >= 30) {
+    } else if (hasReliableAge && tokenAge >= 30) {
       flags.push(`Token ${tokenAge} days old (good maturity) OK`);
     }
 
