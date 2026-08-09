@@ -89,6 +89,38 @@ export class UserListingsService {
     return raw;
   }
 
+  private async requireCurrentEligibleScan(contractAddr: string, chain: string) {
+    const scanChain = chain === 'EVM' ? 'ETHEREUM' : chain;
+    const recentScan = await (this.prisma as any).scanResult.findFirst({
+      where: {
+        contractAddress: contractAddr,
+        chain: scanChain,
+        status: 'COMPLETED',
+        scoringVersion: Pillar1RiskScoringService.SCORING_VERSION,
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const result = recentScan?.resultData as any;
+    const tier = String(result?.tier ?? recentScan?.tier ?? '').trim().toLowerCase();
+    const score = Number(result?.risk_score ?? recentScan?.riskScore);
+    const disallowedTiers = new Set(['', 'none', 'unclassified', 'unqualified']);
+
+    if (
+      !recentScan ||
+      result?.eligible !== true ||
+      disallowedTiers.has(tier) ||
+      !Number.isFinite(score)
+    ) {
+      throw new BadRequestException(
+        'A current eligible vetting result is required. Run the token scan again and resolve all mandatory evidence requirements.',
+      );
+    }
+
+    return { score, tier };
+  }
+
   async scan(userId: number | undefined, dto: ScanDto) {
     const chain = dto.chain || 'SOLANA';
     const minQualifyingScore = this.getMinQualifyingScore(chain);
@@ -100,6 +132,7 @@ export class UserListingsService {
         ? await (this.prisma as any).scanResult.findFirst({
             where: {
               contractAddress: dto.contractAddr,
+              chain: chain === 'EVM' ? 'ETHEREUM' : chain,
               createdAt: { gte: new Date(now - cacheWindowMs) },
             },
             orderBy: { createdAt: 'desc' },
@@ -227,12 +260,9 @@ export class UserListingsService {
       throw new BadRequestException('This token has already been listed and cannot be re-listed.');
     }
 
-    // Validate that vetting score meets minimum requirement (>= 50)
-    const minQualifyingScore = this.getMinQualifyingScore(normalizedChain);
-    const vettingScore = dto.vettingScore ?? 0;
-    if (vettingScore < minQualifyingScore) {
-      throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${minQualifyingScore}`);
-    }
+    // Never trust a client-submitted score or tier. Only a current, versioned,
+    // backend scan can authorize creation of a listing draft.
+    const eligibleScan = await this.requireCurrentEligibleScan(normalizedContractAddr, normalizedChain);
 
     const created = await this.prisma.userListing.create({
       data: {
@@ -246,8 +276,8 @@ export class UserListingsService {
         bannerUrl: dto.bannerUrl,
         links: dto.links as any,
         status: 'DRAFT',
-        vettingTier: dto.vettingTier,
-        vettingScore: dto.vettingScore,
+        vettingTier: eligibleScan.tier,
+        vettingScore: eligibleScan.score,
       },
     });
     return { success: true, data: created };
@@ -268,8 +298,9 @@ export class UserListingsService {
         logoUrl: dto.logoUrl ?? found.logoUrl ?? null,
         bannerUrl: dto.bannerUrl ?? found.bannerUrl ?? null,
         links: (dto.links as any) ?? (found.links as any) ?? null,
-        vettingTier: dto.vettingTier ?? found.vettingTier,
-        vettingScore: dto.vettingScore ?? found.vettingScore,
+        // Vetting fields are server-owned and cannot be overwritten by clients.
+        vettingTier: found.vettingTier,
+        vettingScore: found.vettingScore,
       },
     });
     return { success: true, data: updated };
@@ -282,12 +313,9 @@ export class UserListingsService {
 
     // minimal validation before publish
     if (!found.title || !found.description) throw new BadRequestException('Missing required fields');
-    // Validate that vetting score still meets minimum requirement (>= 50)
-    const minQualifyingScore = this.getMinQualifyingScore(found.chain);
-    const vettingScore = found.vettingScore ?? 0;
-    if (vettingScore < minQualifyingScore) {
-      throw new BadRequestException(`Token does not meet minimum risk score requirement. Score: ${vettingScore}, Minimum required: ${minQualifyingScore}`);
-    }
+    // Revalidate against a current backend-owned scan before accepting payment
+    // state and moving the listing into the approval queue.
+    await this.requireCurrentEligibleScan(found.contractAddr, this.normalizeChain(found.chain));
 
     // ⚠️ CRITICAL: Check if payment has been made before publishing
     const payment = await this.prisma.payment.findFirst({
