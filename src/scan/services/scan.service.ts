@@ -105,8 +105,8 @@ export class ScanService {
       const hasEligibleTier = vettingResults.eligibleTier !== 'none';
       const eligible = vettingResults.dataSufficient && vettingResults.overallScore !== null && hasEligibleTier;
       const inconclusiveReason = !vettingResults.dataSufficient
-        ? `Insufficient data to calculate risk score. Missing: ${vettingResults.missingData.join(', ')}`
-        : `Token does not meet a verified listing tier. Missing or unmet requirements: ${vettingResults.missingData.join(', ') || 'tier policy'}`;
+        ? `Provisional risk score ${vettingResults.overallScore}/100 after missing-evidence penalties. Missing verified evidence: ${vettingResults.missingData.join(', ')}`
+        : `Token does not meet a verified listing tier. Unmet requirements: ${vettingResults.unmetRequirements.join(', ') || 'tier policy'}`;
 
       // Map risk level to uppercase string
       const riskLevelMap: Record<string, string> = {
@@ -129,6 +129,9 @@ export class ScanService {
         risk_score: vettingResults.overallScore,
         risk_level: riskLevel,
         eligible,
+        provisional: !vettingResults.dataSufficient,
+        provisional_reason: vettingResults.dataSufficient ? null : inconclusiveReason,
+        provisional_missing_data: vettingResults.missingData,
         summary,
         metadata: {
           token_symbol: vettingData.tokenInfo.symbol,
@@ -438,8 +441,8 @@ export class ScanService {
               chain: 'SOLANA',
               success: false,
               error: !vettingResults.dataSufficient 
-                ? `Insufficient data. Missing: ${vettingResults.missingData.join(', ')}`
-                : `Token does not meet a verified listing tier. Missing or unmet requirements: ${vettingResults.missingData.join(', ') || 'tier policy'}`,
+                ? `Provisional risk score ${vettingResults.overallScore}/100 after missing-evidence penalties. Missing verified evidence: ${vettingResults.missingData.join(', ')}`
+                : `Token does not meet a verified listing tier. Unmet requirements: ${vettingResults.unmetRequirements.join(', ') || 'tier policy'}`,
               eligible: false,
               metadata: {
                 token_symbol: tokenData.symbol,

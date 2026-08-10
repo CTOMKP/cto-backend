@@ -86,6 +86,7 @@ export interface VettingResults {
   allFlags: string[];
   dataSufficient: boolean;
   missingData: string[];
+  unmetRequirements: string[];
   calculatedAt: string;
   scoringVersion: string;
   scoreDirection: 'HIGHER_IS_SAFER';
@@ -94,7 +95,228 @@ export interface VettingResults {
 @Injectable()
 export class Pillar1RiskScoringService {
   private readonly logger = new Logger(Pillar1RiskScoringService.name);
-  static readonly SCORING_VERSION = 'pillar1-solana-v3';
+  static readonly SCORING_VERSION = 'pillar1-solana-v4';
+
+  /**
+   * Higher remains safer. Missing evidence is deliberately scored as zero for
+   * the affected component, so provider failures can never make a token look
+   * safer. The numeric result is provisional until every mandatory signal is
+   * observed; provisional results cannot qualify for a listing tier.
+   */
+  calculateRiskScore(data: TokenVettingData): VettingResults {
+    this.logger.debug(`Calculating risk score for token: ${data.contractAddress}`);
+
+    const { holders, security, developer, trading, tokenAge } = data;
+    const evidence = data.evidence || {};
+    const hasAuthorityVerification =
+      evidence.authorities === 'observed' &&
+      typeof security?.isMintable === 'boolean' &&
+      typeof security?.isFreezable === 'boolean';
+    const hasReliableAge =
+      evidence.tokenAge === 'observed' &&
+      tokenAge !== null &&
+      tokenAge !== undefined &&
+      Number.isFinite(Number(tokenAge)) &&
+      Number(tokenAge) >= 0;
+    const hasLiquidityVerification =
+      evidence.liquidity === 'observed' &&
+      trading?.liquidity !== null &&
+      trading?.liquidity !== undefined &&
+      Number.isFinite(Number(trading.liquidity)) &&
+      Number(trading.liquidity) >= 0;
+    const hasLpLockVerification = evidence.lpLock === 'observed';
+    const hasHolderVerification =
+      evidence.holderDistribution === 'observed' &&
+      evidence.holderCount === 'observed' &&
+      holders?.count !== null &&
+      holders?.count !== undefined &&
+      Number.isFinite(Number(holders.count)) &&
+      Array.isArray(holders.topHolders) &&
+      holders.topHolders.length > 0;
+    const hasCreatorVerification =
+      evidence.creator === 'observed' &&
+      !!developer?.creatorAddress &&
+      developer.creatorBalance !== null &&
+      developer.creatorBalance !== undefined &&
+      Number.isFinite(Number(developer.creatorBalance));
+
+    const missingData: string[] = [];
+    if (!hasAuthorityVerification) missingData.push('Mint/freeze authority');
+    if (!hasReliableAge) missingData.push('Token age');
+    if (!hasLiquidityVerification) missingData.push('Liquidity');
+    if (!hasLpLockVerification) missingData.push('LP lock verification');
+    if (!hasHolderVerification) missingData.push('Holder distribution');
+    if (!hasCreatorVerification) missingData.push('Creator wallet');
+
+    const penalizedComponent = (message: string): ComponentScore => ({
+      score: 0,
+      flags: [`UNVERIFIED: ${message} - component scored 0/100`],
+    });
+
+    const distribution = hasHolderVerification
+      ? this.calculateDistributionScore(holders, tokenAge)
+      : penalizedComponent('Holder distribution');
+
+    let liquidity = hasLiquidityVerification && hasLpLockVerification
+      ? this.calculateLiquidityScore(security, trading, tokenAge)
+      : penalizedComponent(
+          !hasLiquidityVerification && !hasLpLockVerification
+            ? 'Liquidity and LP lock evidence'
+            : !hasLiquidityVerification
+              ? 'Liquidity'
+              : 'LP lock evidence',
+        );
+
+    // An observed 0% lock is adverse evidence, not missing evidence. The legacy
+    // calculator's 35-point unknown-data deduction is increased to the defined
+    // 60-point critical-risk deduction for a verified unlocked pool.
+    if (
+      hasLiquidityVerification &&
+      hasLpLockVerification &&
+      Number(security.lpLockPercentage) === 0 &&
+      liquidity.score !== null
+    ) {
+      liquidity = {
+        score: Math.max(0, liquidity.score - 25),
+        flags: [
+          ...liquidity.flags,
+          'Verified 0% LP locked - CRITICAL RISK',
+        ],
+      };
+    }
+
+    const devAbandonment = hasCreatorVerification && hasReliableAge
+      ? this.calculateDevAbandonmentScore(developer, tokenAge)
+      : penalizedComponent(
+          !hasCreatorVerification && !hasReliableAge
+            ? 'Creator wallet and token age'
+            : !hasCreatorVerification
+              ? 'Creator wallet'
+              : 'Token age',
+        );
+    const technical = hasAuthorityVerification
+      ? this.calculateTechnicalScore(security)
+      : penalizedComponent('Mint/freeze authority');
+
+    const overallScore = Math.round(
+      ((distribution.score ?? 0) * 0.25) +
+      ((liquidity.score ?? 0) * 0.35) +
+      ((devAbandonment.score ?? 0) * 0.20) +
+      ((technical.score ?? 0) * 0.20)
+    );
+
+    const dataSufficient = missingData.length === 0;
+    let riskLevel: VettingResults['riskLevel'];
+    if (overallScore >= 70) riskLevel = 'low';
+    else if (overallScore >= 50) riskLevel = 'medium';
+    else riskLevel = 'high';
+
+    // Incomplete verification can never be reported as low risk, even if the
+    // observed components are strong.
+    if (!dataSufficient && riskLevel === 'low') riskLevel = 'medium';
+
+    const riskFlags: NonNullable<VettingResults['riskFlags']> = [];
+    if (!hasLpLockVerification) {
+      riskFlags.push({
+        code: 'LP_LOCK_UNKNOWN',
+        severity: 'high',
+        message: 'LP lock duration could not be verified and received a full component penalty.',
+      });
+    }
+    if (!hasCreatorVerification) {
+      riskFlags.push({
+        code: 'CREATOR_UNVERIFIED',
+        severity: 'medium',
+        message: 'Creator wallet could not be analyzed and received a full component penalty.',
+      });
+    }
+    if (!hasHolderVerification) {
+      riskFlags.push({
+        code: 'HOLDER_DISTRIBUTION_UNVERIFIED',
+        severity: 'high',
+        message: 'Holder distribution could not be verified and received a full component penalty.',
+      });
+    }
+    if (!hasReliableAge) {
+      riskFlags.push({
+        code: 'TOKEN_AGE_UNVERIFIED',
+        severity: 'high',
+        message: 'Token age could not be verified and the developer component received a full penalty.',
+      });
+    }
+    if (!hasAuthorityVerification) {
+      riskFlags.push({
+        code: 'AUTHORITIES_UNVERIFIED',
+        severity: 'high',
+        message: 'Mint/freeze authorities could not be verified and received a full component penalty.',
+      });
+    }
+    if (!hasLiquidityVerification) {
+      riskFlags.push({
+        code: 'LIQUIDITY_UNVERIFIED',
+        severity: 'high',
+        message: 'Liquidity could not be verified and received a full component penalty.',
+      });
+    }
+
+    const verificationSignals = [
+      hasAuthorityVerification,
+      hasReliableAge,
+      hasLiquidityVerification,
+      hasLpLockVerification,
+      hasHolderVerification,
+      hasCreatorVerification,
+    ];
+    const verificationCoverage = Math.round(
+      (verificationSignals.filter(Boolean).length / verificationSignals.length) * 100,
+    );
+    const allFlags = [
+      ...distribution.flags,
+      ...liquidity.flags,
+      ...devAbandonment.flags,
+      ...technical.flags,
+    ];
+    if (!dataSufficient) {
+      allFlags.push(
+        `PROVISIONAL SCORE: Missing ${missingData.join(', ')}; unavailable components were scored 0/100`,
+      );
+    }
+
+    const lpLockMonths = this.calculateLPLockMonths(security.lpLocks || []);
+    const eligibleTier = dataSufficient
+      ? this.determineEligibleTier(
+          overallScore,
+          Number(tokenAge),
+          security.lpLockPercentage || 0,
+          lpLockMonths,
+          trading.liquidity || 0,
+        )
+      : 'none';
+    const unmetRequirements = dataSufficient && eligibleTier === 'none'
+      ? this.getUnmetMinimumTierRequirements(
+          overallScore,
+          Number(tokenAge),
+          lpLockMonths,
+          Number(trading.liquidity),
+        )
+      : [];
+
+    return {
+      componentScores: { distribution, liquidity, devAbandonment, technical },
+      overallScore,
+      riskLevel,
+      eligibleTier,
+      allFlags,
+      verificationCoverage,
+      riskFlags,
+      dataSufficient,
+      missingData,
+      unmetRequirements,
+      calculatedAt: new Date().toISOString(),
+      scoringVersion: Pillar1RiskScoringService.SCORING_VERSION,
+      scoreDirection: 'HIGHER_IS_SAFER',
+    };
+  }
 
   /**
    * Calculate comprehensive risk score for a token
@@ -105,7 +327,7 @@ export class Pillar1RiskScoringService {
    * - 50-69: Medium Risk
    * - 0-49: High Risk
    */
-  calculateRiskScore(data: TokenVettingData): VettingResults {
+  private calculateRiskScoreLegacy(data: TokenVettingData): VettingResults {
     this.logger.debug(`Calculating risk score for token: ${data.contractAddress}`);
 
     const { holders, security, developer, trading, tokenAge } = data;
@@ -264,6 +486,7 @@ export class Pillar1RiskScoringService {
       riskFlags,
       dataSufficient: hasAuthorityVerification && hasLiquidityVerification && hasReliableAge,
       missingData: missingCriticalData,
+      unmetRequirements: [],
       calculatedAt: new Date().toISOString(),
       scoringVersion: Pillar1RiskScoringService.SCORING_VERSION,
       scoreDirection: 'HIGHER_IS_SAFER',
@@ -627,6 +850,31 @@ export class Pillar1RiskScoringService {
     return maxLockMonths;
   }
 
+  private getUnmetMinimumTierRequirements(
+    score: number,
+    age: number,
+    lpLockMonths: number,
+    liquidityUSD: number,
+  ): string[] {
+    const requirements: string[] = [];
+    if (!Number.isFinite(age) || age < 14) {
+      requirements.push('Token age must be at least 14 days');
+    }
+    if (!Number.isFinite(liquidityUSD) || liquidityUSD < 10_000) {
+      requirements.push('Liquidity must be at least $10,000');
+    }
+    if (!Number.isFinite(lpLockMonths) || lpLockMonths < 6) {
+      requirements.push('LP must be locked for at least 6 months or burned');
+    }
+    if (!Number.isFinite(score) || score < 30) {
+      requirements.push('Risk score must be at least 30/100 (higher is safer)');
+    }
+    if (requirements.length === 0) {
+      requirements.push('Token does not satisfy a complete tier policy combination');
+    }
+    return requirements;
+  }
+
   /**
    * ELIGIBLE TIER DETERMINATION (EXACT CTO MARKETPLACE TIERS - Official Documentation)
    * 
@@ -704,13 +952,6 @@ export class Pillar1RiskScoringService {
         score >= 30) {
       this.logger.debug(`✅ Tier: seed (age ${age} >= 14 days, liquidity $${liquidityUSD} >= $10k, LP lock ${effectiveLockMonths} months [6-12], score ${score} >= 30)`);
       return 'seed';
-    }
-
-    // NEW Tier: For promising tokens < 14 days old
-    // Age: < 14 days, LP: >= $5k, Score: >= 60
-    if (age < 14 && liquidityUSD >= 5000 && score >= 60) {
-      this.logger.debug(`✅ Tier: new (age ${age} < 14 days, liquidity $${liquidityUSD} >= $5k, score ${score} >= 60)`);
-      return 'new';
     }
 
     // Log why tier wasn't assigned (check what's missing for Seed tier as minimum)

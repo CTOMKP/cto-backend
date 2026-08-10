@@ -56,7 +56,7 @@ describe('Pillar1RiskScoringService', () => {
     const result = service.calculateRiskScore(buildToken());
 
     expect(result.scoreDirection).toBe('HIGHER_IS_SAFER');
-    expect(result.scoringVersion).toBe('pillar1-solana-v2');
+    expect(result.scoringVersion).toBe('pillar1-solana-v4');
     expect(result.overallScore).toBeGreaterThanOrEqual(70);
     expect(result.riskLevel).toBe('low');
     expect(result.eligibleTier).toBe('stellar');
@@ -72,7 +72,8 @@ describe('Pillar1RiskScoringService', () => {
     expect(result.dataSufficient).toBe(false);
     expect(result.missingData).toContain('Mint/freeze authority');
     expect(result.eligibleTier).toBe('none');
-    expect(result.componentScores.technical.flags.join(' ')).toContain('Missing mint/freeze authority data');
+    expect(result.componentScores.technical.score).toBe(0);
+    expect(result.componentScores.technical.flags.join(' ')).toContain('UNVERIFIED');
   });
 
   it('does not assign a tier without independently observed LP lock evidence', () => {
@@ -83,6 +84,58 @@ describe('Pillar1RiskScoringService', () => {
 
     expect(result.eligibleTier).toBe('none');
     expect(result.missingData).toContain('LP lock verification');
+  });
+
+  it('applies conservative component penalties when free providers miss evidence', () => {
+    const token = buildToken({
+      security: { ...buildToken().security, lpLockPercentage: 0, lpLocks: [] },
+      holders: { count: null, topHolders: [] },
+      developer: {
+        ...buildToken().developer,
+        creatorAddress: null,
+        creatorBalance: null,
+        creatorStatus: 'unknown',
+      },
+      trading: { ...buildToken().trading, liquidity: 3_900 },
+      tokenAge: null,
+      evidence: {
+        ...buildToken().evidence,
+        holderDistribution: 'unknown',
+        holderCount: 'unknown',
+        lpLock: 'unknown',
+        creator: 'unknown',
+        tokenAge: 'unknown',
+      },
+    });
+
+    const result = service.calculateRiskScore(token);
+
+    expect(result.overallScore).toBe(20);
+    expect(result.verificationCoverage).toBe(33);
+    expect(result.riskLevel).toBe('high');
+    expect(result.dataSufficient).toBe(false);
+    expect(result.eligibleTier).toBe('none');
+    expect(result.missingData).toEqual([
+      'Token age',
+      'LP lock verification',
+      'Holder distribution',
+      'Creator wallet',
+    ]);
+  });
+
+  it('distinguishes a verified unlocked pool from missing LP evidence', () => {
+    const token = buildToken({
+      security: { ...buildToken().security, lpLockPercentage: 0, lpLocks: [] },
+    });
+
+    const result = service.calculateRiskScore(token);
+
+    expect(result.dataSufficient).toBe(true);
+    expect(result.componentScores.liquidity.score).toBe(40);
+    expect(result.eligibleTier).toBe('none');
+    expect(result.unmetRequirements).toContain(
+      'LP must be locked for at least 6 months or burned',
+    );
   });
 
   it('accepts lock durations above the old narrow maximum ranges', () => {

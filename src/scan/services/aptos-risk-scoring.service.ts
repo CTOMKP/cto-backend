@@ -114,6 +114,7 @@ export class AptosRiskScoringService {
       allFlags,
       dataSufficient: criticalMissingData.length === 0,
       missingData,
+      unmetRequirements: [],
       calculatedAt: new Date().toISOString(),
       scoringVersion: 'pillar1-aptos-v2',
       scoreDirection: 'HIGHER_IS_SAFER',
