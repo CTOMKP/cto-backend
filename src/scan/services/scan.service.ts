@@ -151,7 +151,10 @@ export class ScanService {
           volume_24h: vettingData.trading.volume24h,
           market_cap: vettingData.trading.fdv,
           market_data: {
+            version: tokenData.market_data_version ?? null,
             source: tokenData.data_source ?? null,
+            volume_24h_source: tokenData.volume_24h_source ?? null,
+            volume_24h_pool_count: tokenData.volume_24h_pool_count ?? null,
             market_cap_source: tokenData.market_cap_source ?? null,
             pair_address: tokenData.pair_address ?? null,
             pair_selected_by: tokenData.pair_selected_by ?? null,
@@ -190,6 +193,9 @@ export class ScanService {
               providerSnapshot: {
                 token: tokenData.data_sources ?? null,
                 market: tokenData.data_source ?? null,
+                marketDataVersion: tokenData.market_data_version ?? null,
+                volume24hSource: tokenData.volume_24h_source ?? null,
+                volume24hPoolCount: tokenData.volume_24h_pool_count ?? null,
                 scannedAt: new Date().toISOString(),
               } as any,
               completedAt: new Date(),
@@ -494,7 +500,10 @@ export class ScanService {
 	              volume_24h: tokenData.volume_24h,
 	              market_cap: tokenData.market_cap,
 	              market_data: {
+	                version: tokenData.market_data_version ?? null,
 	                source: tokenData.data_source ?? null,
+	                volume_24h_source: tokenData.volume_24h_source ?? null,
+	                volume_24h_pool_count: tokenData.volume_24h_pool_count ?? null,
 	                market_cap_source: tokenData.market_cap_source ?? null,
 	                pair_address: tokenData.pair_address ?? null,
 	                pair_selected_by: tokenData.pair_selected_by ?? null,

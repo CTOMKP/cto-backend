@@ -71,4 +71,46 @@ describe('SolanaApiService DexScreener market data', () => {
     expect(result.pair_address).toBe('deep-pool');
     expect(result.data_source).toBe('dexscreener');
   });
+
+  it('does not let pair-level Moralis metadata override aggregated DexScreener token volume', async () => {
+    const service = new SolanaApiService(configService as any);
+    jest.spyOn(service as any, 'fetchTokenInfo').mockResolvedValue({
+      symbol: 'MNDE',
+      name: 'Marinade',
+      creation_date: null,
+      mint_authority: null,
+      freeze_authority: null,
+      authority_data_status: 'observed',
+      data_sources: {},
+    });
+    jest.spyOn(service as any, 'fetchHolderData').mockResolvedValue({
+      top_holders: [],
+      total_holders: null,
+      holder_data_status: 'unknown',
+    });
+    jest.spyOn(service as any, 'fetchLiquidityData').mockResolvedValue({
+      price: 0.0188,
+      market_cap: 10_270_000,
+      volume_24h: 8_786.93,
+      pool_count: 14,
+      lp_amount_usd: 189_214.21,
+      data_source: 'dexscreener',
+      liquidity_data_status: 'observed',
+      txns_24h: { buys: 354, sells: 180, total: 534 },
+    });
+    jest.spyOn(service as any, 'fetchMoralisMarket').mockResolvedValue({
+      price_usd: 0.018798,
+      market_cap_usd: 10_271_298.26,
+      volume_24h_usd: 0.13,
+    });
+    jest.spyOn(service as any, 'analyzeSmartContractRisks').mockResolvedValue({});
+
+    const result = await service.fetchTokenData(mint);
+
+    expect(result.volume_24h).toBe(8_786.93);
+    expect(result.volume_24h_source).toBe('dexscreener_token_aggregate');
+    expect(result.volume_24h_pool_count).toBe(14);
+    expect(result.market_data_version).toBe(SolanaApiService.MARKET_DATA_VERSION);
+    expect(result.market_cap).toBe(10_271_298.26);
+  });
 });

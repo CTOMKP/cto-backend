@@ -5,6 +5,8 @@ import { createSafeFetcher } from '../../utils/safe-fetcher';
 
 @Injectable()
 export class SolanaApiService {
+  static readonly MARKET_DATA_VERSION = 'solana-market-v2';
+
   private readonly logger = new Logger(SolanaApiService.name);
   // API Configuration - Using Solana Mainnet for production-ready token analysis
   private readonly HELIUS_RPC_URL: string;
@@ -73,10 +75,19 @@ export class SolanaApiService {
         ? (Date.now() - creationDate.getTime()) / (1000 * 60 * 60 * 24)
         : null;
 
-      // Prefer Moralis market/price data when available
+      // Moralis remains useful for price/market cap. For token-level 24h volume,
+      // prefer the DexScreener aggregate across matching pools; Moralis is only a
+      // fallback when DexScreener has no usable token volume.
       const tokenPrice = moralisData?.price_usd ?? liquidityData.price;
       const marketCap = moralisData?.market_cap_usd ?? liquidityData.market_cap ?? null;
-      const volume24h = moralisData?.volume_24h_usd ?? liquidityData.volume_24h ?? null;
+      const dexVolume24h = this.toNonNegativeFiniteNumber(liquidityData.volume_24h);
+      const moralisVolume24h = this.toNonNegativeFiniteNumber(moralisData?.volume_24h_usd);
+      const volume24h = dexVolume24h ?? moralisVolume24h;
+      const volume24hSource = dexVolume24h !== null
+        ? 'dexscreener_token_aggregate'
+        : moralisVolume24h !== null
+          ? 'moralis'
+          : 'unavailable';
 
       return {
         symbol: tokenInfo.symbol || 'UNKNOWN',
@@ -106,6 +117,11 @@ export class SolanaApiService {
         pair_address: liquidityData.pair_address,
         token_price: tokenPrice,
         volume_24h: volume24h,
+        volume_24h_source: volume24hSource,
+        volume_24h_pool_count: volume24hSource === 'dexscreener_token_aggregate'
+          ? liquidityData.pool_count ?? null
+          : null,
+        market_data_version: SolanaApiService.MARKET_DATA_VERSION,
         market_cap: marketCap,
         pool_count: liquidityData.pool_count,
         data_source: liquidityData.data_source,
@@ -732,6 +748,15 @@ export class SolanaApiService {
       }
       return true;
     });
+  }
+
+  private toNonNegativeFiniteNumber(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
   }
 
   /**

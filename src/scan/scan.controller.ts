@@ -24,6 +24,7 @@ import { ScanResultDto, BatchScanResponseDto } from './dto/scan-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RateLimiterGuard } from '../listing/services/rate-limiter.guard';
 import { Pillar1RiskScoringService } from '../services/pillar1-risk-scoring.service';
+import { SolanaApiService } from './services/solana-api.service';
 
 @ApiTags('Token Scanning')
 @Controller('scan')
@@ -93,10 +94,17 @@ export class ScanController {
           chain === 'SOLANA' &&
           cachedAgeDays !== null &&
           cachedAgeDays < 14;
+        const shouldBypassCacheForMarketData =
+          chain === 'SOLANA' &&
+          metadata?.market_data?.version !== SolanaApiService.MARKET_DATA_VERSION;
 
         if (shouldBypassCacheForYoungToken) {
           this.logger.warn(
             `Bypassing cached scan for ${scanRequest.contractAddress} because cached age is ${cachedAgeDays} days (<14).`,
+          );
+        } else if (shouldBypassCacheForMarketData) {
+          this.logger.warn(
+            `Bypassing cached scan for ${scanRequest.contractAddress} because its market-data version is stale or missing.`,
           );
         } else {
           this.logger.log(`Single token scan served from cache for: ${scanRequest.contractAddress}`);
