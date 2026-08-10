@@ -557,9 +557,10 @@ export class SolanaApiService {
         });
         
         const pairs = dexResponse.data.pairs || [];
-        if (pairs.length > 0) {
+        const matchingPairs = this.getMatchingDexPairs(pairs, contractAddress);
+        if (matchingPairs.length > 0) {
           // Select pair by quality score (activity + liquidity + address match), not liquidity alone.
-          const bestPair = this.selectBestDexPair(pairs, contractAddress);
+          const bestPair = this.selectBestDexPair(matchingPairs, contractAddress);
           
           console.log('✅ DexScreener real data found!');
           
@@ -571,12 +572,24 @@ export class SolanaApiService {
           const lockContract = null;
           const lockAnalysis = 'not_verified';
           
-          const tx24hBuys = Number(bestPair?.txns?.h24?.buys || 0);
-          const tx24hSells = Number(bestPair?.txns?.h24?.sells || 0);
+          const tx24hBuys = matchingPairs.reduce(
+            (total, pair) => total + Math.max(0, Number(pair?.txns?.h24?.buys || 0)),
+            0,
+          );
+          const tx24hSells = matchingPairs.reduce(
+            (total, pair) => total + Math.max(0, Number(pair?.txns?.h24?.sells || 0)),
+            0,
+          );
           const tx24hTotal = tx24hBuys + tx24hSells;
           const hasFreshTrading = tx24hTotal > 0 || Number(bestPair?.volume?.h24 || 0) > 0;
           const liquidityUsd = Number(bestPair?.liquidity?.usd || 0);
-          const volume24h = Number(bestPair?.volume?.h24 || 0);
+          // The scan result describes the token, not just the selected pool. A token
+          // can trade across several pools, so sum USD volume across its matching
+          // DexScreener pairs while retaining the best pair for price/liquidity.
+          const volume24h = matchingPairs.reduce(
+            (total, pair) => total + Math.max(0, Number(pair?.volume?.h24 || 0)),
+            0,
+          );
           const marketCap = Number(bestPair?.marketCap || 0);
           const fdv = Number(bestPair?.fdv || 0);
           const marketCapSource = marketCap > 0 ? 'dexscreener.marketCap' : (fdv > 0 ? 'dexscreener.fdv_proxy' : 'unavailable');
@@ -603,7 +616,7 @@ export class SolanaApiService {
             lock_burn_success: lpBurned || lpLocked,
             market_cap: effectiveMarketCap,
             price_change_24h: bestPair.priceChange?.h24 || 0,
-            pool_count: pairs.length,
+            pool_count: matchingPairs.length,
             market_cap_source: marketCapSource,
             pair_selected_by: 'quality_score',
             txns_24h: { buys: tx24hBuys, sells: tx24hSells, total: tx24hTotal },
@@ -697,6 +710,28 @@ export class SolanaApiService {
       .sort((a, b) => b.score - a.score);
 
     return scored[0]?.pair || pairs[0];
+  }
+
+  private getMatchingDexPairs(pairs: any[], contractAddress: string): any[] {
+    const normalizedAddress = String(contractAddress || '').toLowerCase();
+    const seenPairAddresses = new Set<string>();
+
+    return pairs.filter((pair) => {
+      const baseAddr = String(pair?.baseToken?.address || '').toLowerCase();
+      const quoteAddr = String(pair?.quoteToken?.address || '').toLowerCase();
+      if (baseAddr !== normalizedAddress && quoteAddr !== normalizedAddress) {
+        return false;
+      }
+
+      const pairAddress = String(pair?.pairAddress || '').toLowerCase();
+      if (pairAddress && seenPairAddresses.has(pairAddress)) {
+        return false;
+      }
+      if (pairAddress) {
+        seenPairAddresses.add(pairAddress);
+      }
+      return true;
+    });
   }
 
   /**
