@@ -471,6 +471,7 @@ export class MarketplaceService {
     if (!ad) throw new NotFoundException('Ad not found');
     if (ad.userId !== userId) throw new ForbiddenException('Not your ad');
     if (ad.status !== 'DRAFT') throw new BadRequestException('Only draft ads can be paid');
+    const requestedPaymentChain = (paymentChain || '').toString().toUpperCase();
 
     const existingPayment = await this.prisma.payment.findFirst({
       where: {
@@ -492,6 +493,12 @@ export class MarketplaceService {
     if (existingPayment) {
       const metadata = (existingPayment.metadata || {}) as any;
       const chain = String(metadata?.chain || '').toUpperCase();
+      if (requestedPaymentChain === 'SOLANA') {
+        if (chain && chain !== 'SOLANA') {
+          throw new BadRequestException('A pending payment already exists on another network');
+        }
+        return this.solanaPaymentService.createMarketplaceAdPayment(userId, id);
+      }
       if (chain === 'MOVEMENT') {
         const amountInNativeUnits =
           String(metadata?.amountInNativeUnits || Math.round(Number(existingPayment.amount || 0) * 1e6));
@@ -575,14 +582,13 @@ export class MarketplaceService {
       },
     });
 
-    const requestedPaymentChain = (paymentChain || '').toString().toUpperCase();
     const chain =
       requestedPaymentChain === 'SOLANA' || requestedPaymentChain === 'MOVEMENT'
         ? requestedPaymentChain
         : (ad.chain || 'MOVEMENT').toString().toUpperCase();
     const payment =
       chain === 'SOLANA'
-        ? await this.solanaPaymentService.createMarketplaceAdPayment(userId, id, breakdown.total)
+        ? await this.solanaPaymentService.createMarketplaceAdPayment(userId, id)
         : await this.movementPaymentService.createMarketplaceAdPayment(userId, id, breakdown.total);
     return {
       success: true,

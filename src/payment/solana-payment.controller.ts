@@ -1,8 +1,8 @@
-import { Controller, Post, Param, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, UseGuards, Request } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SolanaPaymentService } from './solana-payment.service';
-import { CreateSolanaMarketplaceAdPaymentDto, VerifySolanaPaymentDto } from './dto/payment.dto';
+import { BroadcastSolanaPaymentDto, CreateSolanaMarketplaceAdPaymentDto, VerifySolanaPaymentDto } from './dto/payment.dto';
 
 @ApiTags('Solana Payment')
 @Controller('payment/solana')
@@ -26,6 +26,13 @@ export class SolanaPaymentController {
     return this.solanaPaymentService.createListingPayment(userId, listingId);
   }
 
+  @Get('listing/:listingId/quote')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  async getListingQuote(@Request() req: any, @Param('listingId') listingId: string) {
+    return this.solanaPaymentService.getListingQuote(Number(req.user.userId), listingId);
+  }
+
   @Post('marketplace-ad/:adId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -45,7 +52,22 @@ export class SolanaPaymentController {
     @Body() body: CreateSolanaMarketplaceAdPaymentDto,
   ) {
     const userId = req.user.userId;
-    return this.solanaPaymentService.createMarketplaceAdPayment(userId, adId, body?.amountUsd || 0);
+    return this.solanaPaymentService.createMarketplaceAdPayment(userId, adId);
+  }
+
+  @Post('broadcast/:paymentId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  async broadcastPayment(
+    @Request() req: any,
+    @Param('paymentId') paymentId: string,
+    @Body() body: BroadcastSolanaPaymentDto,
+  ) {
+    return this.solanaPaymentService.broadcastPayment(
+      paymentId,
+      body.signedTransaction,
+      Number(req.user.userId),
+    );
   }
 
   @Post('verify/:paymentId')

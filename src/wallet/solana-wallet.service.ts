@@ -1,16 +1,16 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { PrismaService } from '../prisma/prisma.service';
+import { SolanaNetworkService } from '../solana/solana-network.service';
 
 @Injectable()
 export class SolanaWalletService {
   private readonly logger = new Logger(SolanaWalletService.name);
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly solanaNetwork: SolanaNetworkService,
   ) {}
 
   async assertWalletOwnedByUser(walletId: string, userId: number): Promise<void> {
@@ -21,78 +21,48 @@ export class SolanaWalletService {
     if (!wallet) throw new NotFoundException('Wallet not found');
   }
 
-  private getConnection(): Connection {
-    const rpcUrl =
-      this.configService.get('SOLANA_RPC_URL') ||
-      'https://api.devnet.solana.com';
-    return new Connection(rpcUrl, 'confirmed');
-  }
-
-  private getFallbackConnections(): Array<{ label: string; connection: Connection }> {
-    const configured =
-      this.configService.get('SOLANA_RPC_URL') ||
-      'https://api.devnet.solana.com';
-    const urls = [configured];
-    if (!configured.includes('api.devnet.solana.com')) urls.push('https://api.devnet.solana.com');
-    if (!configured.includes('api.mainnet-beta.solana.com')) urls.push('https://api.mainnet-beta.solana.com');
-    return urls.map((url) => ({ label: url, connection: new Connection(url, 'confirmed') }));
-  }
-
   private getUsdcMint(): PublicKey {
-    const mint =
-      this.configService.get('SOLANA_USDC_MINT') ||
-      '6e5qtpMzrLzDM8R6fHQtoF6d2iybHBYdj56tceKZo9sn';
-    return new PublicKey(mint);
+    return new PublicKey(this.solanaNetwork.getProfile().usdcMint);
   }
 
   async getWalletBalance(address: string) {
     if (!address) throw new BadRequestException('Wallet address is required');
     const owner = new PublicKey(address);
-    const usdcMint = this.getUsdcMint();
-    const candidates = this.getFallbackConnections();
-
-    let best: any = null;
-    for (const { label, connection } of candidates) {
+    const profile = this.solanaNetwork.getProfile();
+    const connection = this.solanaNetwork.getConnection(profile.network);
+    const usdcMint = new PublicKey(profile.usdcMint);
+    try {
+      const [solBalance, usdcAta] = await Promise.all([
+        connection.getBalance(owner, 'confirmed'),
+        getAssociatedTokenAddress(usdcMint, owner, false),
+      ]);
+      let usdcAmount = '0';
       try {
-        const [solBalance, usdcAta] = await Promise.all([
-          connection.getBalance(owner, 'confirmed'),
-          getAssociatedTokenAddress(usdcMint, owner, false),
-        ]);
-
-        let usdcAmount = '0';
-        try {
-          const usdcAccount = await connection.getTokenAccountBalance(usdcAta, 'confirmed');
-          usdcAmount = usdcAccount?.value?.amount || '0';
-        } catch {
-          usdcAmount = '0';
-        }
-
-        const score = solBalance + Number(usdcAmount || 0);
-        const current = {
-          address,
-          solLamports: solBalance,
-          sol: solBalance / 1e9,
-          usdcAmount,
-          usdc: parseFloat(usdcAmount) / 1e6,
-          usdcMint: usdcMint.toBase58(),
-          rpcUsed: label,
-          score,
-        };
-        if (!best || current.score > best.score) best = current;
-      } catch (error: any) {
-        this.logger.warn(`[SOLANA-BALANCE] ${label} failed for ${address}: ${error?.message}`);
+        const usdcAccount = await connection.getTokenAccountBalance(usdcAta, 'confirmed');
+        usdcAmount = usdcAccount?.value?.amount || '0';
+      } catch {
+        usdcAmount = '0';
       }
+      const result = {
+        address,
+        network: profile.network,
+        chainId: profile.chainId,
+        solLamports: solBalance,
+        sol: solBalance / 1e9,
+        usdcAmount,
+        usdc: parseFloat(usdcAmount) / 1e6,
+        usdcMint: profile.usdcMint,
+      };
+      this.logger.log(
+        `[SOLANA-BALANCE] ${address} network=${profile.network} SOL=${result.sol} USDC=${result.usdc}`,
+      );
+      return result;
+    } catch (error: any) {
+      this.logger.warn(
+        `[SOLANA-BALANCE] ${profile.network} failed for ${address}: ${error?.message}`,
+      );
+      throw new BadRequestException('Unable to fetch Solana balance from the configured network');
     }
-
-    if (!best) {
-      throw new BadRequestException('Unable to fetch Solana balance from RPC');
-    }
-
-    this.logger.log(
-      `[SOLANA-BALANCE] ${address} => SOL=${best.sol} USDC=${best.usdc} via ${best.rpcUsed}`,
-    );
-    delete best.score;
-    return best;
   }
 
   async getWalletTransactions(walletId: string, limit: number = 20) {
@@ -155,7 +125,8 @@ export class SolanaWalletService {
       throw new BadRequestException('Wallet is not a Solana wallet');
     }
 
-    const connection = this.getConnection();
+    const profile = this.solanaNetwork.getProfile();
+    const connection = this.solanaNetwork.getConnection(profile.network);
     const candidateAddress = (overrideAddress || wallet.address || '').trim();
     let owner: PublicKey;
     try {
@@ -166,11 +137,21 @@ export class SolanaWalletService {
       );
     }
     const ownerAddress = owner.toBase58();
+    if (ownerAddress !== new PublicKey(wallet.address).toBase58()) {
+      throw new BadRequestException('The polling address must match the selected wallet');
+    }
     const usdcMint = this.getUsdcMint();
     const ownerUsdcAta = (await getAssociatedTokenAddress(usdcMint, owner, false)).toBase58();
     const usdcMintBase58 = usdcMint.toBase58();
 
-    const signatures = await connection.getSignaturesForAddress(owner, { limit });
+    const [ownerSignatures, tokenSignatures] = await Promise.all([
+      connection.getSignaturesForAddress(owner, { limit }),
+      connection.getSignaturesForAddress(new PublicKey(ownerUsdcAta), { limit }).catch(() => []),
+    ]);
+    const signatures = [...ownerSignatures, ...tokenSignatures]
+      .filter((item, index, all) => all.findIndex((other) => other.signature === item.signature) === index)
+      .sort((a, b) => (b.blockTime || 0) - (a.blockTime || 0))
+      .slice(0, limit);
     if (!signatures.length) return [];
 
     const parsed = await connection.getParsedTransactions(

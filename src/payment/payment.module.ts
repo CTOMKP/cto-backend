@@ -8,9 +8,10 @@ import { MovementWalletModule } from '../wallet/movement-wallet.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { EmailModule } from '../email/email.module';
 import { CreatorProgramModule } from '../creator-program/creator-program.module';
+import { SolanaNetworkModule } from '../solana/solana-network.module';
 
 @Module({
-  imports: [PrismaModule, MovementWalletModule, NotificationsModule, EmailModule, CreatorProgramModule],
+  imports: [PrismaModule, MovementWalletModule, NotificationsModule, EmailModule, CreatorProgramModule, SolanaNetworkModule],
   controllers: [MovementPaymentController, SolanaPaymentController],
   providers: [MovementPaymentService, SolanaPaymentService],
   exports: [MovementPaymentService, SolanaPaymentService],

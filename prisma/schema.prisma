@@ -350,9 +350,14 @@ model Payment {
 
   // Circle transaction details
   transferId   String? @unique // Circle transfer ID
-  txHash       String? // Blockchain transaction hash
+  txHash       String? @unique // Blockchain transaction hash; one transaction can settle only one payment
   fromWalletId String? // Source wallet (user's wallet)
   toAddress    String? // Destination address (platform wallet)
+  network      String? // Immutable network used when the payment was quoted
+  tokenAddress String? // Immutable token mint/contract used for verification
+  amountAtomic String? // Exact integer amount used for on-chain verification
+  fromAddress  String? // Expected payer address
+  quotedAt     DateTime? // Earliest accepted on-chain transaction time
 
   // Metadata
   description String?
@@ -375,6 +380,7 @@ model Payment {
   @@index([adBoostId])
   @@index([marketplaceAdId])
   @@index([escrowId])
+  @@index([network, status])
 }
 
 enum PaymentType {

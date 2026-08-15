@@ -29,6 +29,7 @@ import { MessagingModule } from './messaging/messaging.module';
 import { EscrowModule } from './escrow/escrow.module';
 import { SupportTicketModule } from './support-ticket/support-ticket.module';
 import { CreatorProgramModule } from './creator-program/creator-program.module';
+import { SolanaNetworkModule } from './solana/solana-network.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { CreatorProgramModule } from './creator-program/creator-program.module';
     }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    SolanaNetworkModule,
     ScanModule,
     ImageModule,
     AuthModule,

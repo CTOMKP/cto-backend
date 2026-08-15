@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsEnum, IsOptional, Min } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, Min, MaxLength } from 'class-validator';
 
 export class CreateListingPaymentDto {
   @IsString()
@@ -54,15 +54,23 @@ export class GetPaymentHistoryDto {
 }
 
 export class CreateSolanaMarketplaceAdPaymentDto {
+  @IsOptional()
   @IsNumber()
   @Min(0.000001)
-  @ApiProperty({ description: 'Marketplace ad amount in USD', example: 25 })
-  amountUsd: number;
+  @ApiProperty({ description: 'Deprecated and ignored; the backend calculates the ad price', example: 25, required: false })
+  amountUsd?: number;
 }
 
 export class VerifySolanaPaymentDto {
   @IsString()
   @ApiProperty({ description: 'Solana payment transaction hash', example: '5J9...abc' })
   txHash: string;
+}
+
+export class BroadcastSolanaPaymentDto {
+  @IsString()
+  @MaxLength(10000)
+  @ApiProperty({ description: 'Signed Solana transaction encoded as base64' })
+  signedTransaction: string;
 }
 
