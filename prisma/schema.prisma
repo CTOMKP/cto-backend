@@ -67,9 +67,21 @@ model User {
   creatorEarningsAsReferredUser CreatorEarning[]           @relation("CreatorEarningReferredUser")
   creatorPayouts                CreatorPayout[]            @relation("CreatorPayoutCreatorUser")
   authHandoffs                  AuthHandoff[]
+  mascotAssignment              MascotAssignment?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model MascotAssignment {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @unique
+  mascotKey  String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([mascotKey])
 }
 
 model AuthHandoff {

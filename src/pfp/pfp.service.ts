@@ -1,7 +1,36 @@
-import { Injectable, Logger, BadRequestException, UnauthorizedException, Inject } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, UnauthorizedException, Inject, ServiceUnavailableException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { STORAGE_PROVIDER, StorageProvider } from '../storage/storage.provider';
+
+export const DEFAULT_MASCOT_TRAIT_KEYS = [
+  "ARTIST",
+  "ARTIST2",
+  "ARTIST3",
+  "CTO",
+  "CTO2",
+  "DEGEN",
+  "DEGEN2",
+  "DEV",
+  "EARLYADT.WHALE",
+  "HACKER",
+  "HACKER2",
+  "HACKER3",
+  "HODLER",
+  "KOL",
+  "MOD",
+  "MOD2",
+  "MOD3",
+  "NEWBIE",
+  "SHILLER",
+  "VISIONARY",
+  "VISIONARY2",
+  "WHALE",
+  "WHALE2",
+  "WHALE3",
+] as const;
 
 @Injectable()
 export class PfpService {
@@ -12,6 +41,103 @@ export class PfpService {
     private readonly authService: AuthService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
+
+  private getActiveMascotKeys(): string[] {
+    const configured = String(process.env.MASCOT_TRAIT_KEYS || "")
+      .split(",")
+      .map((key) => key.trim())
+      .filter(Boolean);
+    const keys =
+      configured.length > 0 ? configured : [...DEFAULT_MASCOT_TRAIT_KEYS];
+    const uniqueKeys = [...new Set(keys)];
+    const invalidKey = uniqueKeys.find((key) => !/^[A-Za-z0-9._-]+$/.test(key));
+    if (invalidKey || uniqueKeys.length === 0) {
+      throw new ServiceUnavailableException(
+        "MASCOT_TRAIT_KEYS contains an invalid mascot asset key",
+      );
+    }
+    return uniqueKeys;
+  }
+
+  private assignmentResponse(
+    assignment: { mascotKey: string; assignedAt: Date },
+    catalogSize: number,
+  ) {
+    return {
+      success: true,
+      mascotKey: assignment.mascotKey,
+      assignedAt: assignment.assignedAt,
+      catalogSize,
+    };
+  }
+
+  async getOrAssignMascot(userId: number) {
+    const user = await this.authService.getUserById(userId);
+    if (!user) throw new UnauthorizedException("User not found");
+
+    const mascotKeys = this.getActiveMascotKeys();
+    const existing = await this.prisma.mascotAssignment.findUnique({
+      where: { userId },
+    });
+    if (existing) return this.assignmentResponse(existing, mascotKeys.length);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        const assignment = await this.prisma.$transaction(
+          async (database) => {
+            const assigned = await database.mascotAssignment.findUnique({
+              where: { userId },
+            });
+            if (assigned) return assigned;
+
+            const usage = await database.mascotAssignment.groupBy({
+              by: ["mascotKey"],
+              where: { mascotKey: { in: mascotKeys } },
+              _count: { mascotKey: true },
+            });
+            const counts = new Map(
+              usage.map((row) => [row.mascotKey, row._count.mascotKey]),
+            );
+            const minimumUsage = Math.min(
+              ...mascotKeys.map((key) => counts.get(key) || 0),
+            );
+            const leastUsed = mascotKeys.filter(
+              (key) => (counts.get(key) || 0) === minimumUsage,
+            );
+            const mascotKey = leastUsed[randomInt(leastUsed.length)];
+
+            return database.mascotAssignment.create({
+              data: { userId, mascotKey },
+            });
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+        return this.assignmentResponse(assignment, mascotKeys.length);
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          const assigned = await this.prisma.mascotAssignment.findUnique({
+            where: { userId },
+          });
+          if (assigned)
+            return this.assignmentResponse(assigned, mascotKeys.length);
+        }
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2034"
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new ServiceUnavailableException(
+      "Could not allocate a mascot. Please try again.",
+    );
+  }
 
   /**
    * Extract S3 key from image URL

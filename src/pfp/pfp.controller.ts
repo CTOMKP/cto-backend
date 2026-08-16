@@ -9,6 +9,39 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 export class PfpController {
   constructor(private readonly pfpService: PfpService) {}
 
+  @ApiOperation({
+    summary: "Get or assign a mascot",
+    description:
+      "Returns the authenticated user mascot. New assignments use the least-used active design.",
+  })
+  @ApiBearerAuth("JWT-auth")
+  @ApiResponse({
+    status: 200,
+    description: "Mascot returned successfully",
+    schema: {
+      type: "object",
+      properties: {
+        success: { type: "boolean", example: true },
+        mascotKey: { type: "string", example: "CTO2" },
+        assignedAt: { type: "string", format: "date-time" },
+        catalogSize: { type: "number", example: 24 },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: "Unauthorized - invalid or missing JWT token",
+  })
+  @UseGuards(JwtAuthGuard)
+  @Post("assignment")
+  @HttpCode(HttpStatus.OK)
+  async getOrAssignMascot(@Request() req) {
+    const userId = req.user.sub || req.user.userId;
+    if (!userId) throw new Error("User ID not found in token");
+    return this.pfpService.getOrAssignMascot(Number(userId));
+  }
+
+
   @ApiOperation({ 
     summary: 'Save profile picture', 
     description: 'Save a profile picture URL to the authenticated user\'s avatarUrl field. This will be used as the user\'s profile picture throughout the platform.' 
