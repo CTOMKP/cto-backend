@@ -21,6 +21,11 @@ export class PfpController {
     schema: {
       type: "object",
       properties: {
+        assetVersion: { type: 'string', enum: ['v1', 'v2'], example: 'v2' },
+        assetPath: {
+          type: 'string',
+          example: 'mascots/v2/full/00042.png',
+        },
         success: { type: "boolean", example: true },
         mascotKey: { type: "string", example: "CTO2" },
         assignedAt: { type: "string", format: "date-time" },
@@ -74,4 +79,3 @@ export class PfpController {
     return this.pfpService.savePfp(Number(userId), dto.imageUrl);
   }
 }
-

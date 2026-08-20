@@ -32,6 +32,18 @@ export const DEFAULT_MASCOT_TRAIT_KEYS = [
   "WHALE3",
 ] as const;
 
+export const DEFAULT_MASCOT_V2_KEYS = Array.from(
+  { length: 146 },
+  (_, index) => `V2_${String(index + 1).padStart(5, '0')}`,
+);
+
+type MascotCatalogVersion = 'v1' | 'v2';
+
+interface MascotCatalog {
+  version: MascotCatalogVersion;
+  keys: string[];
+}
+
 @Injectable()
 export class PfpService {
   private readonly logger = new Logger(PfpService.name);
@@ -42,7 +54,7 @@ export class PfpService {
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
-  private getActiveMascotKeys(): string[] {
+  private getLegacyMascotKeys(): string[] {
     const configured = String(process.env.MASCOT_TRAIT_KEYS || "")
       .split(",")
       .map((key) => key.trim())
@@ -59,15 +71,85 @@ export class PfpService {
     return uniqueKeys;
   }
 
+  private parseConfiguredKeys(value: string): string[] {
+    return value
+      .split(',')
+      .map((key) => key.trim())
+      .filter(Boolean);
+  }
+
+  private validateMascotKeys(keys: string[], environmentKey: string): string[] {
+    const uniqueKeys = [...new Set(keys)];
+    const invalidKey = uniqueKeys.find((key) => !/^[A-Za-z0-9._-]+$/.test(key));
+    if (invalidKey || uniqueKeys.length === 0) {
+      throw new ServiceUnavailableException(
+        `${environmentKey} contains an invalid mascot asset key`,
+      );
+    }
+    return uniqueKeys;
+  }
+
+  private getActiveMascotCatalog(): MascotCatalog {
+    const requestedVersion = String(
+      process.env.MASCOT_CATALOG_VERSION || 'v2',
+    )
+      .trim()
+      .toLowerCase();
+
+    if (requestedVersion === 'v1') {
+      return { version: 'v1', keys: this.getLegacyMascotKeys() };
+    }
+
+    if (requestedVersion !== 'v2') {
+      throw new ServiceUnavailableException(
+        'MASCOT_CATALOG_VERSION must be either v1 or v2',
+      );
+    }
+
+    const configured = this.parseConfiguredKeys(
+      String(process.env.MASCOT_PFP_KEYS || ''),
+    );
+    const keys = configured.length > 0 ? configured : DEFAULT_MASCOT_V2_KEYS;
+    const validated = this.validateMascotKeys(keys, 'MASCOT_PFP_KEYS');
+    const invalidV2Key = validated.find((key) => !key.startsWith('V2_'));
+    if (invalidV2Key) {
+      throw new ServiceUnavailableException(
+        'MASCOT_PFP_KEYS entries must start with V2_',
+      );
+    }
+
+    return { version: 'v2', keys: validated };
+  }
+
+  private getAssignmentAsset(mascotKey: string) {
+    if (mascotKey.startsWith('V2_')) {
+      const filename = mascotKey.slice(3);
+      const prefix = String(
+        process.env.MASCOT_V2_ASSET_PREFIX || 'mascots/v2/full',
+      ).replace(/^\/+|\/+$/g, '');
+      return {
+        assetVersion: 'v2' as const,
+        assetPath: `${prefix}/${filename}.png`,
+      };
+    }
+
+    return {
+      assetVersion: 'v1' as const,
+      assetPath: `mascots/TRAITS/${mascotKey}.png`,
+    };
+  }
+
   private assignmentResponse(
     assignment: { mascotKey: string; assignedAt: Date },
     catalogSize: number,
   ) {
+    const asset = this.getAssignmentAsset(assignment.mascotKey);
     return {
       success: true,
       mascotKey: assignment.mascotKey,
       assignedAt: assignment.assignedAt,
       catalogSize,
+      ...asset,
     };
   }
 
@@ -75,7 +157,8 @@ export class PfpService {
     const user = await this.authService.getUserById(userId);
     if (!user) throw new UnauthorizedException("User not found");
 
-    const mascotKeys = this.getActiveMascotKeys();
+    const catalog = this.getActiveMascotCatalog();
+    const mascotKeys = catalog.keys;
     const existing = await this.prisma.mascotAssignment.findUnique({
       where: { userId },
     });
@@ -228,4 +311,3 @@ export class PfpService {
     }
   }
 }
-
