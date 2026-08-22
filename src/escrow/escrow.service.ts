@@ -42,6 +42,9 @@ export class EscrowService {
       where: { id: conversationId },
     });
     if (!convo) throw new NotFoundException('Conversation not found');
+    if (convo.type !== 'MARKETPLACE' || !convo.adId) {
+      throw new BadRequestException('Escrow is only available for Marketplace conversations');
+    }
     if (convo.posterId !== userId) throw new ForbiddenException('Only poster can create escrow');
 
     const totalAmount = Number(payload?.totalAmount || 0);

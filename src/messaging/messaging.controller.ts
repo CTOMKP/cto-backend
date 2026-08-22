@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Param, Post, UseGuards, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ConversationType } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreateGeneralConversationDto } from './dto/create-general-conversation.dto';
 import { MessagingService } from './messaging.service';
 
 @ApiTags('messages')
@@ -30,6 +32,15 @@ export class MessagingController {
     return this.messagingService.applyToAd(userId, adId, coverLetter);
   }
 
+  @Post('threads/general')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Create or reopen a General conversation with another user' })
+  async createGeneral(@Req() req: any, @Body() dto: CreateGeneralConversationDto) {
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    return this.messagingService.createGeneralConversation(userId, dto);
+  }
+
   @Get('threads')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -52,10 +63,39 @@ export class MessagingController {
     },
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async listThreads(@Req() req: any) {
+  async listThreads(
+    @Req() req: any,
+    @Query('type') type?: ConversationType,
+    @Query('archived') archived?: string,
+  ) {
     const userId = Number(req?.user?.userId || req?.user?.sub);
-    const items = await this.messagingService.listConversations(userId);
+    if (type && !Object.values(ConversationType).includes(type)) {
+      throw new BadRequestException('Conversation type must be GENERAL or MARKETPLACE');
+    }
+    const items = await this.messagingService.listConversations(
+      userId,
+      type,
+      String(archived).toLowerCase() === 'true',
+    );
     return { success: true, items };
+  }
+
+  @Patch('threads/:id/archive')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Archive a conversation for the current user only' })
+  async archive(@Req() req: any, @Param('id') id: string) {
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    return this.messagingService.setArchived(userId, id, true);
+  }
+
+  @Patch('threads/:id/restore')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Restore an archived conversation for the current user' })
+  async restore(@Req() req: any, @Param('id') id: string) {
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    return this.messagingService.setArchived(userId, id, false);
   }
 
   @Get('threads/:id')

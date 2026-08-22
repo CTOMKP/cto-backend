@@ -16,6 +16,7 @@ import { PaymentModule } from './payment/payment.module';
 import { AdminModule } from './admin/admin.module';
 import { StatsModule } from './stats/stats.module';
 import { PfpModule } from './pfp/pfp.module';
+import { FavoritesModule } from './favorites/favorites.module';
 import { TokenVettingModule } from './services/token-vetting.module';
 import { MovementWalletModule } from './wallet/movement-wallet.module';
 import { SolanaWalletModule } from './wallet/solana-wallet.module';
@@ -58,6 +59,7 @@ import { SolanaNetworkModule } from './solana/solana-network.module';
     AdminModule,
     StatsModule,
     PfpModule,
+    FavoritesModule,
     TokenVettingModule,
     MovementWalletModule,
     SolanaWalletModule,

@@ -1,8 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConversationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { XpService } from '../xp/xp.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { START_CONVERSATION_XP_COST, XP_REASONS } from '../xp/xp.constants';
+import { CreateGeneralConversationDto } from './dto/create-general-conversation.dto';
 
 @Injectable()
 export class MessagingService {
@@ -15,13 +17,71 @@ export class MessagingService {
   private async getConversationForUser(userId: number, conversationId: string) {
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      include: { ad: true },
+      include: {
+        ad: { include: { user: { select: { id: true, name: true, avatarUrl: true, email: true } } } },
+        poster: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        applicant: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        participantStates: { where: { userId } },
+      },
     });
     if (!convo) throw new NotFoundException('Conversation not found');
     if (convo.posterId !== userId && convo.applicantId !== userId) {
       throw new ForbiddenException('Not authorized for this conversation');
     }
     return convo;
+  }
+
+  private directConversationKey(firstUserId: number, secondUserId: number): string {
+    return [firstUserId, secondUserId].sort((a, b) => a - b).join(':');
+  }
+
+  private async restoreForParticipants(conversationId: string, userIds: number[]) {
+    await this.prisma.$transaction(
+      Array.from(new Set(userIds)).map((userId) =>
+        this.prisma.conversationParticipantState.upsert({
+          where: { conversationId_userId: { conversationId, userId } },
+          create: { conversationId, userId, archivedAt: null },
+          update: { archivedAt: null },
+        }),
+      ),
+    );
+  }
+
+  async createGeneralConversation(userId: number, dto: CreateGeneralConversationDto) {
+    if (dto.recipientUserId === userId) {
+      throw new BadRequestException('You cannot start a conversation with yourself');
+    }
+
+    const recipient = await this.prisma.user.findUnique({
+      where: { id: dto.recipientUserId },
+      select: { id: true },
+    });
+    if (!recipient) throw new NotFoundException('Recipient user not found');
+
+    const directKey = this.directConversationKey(userId, recipient.id);
+    const conversation = await this.prisma.conversation.upsert({
+      where: { directKey },
+      create: {
+        type: ConversationType.GENERAL,
+        directKey,
+        posterId: userId,
+        applicantId: recipient.id,
+        status: 'ACTIVE',
+      },
+      update: { status: 'ACTIVE' },
+    });
+
+    await this.restoreForParticipants(conversation.id, [userId]);
+    const initialMessage = dto.initialMessage?.trim();
+    const message = initialMessage
+      ? await this.sendMessage(userId, conversation.id, initialMessage)
+      : null;
+
+    return {
+      success: true,
+      conversation: await this.getConversation(userId, conversation.id),
+      message,
+    };
   }
 
   async applyToAd(userId: number, adId: string, coverLetter: string) {
@@ -34,7 +94,7 @@ export class MessagingService {
     if (ad.userId === userId) throw new BadRequestException('You cannot apply to your own ad');
 
     const existing = await this.prisma.conversation.findFirst({
-      where: { adId, applicantId: userId },
+      where: { adId, applicantId: userId, type: ConversationType.MARKETPLACE },
     });
 
     let conversation = existing;
@@ -48,6 +108,7 @@ export class MessagingService {
       );
       conversation = await this.prisma.conversation.create({
         data: {
+          type: ConversationType.MARKETPLACE,
           adId,
           posterId: ad.userId,
           applicantId: userId,
@@ -57,6 +118,8 @@ export class MessagingService {
         },
       });
     }
+
+    await this.restoreForParticipants(conversation.id, [conversation.posterId, conversation.applicantId]);
 
     const message = await this.prisma.message.create({
       data: {
@@ -117,42 +180,84 @@ export class MessagingService {
     return { conversation, message };
   }
 
-  async listConversations(userId: number) {
+  async listConversations(
+    userId: number,
+    type?: ConversationType,
+    archived = false,
+  ) {
     const items = await this.prisma.conversation.findMany({
       where: {
         OR: [{ posterId: userId }, { applicantId: userId }],
+        ...(type ? { type } : {}),
+        participantStates: archived
+          ? { some: { userId, archivedAt: { not: null } } }
+          : { none: { userId, archivedAt: { not: null } } },
       },
       orderBy: { lastMessageAt: 'desc' },
       include: {
         ad: { include: { user: { select: { id: true, name: true, avatarUrl: true, email: true } } } },
         poster: { select: { id: true, name: true, avatarUrl: true, email: true } },
         applicant: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        participantStates: { where: { userId } },
       },
     });
-    const withUnread = await Promise.all(
-      items.map(async (c) => {
-        const unreadCount = await this.prisma.message.count({
+
+    const unreadGroups = items.length
+      ? await this.prisma.message.groupBy({
+          by: ['conversationId'],
           where: {
-            conversationId: c.id,
+            conversationId: { in: items.map((item) => item.id) },
             receiverId: userId,
             readAt: null,
           },
-        });
-        return { ...c, unreadCount };
-      }),
+          _count: { _all: true },
+        })
+      : [];
+    const unreadByConversation = new Map(
+      unreadGroups.map((group) => [group.conversationId, group._count._all]),
     );
-    return withUnread;
+
+    return items.map(({ participantStates, ...conversation }) => {
+      const archivedAt = participantStates[0]?.archivedAt ?? null;
+      return {
+        ...conversation,
+        archivedAt,
+        isArchived: Boolean(archivedAt),
+        unreadCount: unreadByConversation.get(conversation.id) || 0,
+      };
+    });
   }
 
   async getConversation(userId: number, conversationId: string) {
-    return this.prisma.conversation.findUnique({
-      where: { id: conversationId },
-      include: {
-        ad: { include: { user: { select: { id: true, name: true, avatarUrl: true, email: true } } } },
-        poster: { select: { id: true, name: true, avatarUrl: true, email: true } },
-        applicant: { select: { id: true, name: true, avatarUrl: true, email: true } },
+    const { participantStates, ...conversation } = await this.getConversationForUser(
+      userId,
+      conversationId,
+    );
+    const archivedAt = participantStates[0]?.archivedAt ?? null;
+    return {
+      ...conversation,
+      archivedAt,
+      isArchived: Boolean(archivedAt),
+    };
+  }
+
+  async setArchived(userId: number, conversationId: string, archived: boolean) {
+    await this.getConversationForUser(userId, conversationId);
+    const state = await this.prisma.conversationParticipantState.upsert({
+      where: { conversationId_userId: { conversationId, userId } },
+      create: {
+        conversationId,
+        userId,
+        archivedAt: archived ? new Date() : null,
       },
+      update: { archivedAt: archived ? new Date() : null },
     });
+    return {
+      success: true,
+      conversationId,
+      archivedAt: state.archivedAt,
+      isArchived: Boolean(state.archivedAt),
+    };
   }
 
   async listMessages(userId: number, conversationId: string) {
@@ -172,6 +277,7 @@ export class MessagingService {
     if (!body || !body.trim()) throw new BadRequestException('Message is required');
     const convo = await this.getConversationForUser(userId, conversationId);
     const receiverId = convo.posterId === userId ? convo.applicantId : convo.posterId;
+    await this.restoreForParticipants(conversationId, [userId, receiverId]);
 
     const message = await this.prisma.message.create({
       data: {
@@ -188,27 +294,38 @@ export class MessagingService {
       data: {
         lastMessageAt: new Date(),
         lastMessagePreview: body.trim().slice(0, 120),
+        status: 'ACTIVE',
       },
     });
 
-    await this.prisma.marketplaceAd.update({
-      where: { id: convo.adId },
-      data: {
-        messageCount: { increment: 1 },
-        lastInteractionAt: new Date(),
-      },
-    });
+    if (convo.type === ConversationType.MARKETPLACE && convo.adId) {
+      await this.prisma.marketplaceAd.update({
+        where: { id: convo.adId },
+        data: {
+          messageCount: { increment: 1 },
+          lastInteractionAt: new Date(),
+        },
+      });
 
-    await this.prisma.marketplaceAdInteraction.create({
-      data: { adId: convo.adId, userId, type: 'MESSAGE' },
+      await this.prisma.marketplaceAdInteraction.create({
+        data: { adId: convo.adId, userId, type: 'MESSAGE' },
+      });
+    }
+
+    const sender = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true },
     });
 
     await this.notifications.createNotification({
       userId: receiverId,
       type: 'MESSAGE',
       title: 'New message',
-      body: convo.ad?.title || 'Marketplace conversation',
-      data: { conversationId },
+      body:
+        convo.type === ConversationType.MARKETPLACE
+          ? convo.ad?.title || 'Marketplace conversation'
+          : sender?.name || 'General conversation',
+      data: { conversationId, conversationType: convo.type },
     });
 
     this.notifications.emitToUser(receiverId, 'messages.new', {

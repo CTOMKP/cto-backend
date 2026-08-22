@@ -51,23 +51,25 @@ model User {
   pendingOrders                 PendingOrder[]
   xpTransactions                XpTransaction[]
   rankScoreTransactions         RankScoreTransaction[]
-  conversationsAsPoster         Conversation[]             @relation("PosterConversations")
-  conversationsAsApplicant      Conversation[]             @relation("ApplicantConversations")
-  messagesSent                  Message[]                  @relation("MessageSender")
-  messagesReceived              Message[]                  @relation("MessageReceiver")
+  conversationsAsPoster         Conversation[]                 @relation("PosterConversations")
+  conversationsAsApplicant      Conversation[]                 @relation("ApplicantConversations")
+  messagesSent                  Message[]                      @relation("MessageSender")
+  messagesReceived              Message[]                      @relation("MessageReceiver")
   messageReactions              MessageReaction[]
-  escrowsAsPoster               Escrow[]                   @relation("PosterEscrows")
-  escrowsAsApplicant            Escrow[]                   @relation("ApplicantEscrows")
+  escrowsAsPoster               Escrow[]                       @relation("PosterEscrows")
+  escrowsAsApplicant            Escrow[]                       @relation("ApplicantEscrows")
   notifications                 Notification[]
   supportTickets                SupportTicket[]
   creatorProgramAccount         CreatorProgramAccount?
-  creatorReferrals              CreatorReferral[]          @relation("CreatorReferrals")
-  creatorReferral               CreatorReferral?           @relation("ReferredUser")
-  creatorEarnings               CreatorEarning[]           @relation("CreatorEarningCreatorUser")
-  creatorEarningsAsReferredUser CreatorEarning[]           @relation("CreatorEarningReferredUser")
-  creatorPayouts                CreatorPayout[]            @relation("CreatorPayoutCreatorUser")
+  creatorReferrals              CreatorReferral[]              @relation("CreatorReferrals")
+  creatorReferral               CreatorReferral?               @relation("ReferredUser")
+  creatorEarnings               CreatorEarning[]               @relation("CreatorEarningCreatorUser")
+  creatorEarningsAsReferredUser CreatorEarning[]               @relation("CreatorEarningReferredUser")
+  creatorPayouts                CreatorPayout[]                @relation("CreatorPayoutCreatorUser")
   authHandoffs                  AuthHandoff[]
   mascotAssignment              MascotAssignment?
+  favorites                     Favorite[]
+  conversationStates            ConversationParticipantState[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -361,8 +363,8 @@ model Payment {
   status   PaymentStatus @default(PENDING)
 
   // Circle transaction details
-  transferId   String? @unique // Circle transfer ID
-  txHash       String? @unique // Blockchain transaction hash; one transaction can settle only one payment
+  transferId   String?   @unique // Circle transfer ID
+  txHash       String?   @unique // Blockchain transaction hash; one transaction can settle only one payment
   fromWalletId String? // Source wallet (user's wallet)
   toAddress    String? // Destination address (platform wallet)
   network      String? // Immutable network used when the payment was quoted
@@ -447,6 +449,17 @@ enum MarketplacePricingKind {
 enum ConversationStatus {
   ACTIVE
   ARCHIVED
+}
+
+enum ConversationType {
+  GENERAL
+  MARKETPLACE
+}
+
+enum FavoriteTargetType {
+  TOKEN
+  USER_LISTING
+  MARKETPLACE_AD
 }
 
 enum MessageType {
@@ -618,8 +631,10 @@ model MarketplacePricing {
 
 model Conversation {
   id                 String             @id @default(cuid())
-  adId               String
-  ad                 MarketplaceAd      @relation(fields: [adId], references: [id], onDelete: Cascade)
+  type               ConversationType   @default(MARKETPLACE)
+  adId               String?
+  ad                 MarketplaceAd?     @relation(fields: [adId], references: [id], onDelete: Cascade)
+  directKey          String?            @unique
   posterId           Int
   poster             User               @relation("PosterConversations", fields: [posterId], references: [id], onDelete: Cascade)
   applicantId        Int
@@ -630,13 +645,45 @@ model Conversation {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  messages Message[]
-  escrows  Escrow[]
+  messages          Message[]
+  escrows           Escrow[]
+  participantStates ConversationParticipantState[]
 
   @@unique([adId, applicantId])
   @@index([posterId])
   @@index([applicantId])
   @@index([adId])
+  @@index([type])
+}
+
+model ConversationParticipantState {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         Int
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  archivedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([conversationId, userId])
+  @@index([userId, archivedAt])
+}
+
+model Favorite {
+  id         String             @id @default(cuid())
+  userId     Int
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetType FavoriteTargetType
+  targetId   String
+  targetKey  String
+  chain      String?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@unique([userId, targetType, targetKey])
+  @@index([userId, createdAt])
+  @@index([targetType, targetKey])
 }
 
 model Message {
