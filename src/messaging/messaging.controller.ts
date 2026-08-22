@@ -41,6 +41,16 @@ export class MessagingController {
     return this.messagingService.createGeneralConversation(userId, dto);
   }
 
+  @Get('users/search')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Find users by display name for a General conversation' })
+  async searchUsers(@Req() req: any, @Query('q') query: string) {
+    const userId = Number(req?.user?.userId || req?.user?.sub);
+    const items = await this.messagingService.searchUsers(userId, query);
+    return { success: true, items };
+  }
+
   @Get('threads')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')

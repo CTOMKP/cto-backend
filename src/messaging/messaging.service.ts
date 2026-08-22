@@ -47,6 +47,29 @@ export class MessagingService {
     );
   }
 
+  async searchUsers(userId: number, rawQuery: string) {
+    const query = String(rawQuery || '').trim();
+    if (query.length < 2) {
+      throw new BadRequestException('Enter at least 2 characters to search for a user');
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { not: userId },
+        name: { contains: query, mode: 'insensitive' },
+      },
+      select: { id: true, name: true, avatarUrl: true },
+      take: 10,
+    });
+
+    const normalized = query.toLocaleLowerCase();
+    return users.sort((first, second) => {
+      const firstExact = first.name?.toLocaleLowerCase() === normalized ? 0 : 1;
+      const secondExact = second.name?.toLocaleLowerCase() === normalized ? 0 : 1;
+      return firstExact - secondExact || (first.name || '').localeCompare(second.name || '');
+    });
+  }
+
   async createGeneralConversation(userId: number, dto: CreateGeneralConversationDto) {
     if (dto.recipientUserId === userId) {
       throw new BadRequestException('You cannot start a conversation with yourself');
