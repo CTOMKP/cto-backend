@@ -14,10 +14,17 @@ export class S3StorageService implements StorageProvider {
   private readonly assetsCdnBase?: string; // optional CDN/public base
 
   constructor(private readonly config: ConfigService) {
-    this.region = this.config.get<string>('AWS_REGION', 'eu-north-1');
+    this.region =
+      this.config.get<string>('AWS_S3_REGION') ||
+      this.config.get<string>('AWS_REGION') ||
+      'eu-north-1';
     this.bucket = this.config.get<string>('AWS_S3_BUCKET_NAME', '');
-    const accessKeyId = this.config.get<string>('AWS_ACCESS_KEY_ID');
-    const secretAccessKey = this.config.get<string>('AWS_SECRET_ACCESS_KEY');
+    const accessKeyId =
+      this.config.get<string>('AWS_S3_ACCESS_KEY_ID') ||
+      this.config.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey =
+      this.config.get<string>('AWS_S3_SECRET_ACCESS_KEY') ||
+      this.config.get<string>('AWS_SECRET_ACCESS_KEY');
     this.assetsCdnBase = this.config.get<string>('ASSETS_CDN_BASE'); // optional
 
     if (!this.bucket || !accessKeyId || !secretAccessKey) {
@@ -45,7 +52,6 @@ export class S3StorageService implements StorageProvider {
     const accessKeyPreview = accessKeyId ? `${accessKeyId.substring(0, 8)}...` : 'NOT SET';
     
     this.logger.log(`Presigned PUT: ${key} → Bucket: ${this.bucket} (ttl=${ttlSeconds}s)`);
-    this.logger.log(`Using AWS Access Key: ${accessKeyPreview}`);
     this.logger.log(`Presigned URL bucket check: ${url.includes(this.bucket) ? 'CORRECT' : 'MISMATCH'}`);
     
     return url;

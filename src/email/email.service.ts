@@ -237,9 +237,15 @@ export class EmailService {
       this.configService.get<string>('AWS_REGION') ||
       'us-east-1';
 
-    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
-    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
-    const sessionToken = this.configService.get<string>('AWS_SESSION_TOKEN');
+    const accessKeyId =
+      this.configService.get<string>('SES_AWS_ACCESS_KEY_ID') ||
+      this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey =
+      this.configService.get<string>('SES_AWS_SECRET_ACCESS_KEY') ||
+      this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
+    const sessionToken =
+      this.configService.get<string>('SES_AWS_SESSION_TOKEN') ||
+      this.configService.get<string>('AWS_SESSION_TOKEN');
 
     const credentials =
       accessKeyId && secretAccessKey
