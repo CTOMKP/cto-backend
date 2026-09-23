@@ -323,29 +323,40 @@ export class EmailService {
     text: string;
   }): Promise<void> {
     if (!this.isEnabled()) {
+      this.logger.warn(
+        `Email skipped for "${payload.subject}": EMAIL_ENABLED must be true, 1, or yes.`,
+      );
       return;
     }
 
     const provider = (this.configService.get<string>('EMAIL_PROVIDER') || 'sendgrid').toLowerCase();
 
-    if (provider === 'sendgrid') {
-      await this.sendSendGridEmail(payload);
-      return;
-    }
+    this.logger.log(`Sending email via ${provider} (${payload.subject})`);
 
-    if (provider === 'resend') {
-      await this.sendResendEmail(payload);
-      return;
-    }
+    try {
+      if (provider === 'sendgrid') {
+        await this.sendSendGridEmail(payload);
+        return;
+      }
 
-    if (provider === 'ses') {
-      await this.sendSesEmail(payload);
-      return;
-    }
+      if (provider === 'resend') {
+        await this.sendResendEmail(payload);
+        return;
+      }
 
-    this.logger.warn(
-      `Email skipped: unsupported EMAIL_PROVIDER="${provider}". Expected "sendgrid", "resend", or "ses".`,
-    );
+      if (provider === 'ses') {
+        await this.sendSesEmail(payload);
+        return;
+      }
+
+      this.logger.warn(
+        `Email skipped: unsupported EMAIL_PROVIDER="${provider}". Expected "sendgrid", "resend", or "ses".`,
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Email delivery failed via ${provider} (${payload.subject}): ${reason}`);
+      throw error;
+    }
   }
 
   async sendListingPendingEmail(params: ListingPendingEmailParams): Promise<void> {
