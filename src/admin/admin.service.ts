@@ -483,7 +483,11 @@ export class AdminService {
       });
 
       if (!ad) throw new BadRequestException('Marketplace ad not found');
-      if (ad.status === 'PUBLISHED') throw new BadRequestException('Marketplace ad is already published');
+      if (ad.status !== 'PENDING_APPROVAL') {
+        throw new BadRequestException(
+          `Only marketplace ads pending approval can be approved (current status: ${ad.status})`,
+        );
+      }
 
       const publishedAt = new Date();
       const expiresAt = new Date(publishedAt);

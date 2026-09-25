@@ -416,36 +416,8 @@ export class MovementPaymentService {
       if (payment.userId !== userId) throw new ForbiddenException('Not your payment');
 
       if (payment.status === 'COMPLETED') {
-        // Recovery path: if client retries verify for an already completed payment,
-        // ensure pending-review email still exists for listing/ad flows.
-        if (payment.paymentType === 'LISTING' && payment.listingId) {
-          const listing = await this.prisma.userListing.findUnique({
-            where: { id: payment.listingId },
-            include: { user: { select: { email: true, name: true } } },
-          });
-          if (listing?.status === 'PENDING_APPROVAL' && listing.user?.email) {
-            await this.emailService.sendListingPendingEmail({
-              to: listing.user.email,
-              userName: listing.user.name,
-              listingId: listing.id,
-              projectTitle: listing.title,
-            });
-          }
-        }
-        if (payment.paymentType === 'MARKETPLACE_AD' && payment.marketplaceAdId) {
-          const ad = await this.prisma.marketplaceAd.findUnique({
-            where: { id: payment.marketplaceAdId },
-            include: { user: { select: { email: true, name: true } } },
-          });
-          if (ad?.status === 'PENDING_APPROVAL' && ad.user?.email) {
-            await this.emailService.sendMarketplaceAdPendingEmail({
-              to: ad.user.email,
-              userName: ad.user.name,
-              adId: ad.id,
-              adTitle: ad.title,
-            });
-          }
-        }
+        // Verification retries are idempotent. Lifecycle emails belong to the
+        // status transition below and must not be re-sent by a client retry.
         return {
           success: true,
           payment,
@@ -507,15 +479,22 @@ export class MovementPaymentService {
       }
 
       if (payment.paymentType === 'MARKETPLACE_AD' && payment.marketplaceAdId) {
-        const updatedAd = await this.prisma.marketplaceAd.update({
-          where: { id: payment.marketplaceAdId },
+        const transition = await this.prisma.marketplaceAd.updateMany({
+          where: { id: payment.marketplaceAdId, status: 'DRAFT' },
           data: { status: 'PENDING_APPROVAL' },
-          include: {
-            user: { select: { email: true, name: true } },
-          },
         });
-        this.logger.log(`Marketplace ad ${payment.marketplaceAdId} status updated to PENDING_APPROVAL`);
-        if (updatedAd.user?.email) {
+        const updatedAd = transition.count === 1
+          ? await this.prisma.marketplaceAd.findUnique({
+              where: { id: payment.marketplaceAdId },
+              include: {
+                user: { select: { email: true, name: true } },
+              },
+            })
+          : null;
+        if (updatedAd) {
+          this.logger.log(`Marketplace ad ${payment.marketplaceAdId} status updated to PENDING_APPROVAL`);
+        }
+        if (updatedAd?.user?.email) {
           await this.emailService.sendMarketplaceAdPendingEmail({
             to: updatedAd.user.email,
             userName: updatedAd.user.name,
