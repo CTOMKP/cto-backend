@@ -34,6 +34,7 @@ export class CreateMarketplaceAdDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   offerType?: string;
 
   @IsOptional()

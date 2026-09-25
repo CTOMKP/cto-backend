@@ -24,6 +24,7 @@ import bs58 from 'bs58';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSupportTicketDto } from './dto/create-support-ticket.dto';
 import { FaucetRequestDto } from './dto/faucet-request.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class SupportTicketService {
@@ -34,6 +35,7 @@ export class SupportTicketService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly emailService: EmailService,
   ) {}
 
   private getSolanaConnection(): Connection {
@@ -135,7 +137,7 @@ export class SupportTicketService {
   }
 
   async create(userId: number, dto: CreateSupportTicketDto) {
-    return this.prisma.supportTicket.create({
+    const ticket = await this.prisma.supportTicket.create({
       data: {
         userId,
         subject: dto.subject.trim(),
@@ -144,6 +146,23 @@ export class SupportTicketService {
         message: dto.message.trim(),
       },
     });
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    });
+    await this.emailService.sendSupportTicketNotification({
+      ticketId: ticket.id,
+      subject: ticket.subject,
+      category: ticket.category,
+      priority: ticket.priority,
+      message: ticket.message,
+      userId,
+      userName: user?.name,
+      userEmail: user?.email,
+    });
+
+    return ticket;
   }
 
   async createFaucetRequest(userId: number, dto: FaucetRequestDto, options?: { walletScopedCooldown?: boolean }) {

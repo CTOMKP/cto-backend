@@ -39,6 +39,17 @@ type MarketplaceAdExpiryEmailParams = {
   expiresAt: Date;
 };
 
+type SupportTicketEmailParams = {
+  ticketId: string;
+  subject: string;
+  category: string;
+  priority: string;
+  message: string;
+  userId: number;
+  userName?: string | null;
+  userEmail?: string | null;
+};
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -522,6 +533,46 @@ export class EmailService {
       await this.sendEmail({ to: params.to, subject, html, text });
     } catch (error: any) {
       this.logger.error(`Failed to send marketplace expiry email to ${params.to}: ${error?.message ?? error}`);
+    }
+  }
+
+  async sendSupportTicketNotification(params: SupportTicketEmailParams): Promise<void> {
+    const to = (
+      this.configService.get<string>('SUPPORT_EMAIL') ||
+      'support@ctomarketplace.com'
+    ).trim();
+    const userName = params.userName?.trim() || 'Unknown user';
+    const userEmail = params.userEmail?.trim() || 'No email available';
+    const subject = `[Support ${params.ticketId}] ${params.subject}`;
+    const text = [
+      'A new CTO Marketplace support ticket was submitted.',
+      '',
+      `Ticket ID: ${params.ticketId}`,
+      `User: ${userName} (ID: ${params.userId})`,
+      `User email: ${userEmail}`,
+      `Category: ${params.category}`,
+      `Priority: ${params.priority}`,
+      '',
+      params.message,
+    ].join('\n');
+    const html = `
+      <h1>New support ticket</h1>
+      <p><strong>Ticket ID:</strong> ${this.escapeHtml(params.ticketId)}</p>
+      <p><strong>User:</strong> ${this.escapeHtml(userName)} (ID: ${params.userId})</p>
+      <p><strong>User email:</strong> ${this.escapeHtml(userEmail)}</p>
+      <p><strong>Category:</strong> ${this.escapeHtml(params.category)}</p>
+      <p><strong>Priority:</strong> ${this.escapeHtml(params.priority)}</p>
+      <p><strong>Subject:</strong> ${this.escapeHtml(params.subject)}</p>
+      <hr />
+      <p style='white-space:pre-wrap'>${this.escapeHtml(params.message)}</p>
+    `;
+
+    try {
+      await this.sendEmail({ to, subject, html, text });
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to send support ticket ${params.ticketId} notification to ${to}: ${error?.message ?? error}`,
+      );
     }
   }
 }
