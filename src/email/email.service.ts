@@ -147,10 +147,11 @@ export class EmailService {
     subject: string;
     html: string;
     text: string;
+    replyTo?: string;
   }): Promise<void> {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
     const from = this.configService.get<string>('EMAIL_FROM');
-    const replyTo = this.configService.get<string>('EMAIL_REPLY_TO');
+    const replyTo = payload.replyTo || this.configService.get<string>('EMAIL_REPLY_TO');
 
     if (!apiKey || !from) {
       this.logger.warn('Email skipped: RESEND_API_KEY or EMAIL_FROM missing.');
@@ -197,10 +198,11 @@ export class EmailService {
     subject: string;
     html: string;
     text: string;
+    replyTo?: string;
   }): Promise<void> {
     const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
     const fromRaw = this.configService.get<string>('EMAIL_FROM');
-    const replyTo = this.configService.get<string>('EMAIL_REPLY_TO');
+    const replyTo = payload.replyTo || this.configService.get<string>('EMAIL_REPLY_TO');
 
     if (!apiKey || !fromRaw) {
       this.logger.warn('Email skipped: SENDGRID_API_KEY or EMAIL_FROM missing.');
@@ -280,9 +282,10 @@ export class EmailService {
     subject: string;
     html: string;
     text: string;
+    replyTo?: string;
   }): Promise<void> {
     const fromRaw = this.configService.get<string>('EMAIL_FROM');
-    const replyTo = this.configService.get<string>('EMAIL_REPLY_TO');
+    const replyTo = payload.replyTo || this.configService.get<string>('EMAIL_REPLY_TO');
     const fromArn = this.configService.get<string>('SES_FROM_ARN');
     const configurationSetName = this.configService.get<string>('SES_CONFIGURATION_SET');
 
@@ -332,6 +335,7 @@ export class EmailService {
     subject: string;
     html: string;
     text: string;
+    replyTo?: string;
   }): Promise<void> {
     if (!this.isEnabled()) {
       this.logger.warn(
@@ -568,7 +572,14 @@ export class EmailService {
     `;
 
     try {
-      await this.sendEmail({ to, subject, html, text });
+      const replyTo = params.userEmail?.trim();
+      await this.sendEmail({
+        to,
+        subject,
+        html,
+        text,
+        ...(replyTo ? { replyTo } : {}),
+      });
     } catch (error: any) {
       this.logger.error(
         `Failed to send support ticket ${params.ticketId} notification to ${to}: ${error?.message ?? error}`,
